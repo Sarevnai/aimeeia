@@ -13,7 +13,7 @@ import InboxPage from "@/pages/InboxPage";
 import ChatPage from "@/pages/ChatPage";
 import LeadsPage from "@/pages/LeadsPage";
 import PipelinePage from "@/pages/PipelinePage";
-import SettingsPage from "@/pages/SettingsPage";
+import MinhaAimeePage from "@/pages/MinhaAimeePage";
 import CampaignsPage from "@/pages/CampaignsPage";
 import CampaignDetailPage from "@/pages/CampaignDetailPage";
 import ReportsPage from "@/pages/ReportsPage";
@@ -47,7 +47,7 @@ const App = () => (
                   <Route path="/empreendimentos" element={<DevelopmentsPage />} />
                   <Route path="/empreendimentos/novo" element={<DevelopmentFormPage />} />
                   <Route path="/empreendimentos/:id/editar" element={<DevelopmentFormPage />} />
-                  <Route path="/minha-aimee" element={<SettingsPage />} />
+                  <Route path="/minha-aimee" element={<MinhaAimeePage />} />
                   <Route path="/acessos" element={<AcessosPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />

@@ -11,6 +11,8 @@ import AuthPage from "@/pages/AuthPage";
 import DashboardPage from "@/pages/DashboardPage";
 import InboxPage from "@/pages/InboxPage";
 import ChatPage from "@/pages/ChatPage";
+import ContactsPage from "@/pages/ContactsPage";
+import PipelinePage from "@/pages/PipelinePage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +32,8 @@ const App = () => (
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/inbox" element={<InboxPage />} />
                   <Route path="/chat/:id" element={<ChatPage />} />
+                  <Route path="/contacts" element={<ContactsPage />} />
+                  <Route path="/pipeline" element={<PipelinePage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

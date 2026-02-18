@@ -13,6 +13,7 @@ import InboxPage from "@/pages/InboxPage";
 import ChatPage from "@/pages/ChatPage";
 import ContactsPage from "@/pages/ContactsPage";
 import PipelinePage from "@/pages/PipelinePage";
+import SettingsPage from "@/pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
                   <Route path="/chat/:id" element={<ChatPage />} />
                   <Route path="/contacts" element={<ContactsPage />} />
                   <Route path="/pipeline" element={<PipelinePage />} />
+                  <Route path="/settings" element={<SettingsPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

@@ -105,7 +105,7 @@ serve(async (req: Request) => {
 
   } catch (error) {
     console.error('❌ C2S create lead error:', error);
-    return errorResponse(error.message);
+    return errorResponse((error as Error).message);
   }
 });
 
@@ -136,6 +136,6 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
 
   } catch (error) {
     console.error('❌ C2S API error:', error);
-    return { error: error.message };
+    return { error: (error as Error).message };
   }
 }

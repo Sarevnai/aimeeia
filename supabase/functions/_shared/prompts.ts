@@ -3,7 +3,8 @@
 // NO hardcoded client names. Everything from config/tenant.
 
 import { AIAgentConfig, ConversationMessage, QualificationData, DepartmentType } from './types.ts';
-import { Region, generateRegionKnowledge } from './regions.ts';
+import { generateRegionKnowledge } from './regions.ts';
+import { Region } from './types.ts';
 import { formatCurrency } from './utils.ts';
 
 // ========== CONTEXT SUMMARY (anti-loop) ==========

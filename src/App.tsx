@@ -33,9 +33,9 @@ const App = () => (
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/inbox" element={<InboxPage />} />
                   <Route path="/chat/:id" element={<ChatPage />} />
-                  <Route path="/contacts" element={<ContactsPage />} />
+                  <Route path="/contatos" element={<ContactsPage />} />
                   <Route path="/pipeline" element={<PipelinePage />} />
-                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/configuracoes" element={<SettingsPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

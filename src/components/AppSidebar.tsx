@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -9,21 +9,30 @@ import {
   BarChart3,
   Building2,
   Settings,
+  Shield,
+  BookOpen,
+  HelpCircle,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTenant } from '@/contexts/TenantContext';
+import { supabase } from '@/integrations/supabase/client';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 
-const navItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
-  { label: 'Inbox', icon: MessageSquare, path: '/inbox' },
-  { label: 'Contatos', icon: Users, path: '/contatos' },
-  { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
-  { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
-  { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
-  { label: 'Empreendimentos', icon: Building2, path: '/empreendimentos' },
-  { label: 'Configurações', icon: Settings, path: '/configuracoes' },
-];
+interface NavItem {
+  label: string;
+  icon: React.ElementType;
+  path: string;
+  badge?: number;
+  external?: boolean;
+}
+
+interface NavGroup {
+  label?: string;
+  items: NavItem[];
+}
 
 interface AppSidebarProps {
   collapsed: boolean;
@@ -32,6 +41,56 @@ interface AppSidebarProps {
 
 const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
+  const { tenantId, tenantInfo } = useTenant();
+  const [activeConvCount, setActiveConvCount] = useState(0);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+      .then(({ count }) => setActiveConvCount(count ?? 0));
+  }, [tenantId]);
+
+  const navGroups: NavGroup[] = [
+    {
+      items: [
+        { label: 'Início', icon: LayoutDashboard, path: '/' },
+        { label: 'Conversas', icon: MessageSquare, path: '/inbox', badge: activeConvCount },
+      ],
+    },
+    {
+      label: 'Atendimento',
+      items: [
+        { label: 'Leads', icon: Users, path: '/leads' },
+        { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
+        { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
+      ],
+    },
+    {
+      label: 'Gestão',
+      items: [
+        { label: 'Empreendimentos', icon: Building2, path: '/empreendimentos' },
+        { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
+      ],
+    },
+    {
+      label: 'Configurações',
+      items: [
+        { label: 'Minha Aimee', icon: Settings, path: '/minha-aimee' },
+        { label: 'Acessos', icon: Shield, path: '/acessos' },
+      ],
+    },
+    {
+      label: 'Ajuda',
+      items: [
+        { label: 'Guia da Aimee', icon: BookOpen, path: '#', external: true },
+        { label: 'Ajuda', icon: HelpCircle, path: '#', external: true },
+      ],
+    },
+  ];
 
   return (
     <aside
@@ -40,39 +99,81 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
         collapsed ? 'w-16' : 'w-60'
       )}
     >
-      {/* Logo */}
+      {/* Tenant info */}
       <div className="flex h-16 items-center px-4 border-b border-sidebar-border">
-        {!collapsed && (
-          <h1 className="font-display text-lg font-bold text-sidebar-primary tracking-tight">
-            Aimee<span className="text-accent">.iA</span>
-          </h1>
-        )}
-        {collapsed && (
+        {!collapsed ? (
+          <div className="min-w-0">
+            <h1 className="font-display text-sm font-bold text-sidebar-primary truncate">
+              {tenantInfo?.company_name || (
+                <>Aimee<span className="text-accent">.iA</span></>
+              )}
+            </h1>
+            {tenantInfo?.wa_phone_number_id && (
+              <p className="text-[11px] text-sidebar-foreground/60 truncate">
+                {tenantInfo.wa_phone_number_id}
+              </p>
+            )}
+          </div>
+        ) : (
           <span className="font-display text-lg font-bold text-sidebar-primary mx-auto">A</span>
         )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 py-4 space-y-1 px-2">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path || 
-            (item.path !== '/' && location.pathname.startsWith(item.path));
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
-              )}
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </NavLink>
-          );
-        })}
+      {/* Nav groups */}
+      <nav className="flex-1 overflow-y-auto py-2 px-2">
+        {navGroups.map((group, gi) => (
+          <div key={gi}>
+            {gi > 0 && (
+              <Separator className="my-2 bg-sidebar-border" />
+            )}
+            {group.label && !collapsed && (
+              <span className="block px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+                {group.label}
+              </span>
+            )}
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const isActive = location.pathname === item.path ||
+                  (item.path !== '/' && location.pathname.startsWith(item.path));
+
+                if (item.external) {
+                  return (
+                    <span
+                      key={item.label}
+                      className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/60 cursor-default"
+                    >
+                      <item.icon className="h-5 w-5 shrink-0" />
+                      {!collapsed && <span>{item.label}</span>}
+                    </span>
+                  );
+                }
+
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                        : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
+                    )}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {!collapsed && (
+                      <span className="flex-1 truncate">{item.label}</span>
+                    )}
+                    {!collapsed && item.badge && item.badge > 0 ? (
+                      <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] bg-accent text-accent-foreground border-0 rounded-full">
+                        {item.badge}
+                      </Badge>
+                    ) : null}
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Collapse toggle */}

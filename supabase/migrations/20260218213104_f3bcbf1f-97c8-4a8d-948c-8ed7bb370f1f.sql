@@ -1,0 +1,1 @@
+UPDATE public.ai_agent_config SET ai_model = 'google/gemini-3-flash-preview' WHERE ai_model = 'openai/gpt-4o-mini';

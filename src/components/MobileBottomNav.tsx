@@ -10,11 +10,11 @@ import {
 import { cn } from '@/lib/utils';
 
 const mobileNavItems = [
-  { label: 'Home', icon: LayoutDashboard, path: '/' },
-  { label: 'Inbox', icon: MessageSquare, path: '/inbox' },
-  { label: 'Contatos', icon: Users, path: '/contatos' },
+  { label: 'Início', icon: LayoutDashboard, path: '/' },
+  { label: 'Conversas', icon: MessageSquare, path: '/inbox' },
+  { label: 'Leads', icon: Users, path: '/leads' },
   { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
-  { label: 'Config', icon: Settings, path: '/configuracoes' },
+  { label: 'Aimee', icon: Settings, path: '/minha-aimee' },
 ];
 
 const MobileBottomNav: React.FC = () => {

@@ -10,6 +10,7 @@ import AppLayout from "@/components/AppLayout";
 import AuthPage from "@/pages/AuthPage";
 import DashboardPage from "@/pages/DashboardPage";
 import InboxPage from "@/pages/InboxPage";
+import ChatPage from "@/pages/ChatPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/inbox" element={<InboxPage />} />
+                  <Route path="/chat/:id" element={<ChatPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

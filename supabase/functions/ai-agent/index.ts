@@ -60,7 +60,7 @@ serve(async (req: Request) => {
       tone: 'friendly',
       greeting_message: null,
       fallback_message: 'Desculpe, tive um problema. Vou encaminhar para atendimento humano.',
-      ai_model: 'openai/gpt-4o-mini',
+      ai_model: 'google/gemini-3-flash-preview',
       max_tokens: 500,
       max_history_messages: 10,
       humanize_responses: true,

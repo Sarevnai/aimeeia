@@ -198,13 +198,12 @@ async function processInboundMessage(
     conversation_id: conversation.id,
     wa_message_id: waMessageId,
     wa_from: phoneNumber,
-    wa_phone_number_id: params.waPhoneNumberId,
+    wa_to: params.waPhoneNumberId,
     direction: 'inbound',
     body: messageBody,
     media_type: params.messageType !== 'text' ? params.messageType : null,
     department_code: conversation.department_code,
     raw: params.rawMessage,
-    wa_timestamp: params.timestamp ? new Date(parseInt(params.timestamp) * 1000).toISOString() : null,
     created_at: new Date().toISOString(),
   });
 

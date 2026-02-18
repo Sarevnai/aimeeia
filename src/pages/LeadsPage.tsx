@@ -29,7 +29,7 @@ const DEPT_COLORS: Record<string, string> = {
 
 const PAGE_SIZE = 50;
 
-const ContactsPage: React.FC = () => {
+const LeadsPage: React.FC = () => {
   const { tenantId } = useTenant();
   const { department } = useDepartmentFilter();
   const navigate = useNavigate();
@@ -261,4 +261,4 @@ const DetailRow: React.FC<{ icon: React.ReactNode; label: string; value: string 
   </div>
 );
 
-export default ContactsPage;
+export default LeadsPage;

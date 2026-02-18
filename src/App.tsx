@@ -17,6 +17,8 @@ import SettingsPage from "@/pages/SettingsPage";
 import CampaignsPage from "@/pages/CampaignsPage";
 import CampaignDetailPage from "@/pages/CampaignDetailPage";
 import ReportsPage from "@/pages/ReportsPage";
+import DevelopmentsPage from "@/pages/DevelopmentsPage";
+import DevelopmentFormPage from "@/pages/DevelopmentFormPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,6 +43,9 @@ const App = () => (
                   <Route path="/campanhas" element={<CampaignsPage />} />
                   <Route path="/campanhas/:id" element={<CampaignDetailPage />} />
                   <Route path="/relatorios" element={<ReportsPage />} />
+                  <Route path="/empreendimentos" element={<DevelopmentsPage />} />
+                  <Route path="/empreendimentos/novo" element={<DevelopmentFormPage />} />
+                  <Route path="/empreendimentos/:id/editar" element={<DevelopmentFormPage />} />
                   <Route path="/configuracoes" element={<SettingsPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
@@ -6,14 +6,32 @@ import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Loader2, ChevronLeft, ChevronRight, Phone, User, MessageSquare, Tag } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Search, Loader2, ChevronLeft, ChevronRight, Phone, User, MessageSquare, Tag, Filter } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Tables } from '@/integrations/supabase/types';
 
-type Contact = Tables<'contacts'>;
+/* ─── types ─── */
+
+interface LeadRow {
+  contactId: string;
+  name: string | null;
+  phone: string;
+  departmentCode: string | null;
+  triageStage: string | null;
+  isAiActive: boolean | null;
+  operatorTakeoverAt: string | null;
+  convCreatedAt: string | null;
+  convId: string | null;
+  notes: string | null;
+  tags: string[] | null;
+  status: string | null;
+}
+
+/* ─── constants ─── */
 
 const DEPT_LABELS: Record<string, string> = {
   locacao: 'Locação',
@@ -21,33 +39,64 @@ const DEPT_LABELS: Record<string, string> = {
   administrativo: 'Admin',
 };
 
-const DEPT_COLORS: Record<string, string> = {
-  locacao: 'bg-info text-info-foreground',
-  vendas: 'bg-success text-success-foreground',
-  administrativo: 'bg-warning text-warning-foreground',
+const PAGE_SIZE = 50;
+
+const formatDate = (d: string | null) => {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
 };
 
-const PAGE_SIZE = 50;
+const formatDateTime = (d: string | null) => {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+};
+
+/* ─── AI Status badge ─── */
+
+const AiStatusBadge: React.FC<{ triageStage: string | null; isAiActive: boolean | null }> = ({ triageStage, isAiActive }) => {
+  if (triageStage === 'completed') {
+    return <Badge className="text-[10px] bg-success/15 text-success border-0">Atendido pela Aimee</Badge>;
+  }
+  if (isAiActive) {
+    return <Badge className="text-[10px] bg-warning/15 text-warning border-0">Em atendimento</Badge>;
+  }
+  return <Badge variant="secondary" className="text-[10px]">Sem atendimento</Badge>;
+};
+
+/* ─── CRM Status ─── */
+
+const CrmStatus: React.FC<{ isAiActive: boolean | null; takeoverAt: string | null }> = ({ isAiActive, takeoverAt }) => {
+  if (isAiActive === false) {
+    return (
+      <div>
+        <span className="text-xs font-medium text-success">Enviado ao CRM</span>
+        {takeoverAt && <p className="text-[10px] text-muted-foreground">{formatDateTime(takeoverAt)}</p>}
+      </div>
+    );
+  }
+  return <span className="text-xs font-medium text-warning">Não pronto</span>;
+};
+
+/* ─── Main ─── */
 
 const LeadsPage: React.FC = () => {
   const { tenantId } = useTenant();
   const { department } = useDepartmentFilter();
   const navigate = useNavigate();
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [leads, setLeads] = useState<LeadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
-  const [selected, setSelected] = useState<Contact | null>(null);
-  const [convId, setConvId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<LeadRow | null>(null);
 
-  const fetchContacts = async () => {
+  const fetchLeads = async () => {
     if (!tenantId) return;
     setLoading(true);
 
-    let query = supabase
+    // Fetch contacts with count
+    let contactQuery = supabase
       .from('contacts')
       .select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
@@ -55,59 +104,99 @@ const LeadsPage: React.FC = () => {
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
     if (department !== 'all') {
-      query = query.eq('department_code', department);
-    }
-    if (statusFilter !== 'all') {
-      query = query.eq('status', statusFilter);
+      contactQuery = contactQuery.eq('department_code', department);
     }
     if (search.trim()) {
-      query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+      contactQuery = contactQuery.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
     }
 
-    const { data, count } = await query;
-    setContacts(data ?? []);
+    const { data: contacts, count } = await contactQuery;
     setTotal(count ?? 0);
+
+    if (!contacts || contacts.length === 0) {
+      setLeads([]);
+      setLoading(false);
+      return;
+    }
+
+    // Get contact IDs for batch lookups
+    const contactIds = contacts.map((c) => c.id);
+    const phones = contacts.map((c) => c.phone);
+
+    // Parallel: fetch conversations + conversation_states
+    const [convResult, stateResult] = await Promise.all([
+      supabase
+        .from('conversations')
+        .select('id, contact_id, department_code, created_at, phone_number')
+        .eq('tenant_id', tenantId)
+        .in('contact_id', contactIds)
+        .order('last_message_at', { ascending: false }),
+      supabase
+        .from('conversation_states')
+        .select('phone_number, triage_stage, is_ai_active, operator_takeover_at')
+        .eq('tenant_id', tenantId)
+        .in('phone_number', phones),
+    ]);
+
+    // Index by contact_id / phone for O(1) lookups
+    const convByContact: Record<string, typeof convResult.data extends (infer T)[] ? T : never> = {};
+    (convResult.data ?? []).forEach((c) => {
+      if (c.contact_id && !convByContact[c.contact_id]) convByContact[c.contact_id] = c;
+    });
+
+    const stateByPhone: Record<string, (typeof stateResult.data extends (infer T)[] ? T : never)> = {};
+    (stateResult.data ?? []).forEach((s) => {
+      if (!stateByPhone[s.phone_number]) stateByPhone[s.phone_number] = s;
+    });
+
+    // Merge
+    const rows: LeadRow[] = contacts.map((c) => {
+      const conv = convByContact[c.id];
+      const state = stateByPhone[c.phone];
+      return {
+        contactId: c.id,
+        name: c.name,
+        phone: c.phone,
+        departmentCode: conv?.department_code ?? c.department_code,
+        triageStage: state?.triage_stage ?? null,
+        isAiActive: state?.is_ai_active ?? null,
+        operatorTakeoverAt: state?.operator_takeover_at ?? null,
+        convCreatedAt: conv?.created_at ?? null,
+        convId: conv?.id ?? null,
+        notes: c.notes,
+        tags: c.tags,
+        status: c.status,
+      };
+    });
+
+    setLeads(rows);
     setLoading(false);
   };
 
-  useEffect(() => {
-    setPage(0);
-  }, [department, statusFilter, search]);
-
-  useEffect(() => {
-    fetchContacts();
-  }, [tenantId, department, statusFilter, search, page]);
-
-  const openDrawer = async (contact: Contact) => {
-    setSelected(contact);
-    // Find conversation for this contact
-    if (tenantId) {
-      const { data } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('contact_id', contact.id)
-        .order('last_message_at', { ascending: false })
-        .limit(1)
-        .single();
-      setConvId(data?.id ?? null);
-    }
-  };
+  useEffect(() => { setPage(0); }, [department, search]);
+  useEffect(() => { fetchLeads(); }, [tenantId, department, search, page]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  const formatDate = (d: string | null) => {
-    if (!d) return '—';
-    return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-  };
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Header */}
       <div className="p-4 border-b border-border bg-card space-y-3">
-        <h2 className="font-display text-xl font-bold text-foreground">Contatos</h2>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-xl font-bold text-foreground">Leads</h2>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Filter className="h-4 w-4" /> Filtros
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-popover border border-border z-50">
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground">Filtros em breve</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+          <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Buscar por nome ou telefone..."
@@ -116,16 +205,9 @@ const LeadsPage: React.FC = () => {
               className="pl-9 h-9"
             />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-36 h-9">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="ativo">Ativo</SelectItem>
-              <SelectItem value="inativo">Inativo</SelectItem>
-            </SelectContent>
-          </Select>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            Exibindo {leads.length} de {total} lead{total !== 1 ? 's' : ''}
+          </span>
         </div>
       </div>
 
@@ -135,46 +217,64 @@ const LeadsPage: React.FC = () => {
           <div className="flex items-center justify-center h-40">
             <Loader2 className="h-6 w-6 animate-spin text-accent" />
           </div>
-        ) : contacts.length === 0 ? (
+        ) : leads.length === 0 ? (
           <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
-            Nenhum contato encontrado
+            Nenhum lead encontrado
           </div>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Telefone</TableHead>
-                <TableHead className="hidden md:table-cell">Departamento</TableHead>
-                <TableHead className="hidden sm:table-cell">Status</TableHead>
-                <TableHead className="hidden md:table-cell">Última Atividade</TableHead>
+                <TableHead>Lead</TableHead>
+                <TableHead>Contato</TableHead>
+                <TableHead className="hidden md:table-cell">Operação</TableHead>
+                <TableHead className="hidden lg:table-cell">Canal</TableHead>
+                <TableHead className="hidden sm:table-cell">CRM</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {contacts.map((c) => (
+              {leads.map((lead) => (
                 <TableRow
-                  key={c.id}
+                  key={lead.contactId}
                   className="cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => openDrawer(c)}
+                  onClick={() => setSelected(lead)}
                 >
-                  <TableCell className="font-medium text-foreground">{c.name || '—'}</TableCell>
-                  <TableCell className="text-muted-foreground text-sm">{c.phone}</TableCell>
+                  {/* Lead: name + AI badge */}
+                  <TableCell>
+                    <div className="space-y-1">
+                      <p className="font-medium text-foreground text-sm">{lead.name || 'Sem nome'}</p>
+                      <AiStatusBadge triageStage={lead.triageStage} isAiActive={lead.isAiActive} />
+                    </div>
+                  </TableCell>
+
+                  {/* Contato: phone */}
+                  <TableCell>
+                    <p className="text-sm text-foreground">{lead.phone}</p>
+                  </TableCell>
+
+                  {/* Operação: department */}
                   <TableCell className="hidden md:table-cell">
-                    {c.department_code ? (
-                      <Badge className={cn('text-[10px]', DEPT_COLORS[c.department_code] || '')}>
-                        {DEPT_LABELS[c.department_code] || c.department_code}
-                      </Badge>
+                    {lead.departmentCode ? (
+                      <div>
+                        <p className="text-sm text-foreground">{DEPT_LABELS[lead.departmentCode] || lead.departmentCode}</p>
+                        <p className="text-[10px] text-muted-foreground uppercase">{lead.departmentCode}</p>
+                      </div>
                     ) : (
-                      '—'
+                      <span className="text-muted-foreground text-sm">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    <Badge variant={c.status === 'ativo' ? 'default' : 'secondary'} className="text-[10px]">
-                      {c.status || '—'}
-                    </Badge>
+
+                  {/* Canal: date */}
+                  <TableCell className="hidden lg:table-cell">
+                    <div>
+                      <p className="text-sm text-foreground">WhatsApp</p>
+                      <p className="text-[10px] text-muted-foreground">{formatDate(lead.convCreatedAt)}</p>
+                    </div>
                   </TableCell>
-                  <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
-                    {formatDate(c.updated_at)}
+
+                  {/* CRM */}
+                  <TableCell className="hidden sm:table-cell">
+                    <CrmStatus isAiActive={lead.isAiActive} takeoverAt={lead.operatorTakeoverAt} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -187,7 +287,7 @@ const LeadsPage: React.FC = () => {
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-card text-sm">
           <span className="text-muted-foreground">
-            {total} contato{total !== 1 ? 's' : ''}
+            {total} lead{total !== 1 ? 's' : ''}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="icon" className="h-8 w-8" disabled={page === 0} onClick={() => setPage(page - 1)}>
@@ -214,13 +314,25 @@ const LeadsPage: React.FC = () => {
               <div className="mt-6 space-y-4">
                 <DetailRow icon={<Phone className="h-4 w-4" />} label="Telefone" value={selected.phone} />
                 <DetailRow icon={<User className="h-4 w-4" />} label="Status" value={selected.status || '—'} />
-                {selected.department_code && (
+                <div>
+                  <span className="text-xs text-muted-foreground">Atendimento IA</span>
+                  <div className="mt-1">
+                    <AiStatusBadge triageStage={selected.triageStage} isAiActive={selected.isAiActive} />
+                  </div>
+                </div>
+                {selected.departmentCode && (
                   <DetailRow
                     icon={<Tag className="h-4 w-4" />}
                     label="Departamento"
-                    value={DEPT_LABELS[selected.department_code] || selected.department_code}
+                    value={DEPT_LABELS[selected.departmentCode] || selected.departmentCode}
                   />
                 )}
+                <div>
+                  <span className="text-xs text-muted-foreground">CRM</span>
+                  <div className="mt-1">
+                    <CrmStatus isAiActive={selected.isAiActive} takeoverAt={selected.operatorTakeoverAt} />
+                  </div>
+                </div>
                 {selected.notes && (
                   <div>
                     <span className="text-xs text-muted-foreground">Notas</span>
@@ -237,8 +349,8 @@ const LeadsPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {convId && (
-                  <Button className="w-full mt-4" onClick={() => navigate(`/chat/${convId}`)}>
+                {selected.convId && (
+                  <Button className="w-full mt-4" onClick={() => navigate(`/chat/${selected.convId}`)}>
                     <MessageSquare className="h-4 w-4 mr-2" /> Ver Conversa
                   </Button>
                 )}

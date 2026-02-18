@@ -57,6 +57,7 @@ const ChatPage: React.FC = () => {
   const [leadQual, setLeadQual] = useState<LeadQualification | null>(null);
   const [loading, setLoading] = useState(true);
   const [inputValue, setInputValue] = useState('');
+  const [sending, setSending] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -102,13 +103,13 @@ const ChatPage: React.FC = () => {
           .select('*')
           .eq('phone_number', conv.phone_number)
           .eq('tenant_id', tenantId)
-          .single(),
+          .maybeSingle(),
         supabase
           .from('lead_qualification')
           .select('*')
           .eq('phone_number', conv.phone_number)
           .eq('tenant_id', tenantId)
-          .single(),
+          .maybeSingle(),
       ]);
 
       setContact(contactRes.data as Contact | null);
@@ -150,6 +151,27 @@ const ChatPage: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [id, tenantId]);
+
+  const handleSend = async () => {
+    if (!inputValue.trim() || !conversation || !tenantId || sending) return;
+    setSending(true);
+    try {
+      await supabase.functions.invoke('send-wa-message', {
+        body: {
+          tenant_id: tenantId,
+          phone_number: conversation.phone_number,
+          message: inputValue.trim(),
+          conversation_id: id,
+          department_code: conversation.department_code,
+        },
+      });
+      setInputValue('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+    } finally {
+      setSending(false);
+    }
+  };
 
   const handleTakeover = async () => {
     if (!conversation || !tenantId || !user) return;
@@ -341,11 +363,14 @@ const ChatPage: React.FC = () => {
             onChange={(e) => setInputValue(e.target.value)}
             className="flex-1"
             onKeyDown={(e) => {
-              if (e.key === 'Enter') e.preventDefault();
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
             }}
           />
-          <Button size="icon" disabled className="shrink-0">
-            <Send className="h-4 w-4" />
+          <Button size="icon" disabled={!inputValue.trim() || sending} onClick={handleSend} className="shrink-0">
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>
       </div>

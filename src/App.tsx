@@ -3,7 +3,13 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { TenantProvider } from "@/contexts/TenantContext";
+import { DepartmentFilterProvider } from "@/contexts/DepartmentFilterContext";
+import AppLayout from "@/components/AppLayout";
+import AuthPage from "@/pages/AuthPage";
+import DashboardPage from "@/pages/DashboardPage";
+import InboxPage from "@/pages/InboxPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -14,11 +20,20 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <AuthProvider>
+          <TenantProvider>
+            <DepartmentFilterProvider>
+              <Routes>
+                <Route path="/auth" element={<AuthPage />} />
+                <Route element={<AppLayout />}>
+                  <Route path="/" element={<DashboardPage />} />
+                  <Route path="/inbox" element={<InboxPage />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </DepartmentFilterProvider>
+          </TenantProvider>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

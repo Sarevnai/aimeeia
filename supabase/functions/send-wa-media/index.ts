@@ -82,6 +82,6 @@ serve(async (req: Request) => {
 
   } catch (error) {
     console.error('❌ Send media error:', error);
-    return errorResponse(error.message);
+    return errorResponse((error as Error).message);
   }
 });

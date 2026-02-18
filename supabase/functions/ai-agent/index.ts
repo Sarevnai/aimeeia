@@ -217,7 +217,7 @@ serve(async (req: Request) => {
 
   } catch (error) {
     console.error('❌ AI Agent error:', error);
-    return errorResponse(error.message);
+    return errorResponse((error as Error).message);
   }
 });
 

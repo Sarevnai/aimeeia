@@ -145,7 +145,7 @@ export async function callLLMWithToolExecution(
       } catch (e) {
         messages.push({
           role: 'tool' as any,
-          content: `Error: ${e.message}`,
+          content: `Error: ${(e as Error).message}`,
           tool_call_id: toolCall.id,
         } as any);
       }

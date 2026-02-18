@@ -7,6 +7,7 @@ import {
   Kanban,
   Megaphone,
   BarChart3,
+  Building2,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -20,6 +21,7 @@ const navItems = [
   { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
   { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
   { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
+  { label: 'Empreendimentos', icon: Building2, path: '/empreendimentos' },
   { label: 'Configurações', icon: Settings, path: '/configuracoes' },
 ];
 

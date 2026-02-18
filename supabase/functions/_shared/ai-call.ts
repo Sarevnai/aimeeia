@@ -30,7 +30,7 @@ export async function callLLM(
   ];
 
   const body: any = {
-    model: options.model || 'openai/gpt-4o-mini',
+    model: options.model || 'google/gemini-3-flash-preview',
     messages,
     temperature: options.temperature ?? 0.7,
     max_tokens: options.maxTokens ?? 500,
@@ -95,7 +95,7 @@ export async function callLLMWithToolExecution(
     if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
 
     const body: any = {
-      model: options.model || 'openai/gpt-4o-mini',
+      model: options.model || 'google/gemini-3-flash-preview',
       messages,
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 500,
@@ -154,7 +154,7 @@ export async function callLLMWithToolExecution(
 
   // If we exhausted iterations, get a final response without tools
   const finalBody: any = {
-    model: options.model || 'openai/gpt-4o-mini',
+    model: options.model || 'google/gemini-3-flash-preview',
     messages,
     temperature: options.temperature ?? 0.7,
     max_tokens: options.maxTokens ?? 500,

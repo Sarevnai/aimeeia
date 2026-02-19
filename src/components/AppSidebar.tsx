@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Radar,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/contexts/TenantContext';
@@ -76,6 +77,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
       items: [
         { label: 'Empreendimentos', icon: Building2, path: '/empreendimentos' },
         { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
+        { label: 'Atualização', icon: RefreshCw, path: '/atualizacao' },
       ],
     },
     {

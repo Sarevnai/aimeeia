@@ -395,7 +395,7 @@ const DashboardPage: React.FC = () => {
                 <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} className="fill-muted-foreground" width={90} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Bar dataKey="enviado" stackId="a" fill="hsl(152, 60%, 42%)" name="Enviado ao CRM" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="naoPronto" stackId="a" fill="hsl(207, 65%, 44% / 0.4)" name="Não pronto" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="naoPronto" stackId="a" fill="hsl(25, 85%, 58%)" name="Não pronto" radius={[0, 4, 4, 0]} />
                 <Legend wrapperStyle={{ fontSize: '12px' }} />
               </BarChart>
             </ResponsiveContainer>

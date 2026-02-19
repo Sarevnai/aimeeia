@@ -870,6 +870,204 @@ export type Database = {
           },
         ]
       }
+      owner_contacts: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          neighborhood: string | null
+          notes: string | null
+          phone: string
+          property_address: string | null
+          property_code: string | null
+          property_type: string | null
+          tags: string[] | null
+          tenant_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          neighborhood?: string | null
+          notes?: string | null
+          phone: string
+          property_address?: string | null
+          property_code?: string | null
+          property_type?: string | null
+          tags?: string[] | null
+          tenant_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          neighborhood?: string | null
+          notes?: string | null
+          phone?: string
+          property_address?: string | null
+          property_code?: string | null
+          property_type?: string | null
+          tags?: string[] | null
+          tenant_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_contacts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_update_campaigns: {
+        Row: {
+          contacted_count: number | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          id: string
+          message_template: string | null
+          name: string
+          responded_count: number | null
+          scheduled_date: string | null
+          status: string
+          tenant_id: string
+          total_contacts: number | null
+          updated_at: string | null
+          updated_count: number | null
+        }
+        Insert: {
+          contacted_count?: number | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          message_template?: string | null
+          name: string
+          responded_count?: number | null
+          scheduled_date?: string | null
+          status?: string
+          tenant_id: string
+          total_contacts?: number | null
+          updated_at?: string | null
+          updated_count?: number | null
+        }
+        Update: {
+          contacted_count?: number | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          message_template?: string | null
+          name?: string
+          responded_count?: number | null
+          scheduled_date?: string | null
+          status?: string
+          tenant_id?: string
+          total_contacts?: number | null
+          updated_at?: string | null
+          updated_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_update_campaigns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_update_campaigns_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_update_results: {
+        Row: {
+          ai_summary: string | null
+          campaign_id: string
+          completed_at: string | null
+          created_at: string | null
+          delivered_at: string | null
+          id: string
+          owner_contact_id: string
+          owner_response: string | null
+          phone: string
+          property_status: string | null
+          replied_at: string | null
+          sent_at: string | null
+          status: string
+          tenant_id: string
+        }
+        Insert: {
+          ai_summary?: string | null
+          campaign_id: string
+          completed_at?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          id?: string
+          owner_contact_id: string
+          owner_response?: string | null
+          phone: string
+          property_status?: string | null
+          replied_at?: string | null
+          sent_at?: string | null
+          status?: string
+          tenant_id: string
+        }
+        Update: {
+          ai_summary?: string | null
+          campaign_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          id?: string
+          owner_contact_id?: string
+          owner_response?: string | null
+          phone?: string
+          property_status?: string | null
+          replied_at?: string | null
+          sent_at?: string | null
+          status?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_update_results_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "owner_update_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_update_results_owner_contact_id_fkey"
+            columns: ["owner_contact_id"]
+            isOneToOne: false
+            referencedRelation: "owner_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_update_results_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       portal_leads_log: {
         Row: {
           ai_attended: boolean | null

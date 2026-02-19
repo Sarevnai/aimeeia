@@ -28,11 +28,11 @@ serve(async (req: Request) => {
 
     const t = tenant as Tenant;
 
-    if (t.crm_type !== 'vista' || !t.crm_api_key || !t.crm_base_url) {
+    if (t.crm_type !== 'vista' || !t.crm_api_key || !t.crm_api_url) {
       return errorResponse('Vista CRM not configured', 400);
     }
 
-    const url = `${t.crm_base_url}/imoveis/detalhes`;
+    const url = `${t.crm_api_url}/imoveis/detalhes`;
 
     const response = await fetch(url, {
       method: 'POST',

@@ -32,7 +32,7 @@ serve(async (req: Request) => {
       return jsonResponse({ properties: [], message: 'CRM não é Vista' });
     }
 
-    if (!t.crm_api_key || !t.crm_base_url) {
+    if (!t.crm_api_key || !t.crm_api_url) {
       return errorResponse('Tenant missing Vista CRM credentials', 400);
     }
 
@@ -118,7 +118,7 @@ async function searchVistaProperties(
     offset: 0,
   };
 
-  const url = `${tenant.crm_base_url}/imoveis/listar`;
+  const url = `${tenant.crm_api_url}/imoveis/listar`;
 
   console.log(`🔍 Vista search: ${url}`, JSON.stringify(body).slice(0, 300));
 
@@ -162,7 +162,7 @@ function mapVistaToProperty(item: any, tenant: Tenant, isLocacao: boolean): Prop
     ? parseFloat(item.ValorLocacao || '0')
     : parseFloat(item.ValorVenda || '0');
 
-  const baseUrl = tenant.crm_base_url?.replace('/api/v2', '') || '';
+  const baseUrl = tenant.crm_api_url?.replace('/api/v2', '') || '';
   const link = `${baseUrl}/imovel/${item.Codigo}`;
 
   return {

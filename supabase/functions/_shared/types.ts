@@ -16,7 +16,7 @@ export interface Tenant {
   phone_redirect: string | null;
   crm_type: 'vista' | 'jetimob' | 'custom' | 'none';
   crm_api_key: string | null;
-  crm_base_url: string | null;
+  crm_api_url: string | null;
   wa_phone_number_id: string | null;
   wa_access_token: string | null;
   wa_verify_token: string | null;

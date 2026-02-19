@@ -130,6 +130,53 @@ export type Database = {
           },
         ]
       }
+      ai_behavior_config: {
+        Row: {
+          created_at: string | null
+          essential_questions: Json | null
+          functions: Json | null
+          id: string
+          reengagement_hours: number | null
+          require_cpf_for_visit: boolean | null
+          send_cold_leads: boolean | null
+          tenant_id: string | null
+          updated_at: string | null
+          visit_schedule: Json | null
+        }
+        Insert: {
+          created_at?: string | null
+          essential_questions?: Json | null
+          functions?: Json | null
+          id?: string
+          reengagement_hours?: number | null
+          require_cpf_for_visit?: boolean | null
+          send_cold_leads?: boolean | null
+          tenant_id?: string | null
+          updated_at?: string | null
+          visit_schedule?: Json | null
+        }
+        Update: {
+          created_at?: string | null
+          essential_questions?: Json | null
+          functions?: Json | null
+          id?: string
+          reengagement_hours?: number | null
+          require_cpf_for_visit?: boolean | null
+          send_cold_leads?: boolean | null
+          tenant_id?: string | null
+          updated_at?: string | null
+          visit_schedule?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_behavior_config_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_department_configs: {
         Row: {
           agent_name: string | null
@@ -827,56 +874,71 @@ export type Database = {
         Row: {
           ai_attended: boolean | null
           ai_attended_at: string | null
+          contact_email: string | null
           contact_name: string | null
           contact_phone: string | null
           created_at: string | null
           crm_sent_at: string | null
           crm_status: string | null
+          day_of_week: number | null
           development_id: string | null
+          hour_of_day: number | null
           id: string
           lead_source_type: string | null
+          lead_temperature: string | null
           message: string | null
           origin_listing_id: string | null
           portal_origin: string | null
           processed_at: string | null
           status: string | null
           tenant_id: string
+          transaction_type: string | null
         }
         Insert: {
           ai_attended?: boolean | null
           ai_attended_at?: string | null
+          contact_email?: string | null
           contact_name?: string | null
           contact_phone?: string | null
           created_at?: string | null
           crm_sent_at?: string | null
           crm_status?: string | null
+          day_of_week?: number | null
           development_id?: string | null
+          hour_of_day?: number | null
           id?: string
           lead_source_type?: string | null
+          lead_temperature?: string | null
           message?: string | null
           origin_listing_id?: string | null
           portal_origin?: string | null
           processed_at?: string | null
           status?: string | null
           tenant_id: string
+          transaction_type?: string | null
         }
         Update: {
           ai_attended?: boolean | null
           ai_attended_at?: string | null
+          contact_email?: string | null
           contact_name?: string | null
           contact_phone?: string | null
           created_at?: string | null
           crm_sent_at?: string | null
           crm_status?: string | null
+          day_of_week?: number | null
           development_id?: string | null
+          hour_of_day?: number | null
           id?: string
           lead_source_type?: string | null
+          lead_temperature?: string | null
           message?: string | null
           origin_listing_id?: string | null
           portal_origin?: string | null
           processed_at?: string | null
           status?: string | null
           tenant_id?: string
+          transaction_type?: string | null
         }
         Relationships: [
           {
@@ -903,6 +965,9 @@ export type Database = {
           id: string
           role: Database["public"]["Enums"]["user_role"] | null
           tenant_id: string
+          user_code: number | null
+          user_id: string | null
+          username: string | null
         }
         Insert: {
           avatar_url?: string | null
@@ -911,6 +976,9 @@ export type Database = {
           id: string
           role?: Database["public"]["Enums"]["user_role"] | null
           tenant_id: string
+          user_code?: number | null
+          user_id?: string | null
+          username?: string | null
         }
         Update: {
           avatar_url?: string | null
@@ -919,6 +987,9 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["user_role"] | null
           tenant_id?: string
+          user_code?: number | null
+          user_id?: string | null
+          username?: string | null
         }
         Relationships: [
           {
@@ -1048,6 +1119,94 @@ export type Database = {
         }
         Relationships: []
       }
+      tickets: {
+        Row: {
+          assigned_to: string | null
+          category: string
+          contact_id: string | null
+          created_at: string
+          description: string | null
+          email: string | null
+          id: string
+          last_contact: string
+          phone: string
+          priority: string
+          property_address: string | null
+          property_code: string | null
+          property_type: string | null
+          source: string
+          stage: string
+          tenant_id: string | null
+          title: string
+          updated_at: string
+          value: number | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          category: string
+          contact_id?: string | null
+          created_at?: string
+          description?: string | null
+          email?: string | null
+          id?: string
+          last_contact?: string
+          phone: string
+          priority?: string
+          property_address?: string | null
+          property_code?: string | null
+          property_type?: string | null
+          source?: string
+          stage?: string
+          tenant_id?: string | null
+          title: string
+          updated_at?: string
+          value?: number | null
+        }
+        Update: {
+          assigned_to?: string | null
+          category?: string
+          contact_id?: string | null
+          created_at?: string
+          description?: string | null
+          email?: string | null
+          id?: string
+          last_contact?: string
+          phone?: string
+          priority?: string
+          property_address?: string | null
+          property_code?: string | null
+          property_type?: string | null
+          source?: string
+          stage?: string
+          tenant_id?: string | null
+          title?: string
+          updated_at?: string
+          value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tickets_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_templates: {
         Row: {
           category: string | null
@@ -1094,7 +1253,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_my_department: { Args: never; Returns: string }
+      get_user_department: { Args: { _user_id: string }; Returns: string }
       get_user_tenant_id: { Args: never; Returns: string }
+      is_admin: { Args: never; Returns: boolean }
+      is_manager: { Args: never; Returns: boolean }
     }
     Enums: {
       conversation_status: "active" | "closed" | "archived"

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
-import { Loader2, ChevronDown } from 'lucide-react';
+import { Loader2, ChevronDown, TrendingUp, Users, UserCheck, ArrowRightLeft, Clock, Calendar } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, AreaChart, Area,
@@ -22,17 +22,37 @@ const MONTHS = [
 
 const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-const DEPT_LABELS: Record<string, string> = {
-  locacao: 'Locação',
-  vendas: 'Vendas',
-  administrativo: 'Admin',
+const CHANNEL_LABELS: Record<string, string> = {
+  whatsapp: 'WhatsApp',
+  grupozap: 'Grupo Zap',
+  imovelweb: 'ImovelWeb',
+  facebook: 'Facebook',
+  site: 'Site próprio',
+  chavesnamao: 'Chaves Na Mão',
+  olx: 'OLX',
+  vivareal: 'VivaReal',
+};
+
+const CHANNEL_COLORS: Record<string, string> = {
+  whatsapp: 'hsl(142, 70%, 42%)',
+  grupozap: 'hsl(34, 90%, 50%)',
+  imovelweb: 'hsl(207, 65%, 44%)',
+  facebook: 'hsl(220, 55%, 47%)',
+  site: 'hsl(280, 55%, 50%)',
+  chavesnamao: 'hsl(350, 60%, 50%)',
+  olx: 'hsl(38, 92%, 50%)',
+  vivareal: 'hsl(180, 50%, 40%)',
 };
 
 const PIE_COLORS = [
-  'hsl(207, 65%, 44%)',  // accent blue
-  'hsl(152, 60%, 42%)',  // success green
-  'hsl(38, 92%, 50%)',   // warning amber
-  'hsl(280, 55%, 50%)',  // purple
+  'hsl(142, 70%, 42%)',  // green (whatsapp)
+  'hsl(34, 90%, 50%)',   // orange (grupozap)
+  'hsl(207, 65%, 44%)',  // blue (imovelweb)
+  'hsl(220, 55%, 47%)',  // dark blue (facebook)
+  'hsl(280, 55%, 50%)',  // purple (site)
+  'hsl(350, 60%, 50%)',  // red (chavesnamao)
+  'hsl(38, 92%, 50%)',   // amber (olx)
+  'hsl(180, 50%, 40%)',  // teal (vivareal)
 ];
 
 const tooltipStyle = {
@@ -57,14 +77,22 @@ interface FunnelCardProps {
   value: number;
   subtitle: string;
   percentage: number;
-  color: string;
+  icon: React.ReactNode;
+  accentColor: string;
 }
 
-const FunnelCard: React.FC<FunnelCardProps> = ({ title, value, subtitle, percentage, color }) => (
+const FunnelCard: React.FC<FunnelCardProps> = ({ title, value, subtitle, percentage, icon, accentColor }) => (
   <Card>
-    <p className="text-sm font-medium text-muted-foreground">{title}</p>
-    <p className="mt-2 text-3xl font-bold font-display text-foreground">{value}</p>
-    <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-medium text-muted-foreground">{title}</p>
+        <p className="mt-2 text-3xl font-bold font-display text-foreground">{value.toLocaleString('pt-BR')}</p>
+        <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+      </div>
+      <div className={cn('p-2.5 rounded-lg', accentColor)}>
+        {icon}
+      </div>
+    </div>
     <div className="mt-3 relative">
       <Progress value={percentage} className="h-2" />
       <span className="absolute right-0 -top-4 text-[10px] font-semibold text-muted-foreground">
@@ -73,6 +101,21 @@ const FunnelCard: React.FC<FunnelCardProps> = ({ title, value, subtitle, percent
     </div>
   </Card>
 );
+
+/* ─── Custom pie chart label ─── */
+
+const renderCustomPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }: any) => {
+  if (percent < 0.05) return null;
+  const RADIAN = Math.PI / 180;
+  const radius = innerRadius + (outerRadius - innerRadius) * 1.4;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text x={x} y={y} fill="hsl(var(--foreground))" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={11}>
+      {name} {(percent * 100).toFixed(0)}%
+    </text>
+  );
+};
 
 /* ─── Main ─── */
 
@@ -89,11 +132,13 @@ const DashboardPage: React.FC = () => {
   const [totalConv, setTotalConv] = useState(0);
   const [aiAttended, setAiAttended] = useState(0);
   const [forwarded, setForwarded] = useState(0);
-  const [deptData, setDeptData] = useState<{ name: string; value: number }[]>([]);
+  const [channelData, setChannelData] = useState<{ name: string; value: number; key: string }[]>([]);
+  const [channelStatusData, setChannelStatusData] = useState<{ name: string; enviado: number; erro: number; naoPronto: number }[]>([]);
   const [hourData, setHourData] = useState<{ hour: string; count: number }[]>([]);
   const [dowData, setDowData] = useState<{ day: string; count: number }[]>([]);
   const [monthlyData, setMonthlyData] = useState<{ month: string; forwarded: number; notForwarded: number }[]>([]);
   const [offHoursPct, setOffHoursPct] = useState(0);
+  const [bestDay, setBestDay] = useState('');
 
   // Compute date range for selected month
   const { monthStart, monthEnd } = useMemo(() => {
@@ -130,23 +175,39 @@ const DashboardPage: React.FC = () => {
         .eq('is_ai_active', false);
       setForwarded(fwd ?? 0);
 
-      // ── Row 2a: Dept pie ──
-      const { data: convs } = await supabase
-        .from('conversations')
-        .select('department_code')
+      // ── Row 2a: Channel pie ──
+      const { data: contacts } = await supabase
+        .from('contacts')
+        .select('channel_source')
         .eq('tenant_id', tenantId)
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
 
-      const deptMap: Record<string, number> = {};
-      (convs ?? []).forEach((c) => {
-        const key = c.department_code || 'sem_dept';
-        deptMap[key] = (deptMap[key] || 0) + 1;
+      const channelMap: Record<string, number> = {};
+      (contacts ?? []).forEach((c) => {
+        const key = c.channel_source || 'whatsapp';
+        channelMap[key] = (channelMap[key] || 0) + 1;
       });
-      setDeptData(
-        Object.entries(deptMap).map(([k, v]) => ({
-          name: DEPT_LABELS[k] || 'Outros',
+      const channelEntries = Object.entries(channelMap)
+        .map(([k, v]) => ({
+          name: CHANNEL_LABELS[k] || k,
           value: v,
+          key: k,
+        }))
+        .sort((a, b) => b.value - a.value);
+      setChannelData(channelEntries);
+
+      // ── Row 2b: Status por canal (stacked bar) ──
+      // For each channel, estimate status distribution
+      const totalC = contacts?.length || 1;
+      const fwdRatio = (total ?? 0) > 0 ? (fwd ?? 0) / (total ?? 1) : 0;
+      const attRatio = (total ?? 0) > 0 ? (attended ?? 0) / (total ?? 1) : 0;
+      setChannelStatusData(
+        channelEntries.map((ch) => ({
+          name: ch.name,
+          enviado: Math.round(ch.value * fwdRatio),
+          erro: 0,
+          naoPronto: ch.value - Math.round(ch.value * fwdRatio),
         }))
       );
 
@@ -175,7 +236,16 @@ const DashboardPage: React.FC = () => {
         const d = new Date(c.created_at!).getDay();
         dowBuckets[d]++;
       });
-      setDowData(DOW_LABELS.map((label, i) => ({ day: label, count: dowBuckets[i] })));
+      const dowEntries = DOW_LABELS.map((label, i) => ({ day: label, count: dowBuckets[i] }));
+      setDowData(dowEntries);
+
+      // Find best day
+      const maxDow = Math.max(...dowBuckets);
+      const bestDayIdx = dowBuckets.indexOf(maxDow);
+      if (maxDow > 0) {
+        const fullDayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        setBestDay(fullDayNames[bestDayIdx]);
+      }
 
       // ── Row 4b: Last 6 months stacked ──
       const months6: { month: string; forwarded: number; notForwarded: number }[] = [];
@@ -192,8 +262,6 @@ const DashboardPage: React.FC = () => {
           .gte('created_at', mStart)
           .lte('created_at', mEnd);
 
-        // rough approximation: forwarded ratio from current state
-        const fwdRatio = (total ?? 0) > 0 ? (fwd ?? 0) / (total ?? 1) : 0;
         const mFwd = Math.round((mTotal ?? 0) * fwdRatio);
         months6.push({ month: label, forwarded: mFwd, notForwarded: (mTotal ?? 0) - mFwd });
       }
@@ -237,6 +305,7 @@ const DashboardPage: React.FC = () => {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="gap-2">
+              <Calendar className="h-4 w-4" />
               {MONTHS[selMonth]}, {selYear}
               <ChevronDown className="h-4 w-4" />
             </Button>
@@ -264,45 +333,48 @@ const DashboardPage: React.FC = () => {
           value={totalConv}
           subtitle="chegaram pelos canais"
           percentage={100}
-          color="accent"
+          icon={<Users className="h-5 w-5 text-accent-foreground" />}
+          accentColor="bg-accent/15"
         />
         <FunnelCard
           title="Atendidos pela Aimee"
           value={aiAttended}
           subtitle="foram atendidos pela Aimee"
           percentage={pctAttended}
-          color="success"
+          icon={<UserCheck className="h-5 w-5 text-success" />}
+          accentColor="bg-success/15"
         />
         <FunnelCard
           title="Encaminhados"
           value={forwarded}
           subtitle="enviados ao CRM / corretor"
           percentage={pctForwarded}
-          color="warning"
+          icon={<ArrowRightLeft className="h-5 w-5 text-warning" />}
+          accentColor="bg-warning/15"
         />
       </div>
 
-      {/* Row 2 — Pie + Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Row 2 — Pie (leads por canal) + Bar (status por canal) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Pie chart: leads por canal */}
         <Card>
           <h3 className="font-display text-sm font-semibold text-foreground mb-4">Leads por canal</h3>
-          <div className="h-64">
+          <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={deptData}
+                  data={channelData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
+                  innerRadius={55}
+                  outerRadius={85}
                   dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={renderCustomPieLabel}
                   labelLine={false}
                   fontSize={11}
                 >
-                  {deptData.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                  {channelData.map((entry, i) => (
+                    <Cell key={i} fill={CHANNEL_COLORS[entry.key] || PIE_COLORS[i % PIE_COLORS.length]} />
                   ))}
                 </Pie>
                 <Legend wrapperStyle={{ fontSize: '12px' }} />
@@ -312,24 +384,18 @@ const DashboardPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Stacked bar: status por departamento */}
+        {/* Stacked bar: status por canal */}
         <Card>
-          <h3 className="font-display text-sm font-semibold text-foreground mb-4">Status por departamento</h3>
-          <div className="h-64">
+          <h3 className="font-display text-sm font-semibold text-foreground mb-4">Status por canal</h3>
+          <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={deptData.map((d) => ({
-                name: d.name,
-                qualificado: Math.round(d.value * pctForwarded / 100),
-                atendimento: Math.round(d.value * pctAttended / 100) - Math.round(d.value * pctForwarded / 100),
-                novo: d.value - Math.round(d.value * pctAttended / 100),
-              }))}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} className="fill-muted-foreground" />
-                <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" allowDecimals={false} />
+              <BarChart data={channelStatusData} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11 }} className="fill-muted-foreground" allowDecimals={false} />
+                <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} className="fill-muted-foreground" width={90} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="novo" stackId="a" fill="hsl(207, 65%, 44%)" radius={[0, 0, 0, 0]} name="Novo" />
-                <Bar dataKey="atendimento" stackId="a" fill="hsl(38, 92%, 50%)" name="Em atendimento" />
-                <Bar dataKey="qualificado" stackId="a" fill="hsl(152, 60%, 42%)" radius={[4, 4, 0, 0]} name="Qualificado" />
+                <Bar dataKey="enviado" stackId="a" fill="hsl(152, 60%, 42%)" name="Enviado ao CRM" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="naoPronto" stackId="a" fill="hsl(207, 65%, 44% / 0.4)" name="Não pronto" radius={[0, 4, 4, 0]} />
                 <Legend wrapperStyle={{ fontSize: '12px' }} />
               </BarChart>
             </ResponsiveContainer>
@@ -340,10 +406,16 @@ const DashboardPage: React.FC = () => {
       {/* Row 3 — Hourly area chart */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-sm font-semibold text-foreground">Leads por horário</h3>
-          <span className="text-xs font-medium text-accent">
-            {offHoursPct}% atendidos fora do horário comercial
-          </span>
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            <h3 className="font-display text-sm font-semibold text-foreground">Leads por horário</h3>
+          </div>
+          <div className="flex items-center gap-1.5 bg-accent/10 rounded-full px-3 py-1">
+            <TrendingUp className="h-3.5 w-3.5 text-accent" />
+            <span className="text-xs font-semibold text-accent">
+              {offHoursPct}% fora do horário comercial
+            </span>
+          </div>
         </div>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -365,10 +437,17 @@ const DashboardPage: React.FC = () => {
       </Card>
 
       {/* Row 4 — Day of week + Monthly */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Day of week */}
         <Card>
-          <h3 className="font-display text-sm font-semibold text-foreground mb-4">Leads por dia da semana</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-display text-sm font-semibold text-foreground">Leads por dia da semana</h3>
+            {bestDay && (
+              <span className="text-xs font-medium text-success bg-success/10 rounded-full px-2.5 py-0.5">
+                Melhor dia: {bestDay}
+              </span>
+            )}
+          </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={dowData}>
@@ -378,7 +457,7 @@ const DashboardPage: React.FC = () => {
                 <Tooltip contentStyle={tooltipStyle} />
                 <Bar
                   dataKey="count"
-                  radius={[4, 4, 0, 0]}
+                  radius={[6, 6, 0, 0]}
                   name="Leads"
                 >
                   {dowData.map((entry, i) => {
@@ -387,8 +466,8 @@ const DashboardPage: React.FC = () => {
                       <Cell
                         key={i}
                         fill={entry.count === maxVal && maxVal > 0
-                          ? 'hsl(207, 65%, 44%)'
-                          : 'hsl(207, 65%, 44% / 0.4)'}
+                          ? 'hsl(152, 60%, 42%)'
+                          : 'hsl(207, 65%, 44% / 0.35)'}
                       />
                     );
                   })}
@@ -400,7 +479,7 @@ const DashboardPage: React.FC = () => {
 
         {/* Last 6 months stacked */}
         <Card>
-          <h3 className="font-display text-sm font-semibold text-foreground mb-4">Leads nos últimos 6 meses</h3>
+          <h3 className="font-display text-sm font-semibold text-foreground mb-4">Histórico — últimos 6 meses</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthlyData}>
@@ -408,7 +487,7 @@ const DashboardPage: React.FC = () => {
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
                 <YAxis tick={{ fontSize: 11 }} className="fill-muted-foreground" allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="notForwarded" stackId="a" fill="hsl(38, 92%, 50%)" name="Não encaminhado" />
+                <Bar dataKey="notForwarded" stackId="a" fill="hsl(38, 92%, 50% / 0.6)" name="Não encaminhado" />
                 <Bar dataKey="forwarded" stackId="a" fill="hsl(152, 60%, 42%)" radius={[4, 4, 0, 0]} name="Encaminhado" />
                 <Legend wrapperStyle={{ fontSize: '12px' }} />
               </BarChart>

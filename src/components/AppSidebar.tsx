@@ -14,6 +14,7 @@ import {
   HelpCircle,
   ChevronLeft,
   ChevronRight,
+  Radar,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/contexts/TenantContext';
@@ -66,6 +67,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
       items: [
         { label: 'Leads', icon: Users, path: '/leads' },
         { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
+        { label: 'Captação', icon: Radar, path: '/captacao' },
         { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
       ],
     },
@@ -86,8 +88,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
     {
       label: 'Ajuda',
       items: [
-        { label: 'Guia da Aimee', icon: BookOpen, path: '#', external: true },
-        { label: 'Ajuda', icon: HelpCircle, path: '#', external: true },
+        { label: 'Guia da Aimee', icon: BookOpen, path: '/guia' },
       ],
     },
   ];

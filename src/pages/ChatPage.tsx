@@ -22,6 +22,13 @@ import {
   Play,
   Pause,
   Loader2,
+  Globe,
+  Facebook,
+  Calendar,
+  Clock,
+  MessageSquare,
+  ChevronDown,
+  Image,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Tables } from '@/integrations/supabase/types';
@@ -42,6 +49,24 @@ const DEPT_COLORS: Record<string, string> = {
   locacao: 'bg-info text-info-foreground',
   vendas: 'bg-success text-success-foreground',
   administrativo: 'bg-warning text-warning-foreground',
+};
+
+const CHANNEL_LABELS: Record<string, string> = {
+  whatsapp: 'WhatsApp',
+  grupozap: 'Grupo Zap',
+  imovelweb: 'ImovelWeb',
+  facebook: 'Facebook',
+  site: 'Site próprio',
+  chavesnamao: 'Chaves Na Mão',
+};
+
+const CHANNEL_ICONS: Record<string, React.ReactNode> = {
+  whatsapp: <Phone className="h-3.5 w-3.5 text-green-500" />,
+  grupozap: <Globe className="h-3.5 w-3.5 text-orange-500" />,
+  imovelweb: <Home className="h-3.5 w-3.5 text-blue-500" />,
+  facebook: <Facebook className="h-3.5 w-3.5 text-blue-600" />,
+  site: <Globe className="h-3.5 w-3.5 text-purple-500" />,
+  chavesnamao: <Home className="h-3.5 w-3.5 text-red-500" />,
 };
 
 const ChatPage: React.FC = () => {
@@ -342,6 +367,17 @@ const ChatPage: React.FC = () => {
                       </div>
                       <span className="text-[10px] text-muted-foreground shrink-0">0:00</span>
                     </div>
+                  ) : msg.media_type === 'image' && msg.media_url ? (
+                    <div className="space-y-1">
+                      <img
+                        src={msg.media_url}
+                        alt={msg.media_caption || 'Imagem'}
+                        className="rounded-lg max-w-full max-h-60 object-cover"
+                      />
+                      {msg.media_caption && (
+                        <p className="text-xs text-muted-foreground">{msg.media_caption}</p>
+                      )}
+                    </div>
                   ) : (
                     <p className="whitespace-pre-wrap break-words">{msg.body}</p>
                   )}
@@ -375,14 +411,32 @@ const ChatPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Lead sidebar - desktop only */}
       {showSidebar && (
         <div className="hidden md:flex flex-col w-[320px] border-l border-border bg-card overflow-auto shrink-0">
+          {/* Profile Section */}
           <div className="p-4 border-b border-border">
-            <h3 className="font-display text-sm font-bold text-foreground mb-3">Dados do Lead</h3>
-            <div className="space-y-3">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-12 w-12 rounded-full bg-secondary flex items-center justify-center">
+                <span className="text-lg font-bold text-secondary-foreground">
+                  {(contact?.name?.[0] || conversation.phone_number?.[0] || '?').toUpperCase()}
+                </span>
+              </div>
+              <div>
+                <p className="text-sm font-bold text-foreground">{contact?.name || 'Sem nome'}</p>
+                <p className="text-xs text-muted-foreground">{conversation.phone_number}</p>
+              </div>
+            </div>
+            <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Perfil</h4>
+            <div className="space-y-2.5">
               <InfoRow icon={<Phone className="h-3.5 w-3.5" />} label="Telefone" value={conversation.phone_number} />
               <InfoRow icon={<UserCheck className="h-3.5 w-3.5" />} label="Nome" value={contact?.name || '—'} />
+              {contact?.channel_source && (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">{CHANNEL_ICONS[contact.channel_source] || <Globe className="h-3.5 w-3.5" />}</span>
+                  <span className="text-xs text-muted-foreground">Canal:</span>
+                  <span className="text-xs font-medium text-foreground">{CHANNEL_LABELS[contact.channel_source] || contact.channel_source}</span>
+                </div>
+              )}
               {dept && (
                 <InfoRow
                   icon={<Target className="h-3.5 w-3.5" />}
@@ -398,10 +452,84 @@ const ChatPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Interaction Timeline */}
+          <div className="p-4 border-b border-border">
+            <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Interações</h4>
+            <div className="space-y-3">
+              {/* Conversation start */}
+              <div className="flex gap-2.5">
+                <div className="flex flex-col items-center">
+                  <div className="h-2 w-2 rounded-full bg-accent mt-1.5" />
+                  <div className="flex-1 w-px bg-border" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground">Conversa iniciada</p>
+                  <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {conversation.created_at ? new Date(conversation.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'}
+                  </p>
+                  {dept && (
+                    <Badge className={cn('text-[10px] px-1.5 py-0 mt-1', DEPT_COLORS[dept] || '')}>
+                      {DEPT_LABELS[dept] || dept}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              {/* AI triage */}
+              {convState?.triage_stage && (
+                <div className="flex gap-2.5">
+                  <div className="flex flex-col items-center">
+                    <div className="h-2 w-2 rounded-full bg-success mt-1.5" />
+                    <div className="flex-1 w-px bg-border" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-foreground">Triage IA: {convState.triage_stage}</p>
+                    <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                      <Bot className="h-3 w-3" />
+                      {convState.is_ai_active ? 'IA ativa' : 'Operador assume'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Operator takeover */}
+              {convState?.operator_takeover_at && (
+                <div className="flex gap-2.5">
+                  <div className="flex flex-col items-center">
+                    <div className="h-2 w-2 rounded-full bg-warning mt-1.5" />
+                    <div className="flex-1 w-px bg-border" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-foreground">Atribuído ao operador</p>
+                    <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {new Date(convState.operator_takeover_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Current status */}
+              <div className="flex gap-2.5">
+                <div className="flex flex-col items-center">
+                  <div className={cn('h-2 w-2 rounded-full mt-1.5', convState?.is_ai_active ? 'bg-success' : 'bg-warning')} />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground">Status atual</p>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 mt-0.5">
+                    {convState?.is_ai_active ? 'IA ativa' : convState?.operator_id ? 'Com operador' : 'Inativa'}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Qualification */}
           {leadQual && (
             <div className="p-4 border-b border-border">
-              <h3 className="font-display text-sm font-bold text-foreground mb-3">Qualificação</h3>
-              <div className="space-y-3">
+              <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Qualificação</h4>
+              <div className="space-y-2.5">
                 <InfoRow icon={<MapPin className="h-3.5 w-3.5" />} label="Bairro" value={leadQual.detected_neighborhood || '—'} />
                 <InfoRow icon={<Home className="h-3.5 w-3.5" />} label="Tipo" value={leadQual.detected_property_type || '—'} />
                 <InfoRow icon={<Bed className="h-3.5 w-3.5" />} label="Quartos" value={leadQual.detected_bedrooms?.toString() || '—'} />
@@ -423,9 +551,10 @@ const ChatPage: React.FC = () => {
             </div>
           )}
 
+          {/* Tags */}
           {contact?.tags && contact.tags.length > 0 && (
             <div className="p-4">
-              <h3 className="font-display text-sm font-bold text-foreground mb-2">Tags</h3>
+              <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tags</h4>
               <div className="flex flex-wrap gap-1.5">
                 {contact.tags.map((tag) => (
                   <Badge key={tag} variant="secondary" className="text-[10px]">

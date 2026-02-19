@@ -1,47 +1,36 @@
 
-# Corrigir Mensagens Inbound Nao Salvas
 
-## Problema Raiz
+# Corrigir Integração Vista CRM
 
-A funcao `processInboundMessage` no `whatsapp-webhook` (linha 196-209) insere mensagens com duas colunas inexistentes na tabela `messages`:
-- `wa_phone_number_id` -- nao existe
-- `wa_timestamp` -- nao existe
-
-Isso causa falha no INSERT, e nenhuma mensagem inbound e salva no banco. O frontend so exibe mensagens outbound porque sao as unicas que existem.
+## Problema
+As edge functions `vista-search-properties` e `vista-get-property` falham porque o tipo `Tenant` espera o campo `crm_base_url`, mas a coluna no banco de dados se chama `crm_api_url`. O `SELECT *` retorna `crm_api_url`, e o codigo checa `crm_base_url` que e `undefined`.
 
 ## Solucao
 
-### 1. Corrigir o INSERT no whatsapp-webhook
+Alinhar o tipo `Tenant` com o banco de dados, trocando `crm_base_url` por `crm_api_url` em todos os arquivos que o referenciam.
 
-Remover as colunas `wa_phone_number_id` e `wa_timestamp` do insert em `supabase/functions/whatsapp-webhook/index.ts` (linhas 196-209). O campo `wa_to` tambem deve ser preenchido corretamente (com o numero do WhatsApp Business).
+## Arquivos a alterar
 
-Codigo corrigido:
-```typescript
-await supabase.from('messages').insert({
-  tenant_id: tenant.id,
-  conversation_id: conversation.id,
-  wa_message_id: waMessageId,
-  wa_from: phoneNumber,
-  wa_to: params.waPhoneNumberId,  // era wa_phone_number_id
-  direction: 'inbound',
-  body: messageBody,
-  media_type: params.messageType !== 'text' ? params.messageType : null,
-  department_code: conversation.department_code,
-  raw: params.rawMessage,
-  created_at: new Date().toISOString(),
-});
+### 1. `supabase/functions/_shared/types.ts`
+- Renomear `crm_base_url` para `crm_api_url` na interface `Tenant` (linha 19)
+
+### 2. `supabase/functions/vista-search-properties/index.ts`
+- Linha 35: trocar `t.crm_base_url` por `t.crm_api_url`
+- Linha 121: trocar `tenant.crm_base_url` por `tenant.crm_api_url`
+- Linha 165: trocar `tenant.crm_base_url` por `tenant.crm_api_url`
+
+### 3. `supabase/functions/vista-get-property/index.ts`
+- Linha 30: trocar `t.crm_base_url` por `t.crm_api_url`
+- Linha 35: trocar `t.crm_base_url` por `t.crm_api_url`
+
+### 4. Verificar outros arquivos shared
+- Checar `_shared/property.ts` por referencias a `crm_base_url`
+
+## Validacao
+Apos o deploy, chamar novamente:
 ```
+POST /vista-search-properties
+{ "tenant_id": "a0000000-...-000000000001", "search_params": { "finalidade": "locacao", "cidade": "Florianopolis" } }
+```
+Deve retornar uma lista de imoveis ao inves do erro 400.
 
-### 2. Redeploy da edge function
-
-Redeployar `whatsapp-webhook` apos a correcao.
-
-### 3. Verificacao
-
-Verificar nos logs que as mensagens inbound estao sendo salvas corretamente e aparecem no chat.
-
-## Detalhes Tecnicos
-
-- Arquivo: `supabase/functions/whatsapp-webhook/index.ts`, linhas 196-209
-- Colunas validas da tabela `messages`: id, tenant_id, conversation_id, wa_message_id, wa_from, wa_to, direction, body, media_type, media_url, media_caption, media_filename, media_mime_type, department_code, raw, created_at
-- Impacto: Todas as mensagens inbound futuras serao salvas. Mensagens passadas que foram perdidas nao podem ser recuperadas automaticamente.

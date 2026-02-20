@@ -148,7 +148,7 @@ const ReportsPage: React.FC = () => {
   const qualRate = totalConversations > 0 ? ((qualifiedLeads / totalConversations) * 100).toFixed(1) : '0';
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

@@ -5,7 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Plus, Eye } from 'lucide-react';
+import { Loader2, Plus, Eye, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
@@ -67,7 +67,7 @@ const CampaignsPage: React.FC = () => {
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <div className="p-4 border-b border-border bg-card flex items-center justify-between">
         <div>
-          <h2 className="font-display text-xl font-bold text-foreground">Campanhas</h2>
+          <h2 className="font-display text-2xl font-bold text-foreground">Campanhas</h2>
           <p className="text-sm text-muted-foreground">Envio em massa via WhatsApp</p>
         </div>
         <Button onClick={() => setDialogOpen(true)}>
@@ -77,12 +77,19 @@ const CampaignsPage: React.FC = () => {
 
       <div className="flex-1 overflow-auto p-4">
         {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-accent" />
+          <div className="p-4 space-y-3">
+            {[1, 2, 3, 4].map(i => <div key={i} className="skeleton h-12 w-full" />)}
           </div>
         ) : campaigns.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            Nenhuma campanha criada ainda.
+          <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+              <MessageSquare className="h-8 w-8 text-accent" />
+            </div>
+            <p className="text-foreground font-medium mb-1">Nenhuma campanha criada</p>
+            <p className="text-muted-foreground text-sm max-w-sm mb-4">Crie sua primeira campanha para enviar mensagens em massa via WhatsApp.</p>
+            <Button size="sm" className="gap-1.5" onClick={() => setDialogOpen(true)}>
+              <Plus className="h-4 w-4" /> Criar Campanha
+            </Button>
           </div>
         ) : (
           <Table>

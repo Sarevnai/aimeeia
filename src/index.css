@@ -122,6 +122,32 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
   }
+
+  /* ── Smooth global transitions ── */
+  button, a, input, select, textarea {
+    @apply transition-colors duration-150;
+  }
+
+  /* ── Accessible focus ring ── */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background rounded-sm;
+  }
+
+  /* ── Polished scrollbar ── */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.3);
+  }
 }
 
 @layer utilities {
@@ -140,4 +166,43 @@
   .shadow-prominent {
     box-shadow: var(--shadow-lg);
   }
+}
+
+/* ── Animations ── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out both;
+}
+
+/* ── Skeleton loading ── */
+.skeleton {
+  @apply rounded-lg bg-muted;
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+}
+
+/* ── Card hover polish ── */
+.card-interactive {
+  @apply rounded-xl bg-card border border-border shadow-card transition-all duration-200;
+}
+.card-interactive:hover {
+  @apply shadow-elevated border-border/80;
+  transform: translateY(-1px);
 }

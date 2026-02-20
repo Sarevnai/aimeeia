@@ -155,7 +155,7 @@ const GuiaPage: React.FC = () => {
                         <div
                             key={section.id}
                             className={cn(
-                                'rounded-xl bg-card border border-border shadow-card overflow-hidden transition-all',
+                                'card-interactive overflow-hidden animate-slide-up',
                                 isExpanded && 'md:col-span-2'
                             )}
                         >

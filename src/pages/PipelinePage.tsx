@@ -114,17 +114,32 @@ const PipelinePage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-        <Loader2 className="h-6 w-6 animate-spin text-accent" />
+      <div className="flex flex-col h-[calc(100vh-4rem)]">
+        <div className="p-4 border-b border-border bg-card">
+          <div className="skeleton h-7 w-24 mb-1" />
+          <div className="skeleton h-4 w-56" />
+        </div>
+        <div className="flex gap-4 p-4">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="w-72 shrink-0 space-y-3">
+              <div className="skeleton h-8 w-full" />
+              <div className="skeleton h-16 w-full" />
+              <div className="skeleton h-16 w-full" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
   if (stages.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] gap-3">
-        <Settings className="h-10 w-10 text-muted-foreground" />
-        <p className="text-muted-foreground text-sm">Configure os estágios em Configurações</p>
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] animate-fade-in">
+        <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+          <Settings className="h-8 w-8 text-accent" />
+        </div>
+        <p className="text-foreground font-medium mb-1">Pipeline não configurado</p>
+        <p className="text-muted-foreground text-sm">Configure os estágios em Minha Aimee → Configurações</p>
       </div>
     );
   }
@@ -132,7 +147,8 @@ const PipelinePage: React.FC = () => {
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <div className="p-4 border-b border-border bg-card">
-        <h2 className="font-display text-xl font-bold text-foreground">Pipeline</h2>
+        <h2 className="font-display text-2xl font-bold text-foreground">Pipeline</h2>
+        <p className="text-sm text-muted-foreground">Organize seus leads por estágio de atendimento</p>
       </div>
 
       <ScrollArea className="flex-1">

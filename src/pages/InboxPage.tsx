@@ -191,8 +191,8 @@ const InboxPage: React.FC = () => {
       {/* Header */}
       <div className="p-4 border-b border-border bg-card space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-xl font-bold text-foreground">Conversas</h2>
-          <span className="text-xs text-muted-foreground">{filtered.length} conversas</span>
+          <h2 className="font-display text-2xl font-bold text-foreground">Conversas</h2>
+          <span className="text-sm text-muted-foreground">{filtered.length} conversas</span>
         </div>
 
         {/* Tabs */}

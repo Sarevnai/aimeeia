@@ -260,8 +260,8 @@ const LeadsPage: React.FC = () => {
       <div className="p-4 border-b border-border bg-card space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-display text-xl font-bold text-foreground">Leads</h2>
-            <p className="text-xs text-muted-foreground">{total} lead{total !== 1 ? 's' : ''} no total</p>
+            <h2 className="font-display text-2xl font-bold text-foreground">Leads</h2>
+            <p className="text-sm text-muted-foreground">{total} lead{total !== 1 ? 's' : ''} no total</p>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -288,13 +288,25 @@ const LeadsPage: React.FC = () => {
       {/* Table */}
       <div className="flex-1 overflow-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-40">
-            <Loader2 className="h-6 w-6 animate-spin text-accent" />
+          <div className="p-4 space-y-3">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="flex items-center gap-4">
+                <div className="skeleton h-4 w-4" />
+                <div className="skeleton h-4 w-36" />
+                <div className="skeleton h-4 w-28" />
+                <div className="skeleton h-4 w-20" />
+                <div className="skeleton h-4 w-20" />
+                <div className="skeleton h-4 w-16" />
+              </div>
+            ))}
           </div>
         ) : leads.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 text-sm text-muted-foreground gap-2">
-            <User className="h-8 w-8 opacity-40" />
-            Nenhum lead encontrado
+          <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+              <User className="h-8 w-8 text-accent" />
+            </div>
+            <p className="text-foreground font-medium mb-1">Nenhum lead encontrado</p>
+            <p className="text-muted-foreground text-sm max-w-sm">Os leads aparecerão aqui à medida que a Aimee iniciar novas conversas.</p>
           </div>
         ) : (
           <Table>

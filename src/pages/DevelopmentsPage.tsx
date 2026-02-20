@@ -38,7 +38,7 @@ const DevelopmentsPage: React.FC = () => {
   }, [tenantId]);
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-display text-2xl font-bold text-foreground">Empreendimentos</h2>
@@ -50,11 +50,28 @@ const DevelopmentsPage: React.FC = () => {
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Carregando...</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="rounded-xl bg-card border border-border overflow-hidden">
+              <div className="skeleton h-40 w-full rounded-none" />
+              <div className="p-4 space-y-2">
+                <div className="skeleton h-5 w-32" />
+                <div className="skeleton h-3 w-48" />
+                <div className="skeleton h-4 w-24" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : developments.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <Building2 className="h-12 w-12 mb-3 opacity-40" />
-          <p className="text-sm">Nenhum empreendimento cadastrado</p>
+        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+            <Building2 className="h-8 w-8 text-accent" />
+          </div>
+          <p className="text-foreground font-medium mb-1">Nenhum empreendimento cadastrado</p>
+          <p className="text-muted-foreground text-sm max-w-sm mb-4">Cadastre seus empreendimentos para que a Aimee possa apresentá-los aos leads.</p>
+          <Button onClick={() => navigate('/empreendimentos/novo')} className="gap-2">
+            <Plus className="h-4 w-4" /> Novo Empreendimento
+          </Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -64,7 +81,7 @@ const DevelopmentsPage: React.FC = () => {
               <div
                 key={dev.id}
                 onClick={() => navigate(`/empreendimentos/${dev.id}/editar`)}
-                className="rounded-xl bg-card border border-border shadow-card overflow-hidden cursor-pointer hover:shadow-elevated transition-shadow"
+                className="card-interactive overflow-hidden cursor-pointer"
               >
                 {dev.hero_image ? (
                   <img src={dev.hero_image} alt={dev.name} className="h-40 w-full object-cover" />

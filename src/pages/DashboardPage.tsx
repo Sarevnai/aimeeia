@@ -288,8 +288,28 @@ const DashboardPage: React.FC = () => {
 
   if (loading && totalConv === 0) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-        <Loader2 className="h-6 w-6 animate-spin text-accent" />
+      <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <div className="skeleton h-7 w-32" />
+            <div className="skeleton h-4 w-48" />
+          </div>
+          <div className="skeleton h-10 w-44 rounded-lg" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="rounded-xl bg-card border border-border p-5 space-y-3">
+              <div className="skeleton h-4 w-28" />
+              <div className="skeleton h-8 w-14" />
+              <div className="skeleton h-2 w-full" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="skeleton h-64 w-full rounded-xl" />
+          <div className="skeleton h-64 w-full rounded-xl" />
+        </div>
+        <div className="skeleton h-48 w-full rounded-xl" />
       </div>
     );
   }

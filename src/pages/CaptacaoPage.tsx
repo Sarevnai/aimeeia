@@ -139,21 +139,23 @@ const CaptacaoPage: React.FC = () => {
 
             {/* Notifications */}
             {loading ? (
-                <div className="flex items-center justify-center h-40">
-                    <Loader2 className="h-6 w-6 animate-spin text-accent" />
+                <div className="space-y-3">
+                    {[1, 2, 3].map(i => <div key={i} className="skeleton h-20 w-full" />)}
                 </div>
             ) : filtered.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 text-sm text-muted-foreground gap-2">
-                    <Radar className="h-10 w-10 opacity-30" />
-                    <p>Nenhuma oportunidade de captação identificada</p>
-                    <p className="text-xs">A Aimee notificará aqui quando detectar leads com intenção de venda</p>
+                <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+                    <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+                        <Radar className="h-8 w-8 text-accent" />
+                    </div>
+                    <p className="text-foreground font-medium mb-1">Nenhuma oportunidade de captação</p>
+                    <p className="text-muted-foreground text-sm max-w-sm">A Aimee notificará aqui quando detectar leads com intenção de venda ou troca de imóvel.</p>
                 </div>
             ) : (
                 <div className="space-y-3">
                     {filtered.map((n) => (
                         <div
                             key={n.id}
-                            className="flex items-start gap-4 rounded-xl bg-card p-4 border border-border shadow-card animate-fade-in"
+                            className="card-interactive flex items-start gap-4 p-4 animate-fade-in"
                         >
                             {/* Icon */}
                             <div className="shrink-0 p-2.5 rounded-lg bg-accent/10">

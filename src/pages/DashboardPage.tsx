@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Loader2, ChevronDown, TrendingUp, Users, UserCheck, ArrowRightLeft, Clock, Calendar } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -120,6 +122,7 @@ const renderCustomPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, perc
 /* ─── Main ─── */
 
 const DashboardPage: React.FC = () => {
+  const { profile, loading: authLoading } = useAuth();
   const { tenantId } = useTenant();
 
   // Month filter
@@ -282,6 +285,11 @@ const DashboardPage: React.FC = () => {
     }
     return opts;
   }, []);
+
+  // Super admin always redirects to admin central
+  if (!authLoading && profile?.role === 'super_admin') {
+    return <Navigate to="/admin" replace />;
+  }
 
   const pctAttended = totalConv > 0 ? (aiAttended / totalConv) * 100 : 0;
   const pctForwarded = totalConv > 0 ? (forwarded / totalConv) * 100 : 0;

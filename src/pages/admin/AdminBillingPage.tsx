@@ -1,26 +1,27 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-    DollarSign,
-    TrendingUp,
-    AlertTriangle,
-    CreditCard,
     CheckCircle2,
+    CreditCard,
+    Download,
+    FileClock,
+    Gauge,
+    ReceiptText,
+    Sparkles,
     Users,
-    Pencil,
-    Check,
-    X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
-import TenantStatusBadge, { type TenantStatus } from '@/components/admin/TenantStatusBadge';
 
-// ── Mock data ─────────────────────────────────────────────────────────
-
-const billingMetrics = {
-    mrr: 4773,
-    arr: 57276,
-    churnRate: 2.1,
-    avgLtv: 14319,
+const accountSummary = {
+    agency: 'Casa da Lais',
+    currentPlan: 'Pro',
+    monthlyPrice: 597,
+    billingDay: 15,
+    trialEndsAt: null,
+    usage: {
+        conversations: { used: 1382, limit: 2000 },
+        users: { used: 7, limit: 10 },
+    },
 };
 
 const plans = [
@@ -29,191 +30,209 @@ const plans = [
         name: 'Starter',
         monthlyPrice: 297,
         annualPrice: 2970,
-        maxConversations: 500,
-        maxUsers: 3,
-        features: ['WhatsApp', 'Leads básico'],
-        activeCount: 3,
-        color: 'hsl(207 65% 44%)',
+        description: 'Para operação enxuta com foco em atendimento via WhatsApp.',
+        features: ['Até 3 usuários', '500 conversas/mês', 'Leads básico', 'Suporte padrão'],
+        highlighted: false,
     },
     {
         slug: 'pro',
         name: 'Pro',
         monthlyPrice: 597,
         annualPrice: 5970,
-        maxConversations: 2000,
-        maxUsers: 10,
-        features: ['WhatsApp', 'Portal Leads', 'Campanhas', 'Relatórios'],
-        activeCount: 5,
-        color: 'hsl(250 70% 60%)',
+        description: 'Plano mais usado para escalar captação, campanhas e operação comercial.',
+        features: ['Até 10 usuários', '2.000 conversas/mês', 'Portal Leads + Campanhas', 'Relatórios e automações'],
+        highlighted: true,
     },
     {
         slug: 'enterprise',
         name: 'Enterprise',
         monthlyPrice: 997,
         annualPrice: 9970,
-        maxConversations: null,
-        maxUsers: null,
-        features: ['Tudo Pro', 'API Access', 'Agente customizado', 'Suporte dedicado'],
-        activeCount: 1,
-        color: 'hsl(38 92% 50%)',
+        description: 'Para times avançados com necessidade de personalização e alto volume.',
+        features: ['Usuários ilimitados', 'Conversas ilimitadas', 'API + integrações customizadas', 'Suporte dedicado'],
+        highlighted: false,
     },
 ];
 
-const subscriptions: {
-    tenant: string;
-    plan: string;
-    status: TenantStatus;
-    mrr: number;
-    nextBilling: string;
-    cycle: string;
-}[] = [
-        { tenant: 'Smolka Imóveis', plan: 'Pro', status: 'active', mrr: 597, nextBilling: '2026-03-15', cycle: 'Mensal' },
-        { tenant: 'Casa Verde Imobiliária', plan: 'Enterprise', status: 'active', mrr: 997, nextBilling: '2026-03-20', cycle: 'Mensal' },
-        { tenant: 'Porto Seguro Realty', plan: 'Pro', status: 'active', mrr: 597, nextBilling: '2026-03-10', cycle: 'Mensal' },
-        { tenant: 'Horizonte Imóveis', plan: 'Starter', status: 'active', mrr: 297, nextBilling: '2026-03-05', cycle: 'Mensal' },
-        { tenant: 'Nova Era Construtora', plan: 'Pro', status: 'trial', mrr: 0, nextBilling: '—', cycle: 'Trial' },
-        { tenant: 'Alto Padrão Imóveis', plan: 'Starter', status: 'trial', mrr: 0, nextBilling: '—', cycle: 'Trial' },
-        { tenant: 'Real Estate SP', plan: 'Pro', status: 'past_due', mrr: 597, nextBilling: '2026-02-15', cycle: 'Mensal' },
-    ];
+const invoiceHistory = [
+    { ref: 'FAT-2026-02', dueDate: '15/02/2026', amount: 597, status: 'Pago' },
+    { ref: 'FAT-2026-01', dueDate: '15/01/2026', amount: 597, status: 'Pago' },
+    { ref: 'FAT-2025-12', dueDate: '15/12/2025', amount: 597, status: 'Pago' },
+    { ref: 'FAT-2025-11', dueDate: '15/11/2025', amount: 597, status: 'Pago' },
+];
 
-// ── Component ─────────────────────────────────────────────────────────
+const pct = (used: number, limit: number) => Math.min(100, Math.round((used / limit) * 100));
 
 const AdminBillingPage: React.FC = () => {
     return (
         <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto animate-fade-in">
-            {/* Header */}
-            <div>
-                <h1 className="font-display text-2xl font-bold text-foreground">Billing</h1>
-                <p className="text-sm text-muted-foreground mt-1">Gestão financeira e planos da plataforma</p>
+            <div className="bg-gradient-to-r from-[#2F1C56] via-[#4B2E83] to-[#56308f] rounded-2xl p-5 md:p-6 text-white border border-[#7C5DB3]/40">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-white/70">Financeiro</p>
+                        <h1 className="font-display text-2xl md:text-3xl font-bold mt-1">{accountSummary.agency}</h1>
+                        <p className="text-sm text-white/80 mt-2 max-w-xl">
+                            Gestão de plano, cobrança e consumo em um único painel. Estrutura inspirada no fluxo de
+                            financeiro da Casa da Lais.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <Button className="bg-white text-[#4B2E83] hover:bg-white/90">
+                            <Download className="h-4 w-4 mr-2" />
+                            Baixar boleto
+                        </Button>
+                        <Button variant="outline" className="border-white/40 text-white hover:bg-white/10">
+                            <Sparkles className="h-4 w-4 mr-2" />
+                            Alterar plano
+                        </Button>
+                    </div>
+                </div>
             </div>
 
-            {/* KPIs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <AdminMetricCard
-                    title="MRR"
-                    value={`R$ ${billingMetrics.mrr.toLocaleString('pt-BR')}`}
-                    subtitle="Monthly Recurring Revenue"
-                    icon={DollarSign}
-                    trend={{ value: 13.6, label: 'vs mês anterior' }}
-                    accentColor="hsl(142 71% 45%)"
-                />
-                <AdminMetricCard
-                    title="ARR"
-                    value={`R$ ${billingMetrics.arr.toLocaleString('pt-BR')}`}
-                    subtitle="Annual Recurring Revenue"
-                    icon={TrendingUp}
+                    title="Plano atual"
+                    value={accountSummary.currentPlan}
+                    subtitle={`R$ ${accountSummary.monthlyPrice}/mês`}
+                    icon={CreditCard}
                     accentColor="hsl(250 70% 60%)"
                 />
                 <AdminMetricCard
-                    title="Churn Rate"
-                    value={`${billingMetrics.churnRate}%`}
-                    subtitle="Últimos 30 dias"
-                    icon={AlertTriangle}
+                    title="Próximo vencimento"
+                    value={`${accountSummary.billingDay}/03/2026`}
+                    subtitle="Cobrança mensal"
+                    icon={FileClock}
                     accentColor="hsl(38 92% 50%)"
                 />
                 <AdminMetricCard
-                    title="LTV Médio"
-                    value={`R$ ${billingMetrics.avgLtv.toLocaleString('pt-BR')}`}
-                    subtitle="Lifetime Value"
-                    icon={CreditCard}
-                    trend={{ value: 8.4, label: 'vs trimestre anterior' }}
+                    title="Uso de conversas"
+                    value={`${accountSummary.usage.conversations.used}/${accountSummary.usage.conversations.limit}`}
+                    subtitle={`${pct(accountSummary.usage.conversations.used, accountSummary.usage.conversations.limit)}% utilizado`}
+                    icon={Gauge}
+                    accentColor="hsl(142 71% 45%)"
+                />
+                <AdminMetricCard
+                    title="Usuários ativos"
+                    value={`${accountSummary.usage.users.used}/${accountSummary.usage.users.limit}`}
+                    subtitle="Licenças em uso"
+                    icon={Users}
                     accentColor="hsl(207 65% 44%)"
                 />
             </div>
 
-            {/* Plans */}
-            <div>
-                <h2 className="text-sm font-semibold text-foreground mb-3">Planos Disponíveis</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {plans.map((plan) => (
-                        <div key={plan.slug} className="bg-card border border-border rounded-xl p-5 card-interactive">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-2">
-                                    <div
-                                        className="w-3 h-3 rounded-full"
-                                        style={{ backgroundColor: plan.color }}
-                                    />
-                                    <h3 className="text-lg font-bold text-foreground font-display">{plan.name}</h3>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5">
+                    <h2 className="text-sm font-semibold text-foreground mb-4">Planos disponíveis</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {plans.map((plan) => (
+                            <div
+                                key={plan.slug}
+                                className={`rounded-xl border p-4 ${
+                                    plan.highlighted
+                                        ? 'border-primary/60 bg-primary/5 shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
+                                        : 'border-border bg-background'
+                                }`}
+                            >
+                                <div className="flex items-center justify-between gap-2">
+                                    <h3 className="font-display text-lg font-semibold text-foreground">{plan.name}</h3>
+                                    {plan.highlighted && (
+                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/15 px-2 py-1 rounded-full">
+                                            Atual
+                                        </span>
+                                    )}
                                 </div>
-                                <Button variant="ghost" size="icon" className="h-7 w-7">
-                                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                                </Button>
+                                <p className="text-2xl font-bold text-foreground mt-3">R$ {plan.monthlyPrice}</p>
+                                <p className="text-xs text-muted-foreground">ou R$ {plan.annualPrice}/ano</p>
+                                <p className="text-xs text-muted-foreground mt-3 leading-relaxed">{plan.description}</p>
+                                <div className="mt-3 pt-3 border-t border-border/60 space-y-1.5">
+                                    {plan.features.map((feature) => (
+                                        <div key={feature} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                            <span>{feature}</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
+                        ))}
+                    </div>
+                </div>
 
-                            <div className="mb-4">
-                                <span className="text-2xl font-bold text-foreground">
-                                    R$ {plan.monthlyPrice}
+                <div className="bg-card border border-border rounded-xl p-5">
+                    <h2 className="text-sm font-semibold text-foreground mb-4">Resumo de consumo</h2>
+                    <div className="space-y-4">
+                        <div>
+                            <div className="flex items-center justify-between text-xs mb-1.5">
+                                <span className="text-muted-foreground">Conversas no ciclo</span>
+                                <span className="font-medium text-foreground">
+                                    {accountSummary.usage.conversations.used}/{accountSummary.usage.conversations.limit}
                                 </span>
-                                <span className="text-sm text-muted-foreground">/mês</span>
                             </div>
-
-                            <div className="space-y-2 mb-4">
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <Users className="h-3.5 w-3.5" />
-                                    <span>{plan.maxUsers ? `Até ${plan.maxUsers} usuários` : 'Usuários ilimitados'}</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <CreditCard className="h-3.5 w-3.5" />
-                                    <span>{plan.maxConversations ? `${plan.maxConversations} conversas/mês` : 'Conversas ilimitadas'}</span>
-                                </div>
-                            </div>
-
-                            <div className="pt-3 border-t border-border/50 space-y-1.5">
-                                {plan.features.map((f) => (
-                                    <div key={f} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                        <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                                        {f}
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="mt-4 pt-3 border-t border-border/50">
-                                <span className="text-xs text-muted-foreground">
-                                    {plan.activeCount} tenant{plan.activeCount !== 1 ? 's' : ''} ativo{plan.activeCount !== 1 ? 's' : ''}
-                                </span>
+                            <div className="h-2 rounded-full bg-muted overflow-hidden">
+                                <div
+                                    className="h-full rounded-full bg-primary"
+                                    style={{
+                                        width: `${pct(accountSummary.usage.conversations.used, accountSummary.usage.conversations.limit)}%`,
+                                    }}
+                                />
                             </div>
                         </div>
-                    ))}
+
+                        <div>
+                            <div className="flex items-center justify-between text-xs mb-1.5">
+                                <span className="text-muted-foreground">Usuários ativos</span>
+                                <span className="font-medium text-foreground">
+                                    {accountSummary.usage.users.used}/{accountSummary.usage.users.limit}
+                                </span>
+                            </div>
+                            <div className="h-2 rounded-full bg-muted overflow-hidden">
+                                <div
+                                    className="h-full rounded-full bg-[#5AC8A7]"
+                                    style={{ width: `${pct(accountSummary.usage.users.used, accountSummary.usage.users.limit)}%` }}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-border/50 text-xs text-muted-foreground leading-relaxed">
+                            Para evitar bloqueios por limite, faça upgrade antes do fechamento do ciclo. Alterações de
+                            plano são aplicadas de forma proporcional.
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            {/* Subscriptions Table */}
             <div className="bg-card border border-border rounded-xl p-5">
-                <h2 className="text-sm font-semibold text-foreground mb-4">Assinaturas</h2>
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-foreground">Histórico de faturas</h2>
+                    <Button variant="outline" size="sm">
+                        <ReceiptText className="h-4 w-4 mr-2" />
+                        Ver todas
+                    </Button>
+                </div>
                 <div className="overflow-x-auto">
                     <table className="w-full">
                         <thead>
                             <tr className="border-b border-border">
-                                <th className="text-left text-xs font-medium text-muted-foreground pb-3 pr-4">Tenant</th>
-                                <th className="text-left text-xs font-medium text-muted-foreground pb-3 pr-4">Plano</th>
-                                <th className="text-left text-xs font-medium text-muted-foreground pb-3 pr-4">Status</th>
-                                <th className="text-right text-xs font-medium text-muted-foreground pb-3 pr-4">MRR</th>
-                                <th className="text-left text-xs font-medium text-muted-foreground pb-3 pr-4 hidden md:table-cell">Ciclo</th>
-                                <th className="text-left text-xs font-medium text-muted-foreground pb-3 hidden lg:table-cell">Próx. Cobrança</th>
+                                <th className="text-left text-xs font-medium text-muted-foreground pb-3 pr-4">Referência</th>
+                                <th className="text-left text-xs font-medium text-muted-foreground pb-3 pr-4">Vencimento</th>
+                                <th className="text-right text-xs font-medium text-muted-foreground pb-3 pr-4">Valor</th>
+                                <th className="text-left text-xs font-medium text-muted-foreground pb-3">Status</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {subscriptions.map((sub, i) => (
-                                <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
-                                    <td className="py-3 pr-4">
-                                        <span className="text-sm font-medium text-foreground">{sub.tenant}</span>
+                            {invoiceHistory.map((invoice) => (
+                                <tr
+                                    key={invoice.ref}
+                                    className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors"
+                                >
+                                    <td className="py-3 pr-4 text-sm font-medium text-foreground">{invoice.ref}</td>
+                                    <td className="py-3 pr-4 text-xs text-muted-foreground">{invoice.dueDate}</td>
+                                    <td className="py-3 pr-4 text-right text-sm font-semibold text-foreground">
+                                        R$ {invoice.amount}
                                     </td>
-                                    <td className="py-3 pr-4">
-                                        <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded">{sub.plan}</span>
-                                    </td>
-                                    <td className="py-3 pr-4">
-                                        <TenantStatusBadge status={sub.status} />
-                                    </td>
-                                    <td className="py-3 pr-4 text-right">
-                                        <span className="text-sm font-semibold text-foreground">
-                                            {sub.mrr > 0 ? `R$ ${sub.mrr}` : '—'}
+                                    <td className="py-3">
+                                        <span className="text-xs font-medium bg-emerald-500/10 text-emerald-600 px-2 py-1 rounded-full">
+                                            {invoice.status}
                                         </span>
-                                    </td>
-                                    <td className="py-3 pr-4 hidden md:table-cell">
-                                        <span className="text-xs text-muted-foreground">{sub.cycle}</span>
-                                    </td>
-                                    <td className="py-3 hidden lg:table-cell">
-                                        <span className="text-xs text-muted-foreground">{sub.nextBilling}</span>
                                     </td>
                                 </tr>
                             ))}

@@ -26,6 +26,15 @@ import AtualizacaoPage from "@/pages/AtualizacaoPage";
 import TemplatesPage from "@/pages/TemplatesPage";
 import NotFound from "./pages/NotFound";
 
+// Admin Central
+import AdminLayout from "@/components/admin/AdminLayout";
+import AdminDashboardPage from "@/pages/admin/AdminDashboardPage";
+import AdminTenantsPage from "@/pages/admin/AdminTenantsPage";
+import AdminTenantDetailPage from "@/pages/admin/AdminTenantDetailPage";
+import AdminBillingPage from "@/pages/admin/AdminBillingPage";
+import AdminAgentPage from "@/pages/admin/AdminAgentPage";
+import AdminMetricsPage from "@/pages/admin/AdminMetricsPage";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -57,6 +66,15 @@ const App = () => (
                   <Route path="/atualizacao" element={<AtualizacaoPage />} />
                   <Route path="/templates" element={<TemplatesPage />} />
                   <Route path="/guia" element={<GuiaPage />} />
+                </Route>
+                {/* Admin Central — super_admin only */}
+                <Route path="/admin" element={<AdminLayout />}>
+                  <Route index element={<AdminDashboardPage />} />
+                  <Route path="tenants" element={<AdminTenantsPage />} />
+                  <Route path="tenants/:id" element={<AdminTenantDetailPage />} />
+                  <Route path="billing" element={<AdminBillingPage />} />
+                  <Route path="agent" element={<AdminAgentPage />} />
+                  <Route path="metrics" element={<AdminMetricsPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

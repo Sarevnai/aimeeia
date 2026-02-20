@@ -7,7 +7,7 @@ interface Profile {
   tenant_id: string;
   full_name: string | null;
   avatar_url: string | null;
-  role: 'admin' | 'operator' | 'viewer' | null;
+  role: 'super_admin' | 'admin' | 'operator' | 'viewer' | null;
 }
 
 interface AuthContextType {

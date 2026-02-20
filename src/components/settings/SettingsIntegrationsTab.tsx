@@ -30,7 +30,7 @@ const SettingsIntegrationsTab: React.FC = () => {
   const { toast } = useToast();
 
   // WhatsApp & CRM
-  const [waForm, setWaForm] = useState({ wa_phone_number_id: '', wa_access_token: '', wa_verify_token: '' });
+  const [waForm, setWaForm] = useState({ wa_phone_number_id: '', wa_access_token: '', wa_verify_token: '', waba_id: '' });
   const [crmForm, setCrmForm] = useState({ crm_type: 'vista', crm_api_key: '', crm_api_url: '' });
   const [showTokens, setShowTokens] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -54,14 +54,14 @@ const SettingsIntegrationsTab: React.FC = () => {
     const fetch = async () => {
       setLoading(true);
       const [tenantRes, hoursRes, regionsRes] = await Promise.all([
-        supabase.from('tenants').select('wa_phone_number_id, wa_access_token, wa_verify_token, crm_type, crm_api_key, crm_api_url').eq('id', tenantId).single(),
+        supabase.from('tenants').select('wa_phone_number_id, wa_access_token, wa_verify_token, waba_id, crm_type, crm_api_key, crm_api_url').eq('id', tenantId).single(),
         supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'business_hours').single(),
         supabase.from('regions').select('*').eq('tenant_id', tenantId).order('region_name'),
       ]);
 
       if (tenantRes.data) {
-        const t = tenantRes.data;
-        setWaForm({ wa_phone_number_id: t.wa_phone_number_id || '', wa_access_token: t.wa_access_token || '', wa_verify_token: t.wa_verify_token || '' });
+        const t = tenantRes.data as any;
+        setWaForm({ wa_phone_number_id: t.wa_phone_number_id || '', wa_access_token: t.wa_access_token || '', wa_verify_token: t.wa_verify_token || '', waba_id: t.waba_id || '' });
         setCrmForm({ crm_type: t.crm_type || 'vista', crm_api_key: t.crm_api_key || '', crm_api_url: t.crm_api_url || '' });
       }
       if (hoursRes.data) {
@@ -159,6 +159,9 @@ const SettingsIntegrationsTab: React.FC = () => {
         <CardContent className="space-y-4">
           <FieldGroup label="Phone Number ID" description="ID do número no WhatsApp Business API.">
             <Input value={waForm.wa_phone_number_id} onChange={(e) => setWaForm({ ...waForm, wa_phone_number_id: e.target.value })} />
+          </FieldGroup>
+          <FieldGroup label="WABA ID" description="ID da conta WhatsApp Business (necessário para gerenciar templates).">
+            <Input value={waForm.waba_id} onChange={(e) => setWaForm({ ...waForm, waba_id: e.target.value })} placeholder="Ex: 123456789012345" />
           </FieldGroup>
           <MaskedField label="Access Token" description="Token de acesso da Graph API." value={waForm.wa_access_token} onChange={(v) => setWaForm({ ...waForm, wa_access_token: v })} show={showTokens.wa_token} onToggle={() => toggleToken('wa_token')} />
           <MaskedField label="Verify Token" description="Token de verificação do webhook." value={waForm.wa_verify_token} onChange={(v) => setWaForm({ ...waForm, wa_verify_token: v })} show={showTokens.wa_verify} onToggle={() => toggleToken('wa_verify')} />

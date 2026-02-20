@@ -62,10 +62,24 @@ serve(async (req: Request) => {
 // ========== HANDLE DIRECT META WEBHOOK ==========
 
 async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
-  const entries = body.entry as WhatsAppWebhookEntry[] || [];
+  const entries = body.entry || [];
 
   for (const entry of entries) {
     for (const change of entry.changes) {
+      // ── MESSAGE TEMPLATE STATUS UPDATE ──
+      // Meta sends this when a template is approved, rejected, or paused
+      if (change.field === 'message_template_status_update') {
+        await processTemplateStatusUpdate(supabase, entry.id, change.value);
+        continue;
+      }
+
+      // ── ACCOUNT UPDATE (template quality, etc) ──
+      if (change.field === 'account_update') {
+        console.log('ℹ️ Account update:', JSON.stringify(change.value));
+        continue;
+      }
+
+      // ── MESSAGES (inbound + delivery status) ──
       if (change.field !== 'messages') continue;
 
       const value = change.value;
@@ -79,14 +93,14 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
         continue;
       }
 
-      // Process status updates
+      // Process delivery status updates (sent, delivered, read, failed)
       if (value.statuses) {
         for (const status of value.statuses) {
           await processStatusUpdate(supabase, tenant, status);
         }
       }
 
-      // Process messages
+      // Process inbound messages
       if (value.messages) {
         for (const message of value.messages) {
           const contactInfo = value.contacts?.[0];
@@ -342,7 +356,7 @@ function extractMessageBody(message: any): string {
   if (message.type === 'text') return message.text?.body || '';
   if (message.type === 'interactive') {
     return message.interactive?.button_reply?.title ||
-           message.interactive?.list_reply?.title || '';
+      message.interactive?.list_reply?.title || '';
   }
   if (message.type === 'button') return message.button?.text || '';
   if (message.type === 'image') return message.image?.caption || '[Imagem]';
@@ -352,12 +366,133 @@ function extractMessageBody(message: any): string {
 }
 
 async function processStatusUpdate(supabase: any, tenant: Tenant, status: any) {
-  // Update message status (delivered, read, etc.)
-  if (status.id) {
-    await supabase
-      .from('messages')
-      .update({ raw: { ...status, status_update: true } })
+  const waMessageId = status.id;
+  const statusValue = status.status; // sent, delivered, read, failed
+  const timestamp = status.timestamp;
+  const recipientId = status.recipient_id;
+
+  if (!waMessageId) return;
+
+  console.log(`📊 Status update: ${waMessageId} → ${statusValue}`);
+
+  // 1. Update message record
+  await supabase
+    .from('messages')
+    .update({
+      raw: { status_update: true, status: statusValue, timestamp, recipient_id: recipientId },
+    })
+    .eq('tenant_id', tenant.id)
+    .eq('wa_message_id', waMessageId);
+
+  // 2. Update campaign_results if this message is linked to a campaign
+  const updateData: Record<string, any> = {};
+  const now = new Date().toISOString();
+
+  if (statusValue === 'delivered') {
+    updateData.status = 'delivered';
+    updateData.delivered_at = now;
+  } else if (statusValue === 'read') {
+    updateData.status = 'read';
+    updateData.read_at = now;
+  } else if (statusValue === 'failed') {
+    updateData.status = 'failed';
+    updateData.error_message = status.errors?.[0]?.message || 'Delivery failed';
+  }
+
+  if (Object.keys(updateData).length > 0) {
+    // Try to find and update campaign_result by wa_message_id
+    const { data: campaignResult } = await supabase
+      .from('campaign_results')
+      .select('id')
       .eq('tenant_id', tenant.id)
-      .eq('wa_message_id', status.id);
+      .eq('wa_message_id', waMessageId)
+      .maybeSingle();
+
+    if (campaignResult) {
+      await supabase
+        .from('campaign_results')
+        .update(updateData)
+        .eq('id', campaignResult.id);
+      console.log(`📊 Campaign result updated: ${campaignResult.id} → ${statusValue}`);
+    }
+
+    // Also check owner_update_results
+    const { data: ownerResult } = await supabase
+      .from('owner_update_results')
+      .select('id')
+      .eq('wa_message_id', waMessageId)
+      .maybeSingle();
+
+    if (ownerResult) {
+      await supabase
+        .from('owner_update_results')
+        .update(updateData)
+        .eq('id', ownerResult.id);
+      console.log(`📊 Owner update result updated: ${ownerResult.id} → ${statusValue}`);
+    }
+  }
+}
+
+// ========== TEMPLATE STATUS UPDATE ==========
+// Processes webhooks when Meta approves, rejects, or pauses a template.
+// Payload format:
+// {
+//   "event": "APPROVED",
+//   "message_template_id": 123456,
+//   "message_template_name": "atualizacao_imovel_v1",
+//   "message_template_language": "pt_BR",
+//   "reason": "NONE" | "INCORRECT_CATEGORY" | ...
+// }
+
+async function processTemplateStatusUpdate(supabase: any, wabaId: string, value: any) {
+  const event = value.event; // APPROVED, REJECTED, PAUSED, DISABLED, FLAGGED, REINSTATED
+  const templateName = value.message_template_name;
+  const templateLanguage = value.message_template_language;
+  const reason = value.reason;
+
+  console.log(`📋 Template status update: "${templateName}" (${templateLanguage}) → ${event}${reason ? ` (${reason})` : ''}`);
+
+  if (!templateName) {
+    console.warn('⚠️ Template status update missing template name');
+    return;
+  }
+
+  // Map Meta event to our status
+  const statusMap: Record<string, string> = {
+    'APPROVED': 'APPROVED',
+    'REJECTED': 'REJECTED',
+    'PAUSED': 'PAUSED',
+    'DISABLED': 'DISABLED',
+    'FLAGGED': 'PAUSED',
+    'REINSTATED': 'APPROVED',
+    'PENDING_DELETION': 'DISABLED',
+  };
+
+  const newStatus = statusMap[event] || event;
+
+  // Find tenant by WABA ID
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('id')
+    .eq('waba_id', wabaId)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (!tenant) {
+    console.warn(`⚠️ No tenant found for WABA ID: ${wabaId}`);
+    return;
+  }
+
+  // Update template status in our DB
+  const { error } = await supabase
+    .from('whatsapp_templates')
+    .update({ status: newStatus })
+    .eq('tenant_id', tenant.id)
+    .eq('name', templateName);
+
+  if (error) {
+    console.error(`❌ Failed to update template status: ${error.message}`);
+  } else {
+    console.log(`✅ Template "${templateName}" status updated to ${newStatus}`);
   }
 }

@@ -20,6 +20,7 @@ export interface Tenant {
   wa_phone_number_id: string | null;
   wa_access_token: string | null;
   wa_verify_token: string | null;
+  waba_id: string | null;
   theme_config: Record<string, any>;
   is_active: boolean;
 }

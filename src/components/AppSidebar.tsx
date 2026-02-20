@@ -12,6 +12,7 @@ import {
   Shield,
   BookOpen,
   HelpCircle,
+  Wallet,
   ChevronLeft,
   ChevronRight,
   Radar,
@@ -85,6 +86,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
     {
       label: 'Configurações',
       items: [
+        { label: 'Financeiro', icon: Wallet, path: '/financeiro' },
         { label: 'Minha Aimee', icon: Settings, path: '/minha-aimee' },
         { label: 'Acessos', icon: Shield, path: '/acessos' },
       ],

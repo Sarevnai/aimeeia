@@ -342,6 +342,7 @@ export type Database = {
           sent_at: string | null
           status: string | null
           tenant_id: string
+          wa_message_id: string | null
         }
         Insert: {
           campaign_id?: string | null
@@ -355,6 +356,7 @@ export type Database = {
           sent_at?: string | null
           status?: string | null
           tenant_id: string
+          wa_message_id?: string | null
         }
         Update: {
           campaign_id?: string | null
@@ -368,6 +370,7 @@ export type Database = {
           sent_at?: string | null
           status?: string | null
           tenant_id?: string
+          wa_message_id?: string | null
         }
         Relationships: [
           {
@@ -1472,7 +1475,7 @@ export type Database = {
         | "awaiting_name"
         | "awaiting_triage"
         | "completed"
-      user_role: "admin" | "operator" | "viewer"
+      user_role: "admin" | "operator" | "viewer" | "super_admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1609,7 +1612,7 @@ export const Constants = {
         "awaiting_triage",
         "completed",
       ],
-      user_role: ["admin", "operator", "viewer"],
+      user_role: ["admin", "operator", "viewer", "super_admin"],
     },
   },
 } as const

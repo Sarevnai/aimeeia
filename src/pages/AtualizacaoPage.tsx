@@ -233,8 +233,8 @@ const AtualizacaoPage: React.FC = () => {
             <div className="p-4 border-b border-border bg-card space-y-3">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="font-display text-xl font-bold text-foreground">Atualização de Anúncios</h2>
-                        <p className="text-xs text-muted-foreground">
+                        <h2 className="font-display text-2xl font-bold text-foreground">Atualização de Anúncios</h2>
+                        <p className="text-sm text-muted-foreground">
                             Contate proprietários para verificar se anúncios ainda estão disponíveis
                         </p>
                     </div>
@@ -273,17 +273,20 @@ const AtualizacaoPage: React.FC = () => {
             {/* Content */}
             <div className="flex-1 overflow-auto">
                 {loading ? (
-                    <div className="flex items-center justify-center h-40">
-                        <Loader2 className="h-6 w-6 animate-spin text-accent" />
+                    <div className="p-4 space-y-3 max-w-5xl mx-auto">
+                        {[1, 2, 3].map(i => <div key={i} className="skeleton h-24 w-full" />)}
                     </div>
                 ) : tab === 'campaigns' ? (
                     /* ═══ CAMPAIGNS TAB ═══ */
                     campaigns.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-40 text-sm text-muted-foreground gap-2">
-                            <RefreshCw className="h-8 w-8 opacity-40" />
-                            <p>Nenhuma campanha de atualização criada</p>
-                            <Button size="sm" variant="outline" onClick={() => setShowNewCampaign(true)}>
-                                <Plus className="h-3.5 w-3.5 mr-1" /> Criar primeira campanha
+                        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+                            <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+                                <RefreshCw className="h-8 w-8 text-accent" />
+                            </div>
+                            <p className="text-foreground font-medium mb-1">Nenhuma campanha criada</p>
+                            <p className="text-muted-foreground text-sm max-w-sm mb-4">Crie uma campanha para contatar proprietários e verificar o status dos anúncios.</p>
+                            <Button size="sm" className="gap-1.5" onClick={() => setShowNewCampaign(true)}>
+                                <Plus className="h-4 w-4" /> Criar primeira campanha
                             </Button>
                         </div>
                     ) : (
@@ -355,9 +358,12 @@ const AtualizacaoPage: React.FC = () => {
                         </div>
 
                         {owners.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-40 text-sm text-muted-foreground gap-2">
-                                <User className="h-8 w-8 opacity-40" />
-                                Nenhum proprietário encontrado
+                            <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+                                <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+                                    <User className="h-8 w-8 text-accent" />
+                                </div>
+                                <p className="text-foreground font-medium mb-1">Nenhum proprietário encontrado</p>
+                                <p className="text-muted-foreground text-sm">Os proprietários aparecerão aqui quando importados.</p>
                             </div>
                         ) : (
                             <Table>
@@ -530,7 +536,7 @@ const AtualizacaoPage: React.FC = () => {
                             </SheetHeader>
 
                             {/* Stats */}
-                            <div className="grid grid-cols-4 gap-3 mt-6 mb-6">
+                            <div className="grid grid-cols-4 gap-4 mt-6 mb-6">
                                 <StatCard label="Total" value={selectedCampaign.total_contacts || 0} icon={<User className="h-4 w-4" />} />
                                 <StatCard label="Contatados" value={selectedCampaign.contacted_count || 0} icon={<Send className="h-4 w-4" />} />
                                 <StatCard label="Responderam" value={selectedCampaign.responded_count || 0} icon={<MessageSquare className="h-4 w-4" />} />

@@ -10,12 +10,8 @@ const MinhaAimeePage: React.FC = () => {
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <div className="p-4 border-b border-border bg-card space-y-1">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span>Minha Aimee</span>
-          <ChevronRight className="h-3 w-3" />
-          <span className="text-foreground font-medium">Comportamento da Aimee</span>
-        </div>
-        <h2 className="font-display text-xl font-bold text-foreground">Minha Aimee</h2>
+        <h2 className="font-display text-2xl font-bold text-foreground">Minha Aimee</h2>
+        <p className="text-sm text-muted-foreground">Configure o comportamento e integrações da IA</p>
       </div>
       <div className="flex-1 overflow-auto p-4">
         <Tabs defaultValue="perguntas" className="w-full max-w-4xl mx-auto">

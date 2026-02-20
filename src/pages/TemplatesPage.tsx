@@ -374,8 +374,8 @@ const TemplatesPage: React.FC = () => {
             <div className="p-4 border-b border-border bg-card space-y-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="font-display text-xl font-bold text-foreground">Templates WhatsApp</h2>
-                        <p className="text-xs text-muted-foreground">
+                        <h2 className="font-display text-2xl font-bold text-foreground">Templates WhatsApp</h2>
+                        <p className="text-sm text-muted-foreground">
                             Gerencie os templates validados pela Meta para campanhas e atualizações
                         </p>
                     </div>
@@ -391,7 +391,7 @@ const TemplatesPage: React.FC = () => {
                 </div>
 
                 {/* Stats */}
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-4 gap-4">
                     <StatCard label="Total" value={stats.total} className="bg-card" />
                     <StatCard label="Aprovados" value={stats.approved} className="bg-success/5 text-success" />
                     <StatCard label="Pendentes" value={stats.pending} className="bg-warning/5 text-warning" />
@@ -433,21 +433,34 @@ const TemplatesPage: React.FC = () => {
             {/* Content */}
             <div className="flex-1 overflow-auto p-4">
                 {loading ? (
-                    <div className="flex items-center justify-center h-40">
-                        <Loader2 className="h-6 w-6 animate-spin text-accent" />
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
+                        {[1, 2, 3, 4, 5, 6].map(i => (
+                            <div key={i} className="rounded-xl bg-card border border-border p-4 space-y-3">
+                                <div className="skeleton h-5 w-28" />
+                                <div className="flex gap-2"><div className="skeleton h-5 w-16" /><div className="skeleton h-5 w-12" /></div>
+                                <div className="skeleton h-12 w-full" />
+                            </div>
+                        ))}
                     </div>
                 ) : filtered.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-40 text-sm text-muted-foreground gap-2">
-                        <FileText className="h-8 w-8 opacity-40" />
-                        <p>{templates.length === 0 ? 'Nenhum template registrado' : 'Nenhum template encontrado com esses filtros'}</p>
+                    <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+                        <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+                            <FileText className="h-8 w-8 text-accent" />
+                        </div>
+                        <p className="text-foreground font-medium mb-1">
+                            {templates.length === 0 ? 'Nenhum template registrado' : 'Nenhum resultado'}
+                        </p>
+                        <p className="text-muted-foreground text-sm max-w-sm mb-4">
+                            {templates.length === 0 ? 'Registre ou sincronize seus templates da Meta para gerê-las.' : 'Tente ajustar os filtros de busca.'}
+                        </p>
                         {templates.length === 0 && (
-                            <Button size="sm" variant="outline" onClick={() => setShowNewDialog(true)}>
-                                <Plus className="h-3.5 w-3.5 mr-1" /> Registrar primeiro template
+                            <Button size="sm" className="gap-1.5" onClick={() => setShowNewDialog(true)}>
+                                <Plus className="h-4 w-4" /> Registrar template
                             </Button>
                         )}
                     </div>
                 ) : (
-                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
                         {filtered.map((t) => {
                             const statusInfo = STATUS_MAP[t.status || 'PENDING'] || STATUS_MAP.PENDING;
                             const categoryInfo = CATEGORY_MAP[t.category || 'MARKETING'] || CATEGORY_MAP.MARKETING;
@@ -455,7 +468,7 @@ const TemplatesPage: React.FC = () => {
                             return (
                                 <div
                                     key={t.id}
-                                    className="rounded-xl bg-card border border-border shadow-card p-4 cursor-pointer hover:bg-muted/30 hover:shadow-md transition-all animate-fade-in"
+                                    className="card-interactive p-4 cursor-pointer animate-fade-in"
                                     onClick={() => setSelectedTemplate(t)}
                                 >
                                     <div className="flex items-start justify-between gap-2 mb-3">

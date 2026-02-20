@@ -1,0 +1,1 @@
+ALTER TABLE public.tenants ADD COLUMN waba_id text DEFAULT NULL;

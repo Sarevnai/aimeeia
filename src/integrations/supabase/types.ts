@@ -1283,6 +1283,7 @@ export type Database = {
           wa_access_token: string | null
           wa_phone_number_id: string | null
           wa_verify_token: string | null
+          waba_id: string | null
         }
         Insert: {
           city?: string
@@ -1300,6 +1301,7 @@ export type Database = {
           wa_access_token?: string | null
           wa_phone_number_id?: string | null
           wa_verify_token?: string | null
+          waba_id?: string | null
         }
         Update: {
           city?: string
@@ -1317,6 +1319,7 @@ export type Database = {
           wa_access_token?: string | null
           wa_phone_number_id?: string | null
           wa_verify_token?: string | null
+          waba_id?: string | null
         }
         Relationships: []
       }

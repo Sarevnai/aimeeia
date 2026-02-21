@@ -1271,6 +1271,7 @@ export type Database = {
       }
       tenants: {
         Row: {
+          access_code: string
           city: string
           company_name: string
           created_at: string | null
@@ -1289,6 +1290,7 @@ export type Database = {
           waba_id: string | null
         }
         Insert: {
+          access_code?: string
           city?: string
           company_name: string
           created_at?: string | null
@@ -1307,6 +1309,7 @@ export type Database = {
           waba_id?: string | null
         }
         Update: {
+          access_code?: string
           city?: string
           company_name?: string
           created_at?: string | null
@@ -1465,6 +1468,13 @@ export type Database = {
       get_user_tenant_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
       is_manager: { Args: never; Returns: boolean }
+      lookup_tenant_by_access_code: {
+        Args: { code: string }
+        Returns: {
+          company_name: string
+          tenant_id: string
+        }[]
+      }
     }
     Enums: {
       conversation_status: "active" | "closed" | "archived"

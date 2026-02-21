@@ -11,10 +11,11 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFo
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Search, Loader2, ChevronLeft, ChevronRight, Phone, User, MessageSquare, Tag, Filter,
-  Download, Send, Megaphone, Globe, Facebook, Home, Trash2, SlidersHorizontal, ArrowRight
+  Download, Send, Megaphone, Globe, Facebook, Home, Trash2, SlidersHorizontal, ArrowRight, ClipboardList
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -101,6 +102,7 @@ const LeadsPage: React.FC = () => {
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [summaryLead, setSummaryLead] = useState<LeadRow | null>(null);
 
   // Filters State
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
@@ -343,7 +345,16 @@ const LeadsPage: React.FC = () => {
                                 <MessageSquare className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Abrir Conversa</TooltipContent>
+                            <TooltipContent>Ver detalhes</TooltipContent>
+                          </Tooltip>
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setSummaryLead(lead)}>
+                                <ClipboardList className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Resumo da conversa</TooltipContent>
                           </Tooltip>
 
                           <Tooltip>
@@ -352,16 +363,7 @@ const LeadsPage: React.FC = () => {
                                 <ArrowRight className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Encaminhar</TooltipContent>
-                          </Tooltip>
-
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Excluir Lead</TooltipContent>
+                            <TooltipContent>Encaminhar ao CRM</TooltipContent>
                           </Tooltip>
                         </div>
                       </TableCell>
@@ -460,6 +462,32 @@ const LeadsPage: React.FC = () => {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* Summary Dialog */}
+      <Dialog open={!!summaryLead} onOpenChange={(open) => !open && setSummaryLead(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Resumo da Conversa</DialogTitle>
+            <DialogDescription>
+              {summaryLead?.name ? `Lead: ${summaryLead.name}` : `Contato: ${summaryLead?.phone}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-4 bg-muted/30 rounded-lg text-sm text-foreground">
+              <p className="font-medium mb-2 text-primary">Interesse Principal</p>
+              <p>{summaryLead?.notes || "A inteligência artificial ainda não gerou um resumo final para este atendimento ou a conversa é muito curta. Verifique a conversa completa para mais detalhes."}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">{DEPT_LABELS[summaryLead?.departmentCode || ''] || 'Operação não definida'}</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSummaryLead(null)}>Fechar</Button>
+            <Button onClick={() => summaryLead?.convId && navigate(`/chat/${summaryLead.convId}`)}>Ver Conversa Completa</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

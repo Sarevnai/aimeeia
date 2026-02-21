@@ -11,6 +11,7 @@ import AuthPage from "@/pages/AuthPage";
 import DashboardPage from "@/pages/DashboardPage";
 import InboxPage from "@/pages/InboxPage";
 import ChatPage from "@/pages/ChatPage";
+import HistoryPage from "@/pages/HistoryPage";
 import LeadsPage from "@/pages/LeadsPage";
 import PipelinePage from "@/pages/PipelinePage";
 import MinhaAimeePage from "@/pages/MinhaAimeePage";
@@ -53,6 +54,7 @@ const App = () => (
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/inbox" element={<InboxPage />} />
                   <Route path="/chat/:id" element={<ChatPage />} />
+                  <Route path="/history/:id" element={<HistoryPage />} />
                   <Route path="/leads" element={<LeadsPage />} />
                   <Route path="/pipeline" element={<PipelinePage />} />
                   <Route path="/campanhas" element={<CampaignsPage />} />

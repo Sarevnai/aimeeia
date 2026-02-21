@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/contexts/TenantContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -43,10 +44,25 @@ interface AppSidebarProps {
   onToggle: () => void;
 }
 
+// Define which paths each role can access
+const ROLE_PATHS: Record<string, string[]> = {
+  super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios',
+    '/empreendimentos', '/campanhas', '/templates', '/atualizacao',
+    '/financeiro', '/minha-aimee', '/acessos', '/guia', '/admin'],
+  admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios',
+    '/empreendimentos', '/campanhas', '/templates', '/atualizacao',
+    '/financeiro', '/minha-aimee', '/acessos', '/guia'],
+  operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/empreendimentos', '/guia'],
+  viewer: ['/', '/relatorios', '/guia'],
+};
+
 const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
   const { tenantId, tenantInfo } = useTenant();
+  const { profile } = useAuth();
   const [activeConvCount, setActiveConvCount] = useState(0);
+  const role = profile?.role || 'viewer';
+  const allowedPaths = ROLE_PATHS[role] || ROLE_PATHS.viewer;
 
   useEffect(() => {
     if (!tenantId) return;
@@ -128,7 +144,14 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
 
       {/* Nav groups */}
       <nav className="flex-1 overflow-y-auto py-2 px-2">
-        {navGroups.map((group, gi) => (
+        {navGroups.map((group, gi) => {
+          // Filter items by role
+          const visibleItems = group.items.filter((item) =>
+            allowedPaths.some((p) => item.path === p || (p !== '/' && item.path.startsWith(p)))
+          );
+          if (visibleItems.length === 0) return null;
+
+          return (
           <div key={gi}>
             {gi > 0 && (
               <Separator className="my-2 bg-sidebar-border" />
@@ -139,7 +162,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
               </span>
             )}
             <div className="space-y-0.5">
-              {group.items.map((item) => {
+              {visibleItems.map((item) => {
                 const isActive = location.pathname === item.path ||
                   (item.path !== '/' && location.pathname.startsWith(item.path));
 
@@ -180,7 +203,8 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* Collapse toggle */}

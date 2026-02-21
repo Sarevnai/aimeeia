@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Tables } from '@/integrations/supabase/types';
+import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 
 type Message = Tables<'messages'>;
 type Conversation = Tables<'conversations'>;
@@ -372,12 +373,23 @@ const ChatPage: React.FC = () => {
                       <img
                         src={msg.media_url}
                         alt={msg.media_caption || 'Imagem'}
-                        className="rounded-lg max-w-full max-h-60 object-cover"
+                        className="rounded-lg max-w-full max-h-60 object-cover cursor-pointer"
+                        onClick={() => window.open(msg.media_url!, '_blank')}
                       />
                       {msg.media_caption && (
                         <p className="text-xs text-muted-foreground">{msg.media_caption}</p>
                       )}
                     </div>
+                  ) : msg.media_type === 'document' && msg.media_url ? (
+                    <a
+                      href={msg.media_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-sm text-accent hover:underline py-1"
+                    >
+                      <Image className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{msg.media_filename || 'Documento'}</span>
+                    </a>
                   ) : (
                     <p className="whitespace-pre-wrap break-words">{msg.body}</p>
                   )}
@@ -393,6 +405,13 @@ const ChatPage: React.FC = () => {
 
         {/* Input area */}
         <div className="flex items-center gap-2 px-4 py-3 border-t border-border bg-card shrink-0">
+          <ChatMediaUpload
+            tenantId={tenantId!}
+            conversationId={id!}
+            phoneNumber={conversation.phone_number}
+            departmentCode={conversation.department_code}
+            onSending={setSending}
+          />
           <Input
             placeholder="Digite uma mensagem..."
             value={inputValue}

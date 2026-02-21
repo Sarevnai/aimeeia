@@ -167,11 +167,6 @@ const HistoryPage: React.FC = () => {
                 <div className="p-4 bg-muted/50 rounded-xl space-y-2 border border-border">
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Origem</h3>
                     <p className="text-sm">O cliente chegou através de <b>{contact?.channel_source || 'WhatsApp'}</b>.</p>
-                    {conversation.property_id && (
-                        <a href="#" className="inline-flex items-center gap-1 text-xs text-primary font-medium hover:underline mt-1">
-                            Visualizar imóvel #{conversation.property_id} <ExternalLink className="h-3 w-3" />
-                        </a>
-                    )}
                 </div>
             </div>
 

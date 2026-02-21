@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import {
-    ArrowLeft, Bot, UserCheck, Phone, MapPin, Home, DollarSign, Bed, Target, Play, Ban, Copy, Search, ThumbsUp, ThumbsDown, MessageSquare, ExternalLink, Calendar
+    ArrowLeft, Bot, UserCheck, Phone, MapPin, Home, DollarSign, Bed, Target, Play, Ban, Copy, Search, ThumbsUp, ThumbsDown, MessageSquare, ExternalLink, Calendar, Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Tables } from '@/integrations/supabase/types';

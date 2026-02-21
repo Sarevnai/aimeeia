@@ -155,6 +155,27 @@ export interface Development {
   is_active: boolean;
 }
 
+// ========== AI BEHAVIOR CONFIG ==========
+
+export interface AIBehaviorConfig {
+  id: string;
+  tenant_id: string;
+  essential_questions: EssentialQuestion[];
+  functions: Record<string, boolean>;
+  reengagement_hours: number;
+  require_cpf_for_visit: boolean;
+  send_cold_leads: boolean;
+  visit_schedule: any;
+}
+
+export interface EssentialQuestion {
+  name: string;
+  category: string;
+  isQualifying: boolean;
+  isActive: boolean;
+  isLocked: boolean;
+}
+
 // ========== WEBHOOK PAYLOADS ==========
 
 export interface WhatsAppWebhookEntry {

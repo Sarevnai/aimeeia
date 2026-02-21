@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 interface TenantInfo {
   company_name: string;
   wa_phone_number_id: string | null;
+  access_code: string | null;
 }
 
 interface TenantContextType {
@@ -25,11 +26,15 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!tenantId) { setTenantInfo(null); return; }
     supabase
       .from('tenants')
-      .select('company_name, wa_phone_number_id')
+      .select('company_name, wa_phone_number_id, access_code')
       .eq('id', tenantId)
       .single()
       .then(({ data }) => {
-        if (data) setTenantInfo({ company_name: data.company_name, wa_phone_number_id: data.wa_phone_number_id });
+        if (data) setTenantInfo({
+          company_name: data.company_name,
+          wa_phone_number_id: data.wa_phone_number_id,
+          access_code: (data as any).access_code ?? null,
+        });
       });
   }, [tenantId]);
 

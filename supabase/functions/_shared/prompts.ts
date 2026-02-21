@@ -2,7 +2,7 @@
 // Priority: ai_directives (DB) → ai_department_configs (DB) → hardcoded fallback
 // NO hardcoded client names. Everything from config/tenant.
 
-import { AIAgentConfig, ConversationMessage, QualificationData, DepartmentType } from './types.ts';
+import { AIAgentConfig, AIBehaviorConfig, EssentialQuestion, ConversationMessage, QualificationData, DepartmentType } from './types.ts';
 import { generateRegionKnowledge } from './regions.ts';
 import { Region } from './types.ts';
 import { formatCurrency } from './utils.ts';
@@ -78,7 +78,8 @@ export async function buildSystemPrompt(
   regions: Region[],
   contactName: string | null,
   qualificationData: QualificationData | null,
-  conversationHistory: ConversationMessage[]
+  conversationHistory: ConversationMessage[],
+  behaviorConfig?: AIBehaviorConfig | null
 ): Promise<string> {
   // Priority 1: Check ai_directives table for custom prompt
   try {
@@ -99,6 +100,7 @@ export async function buildSystemPrompt(
       prompt = prompt.replace('{{CONTACT_NAME}}', contactName || 'cliente');
       prompt += buildContextSummary(qualificationData);
       prompt += generateRegionKnowledge(regions);
+      prompt += buildBehaviorInstructions(behaviorConfig);
       if (config.custom_instructions) {
         prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
       }
@@ -110,11 +112,12 @@ export async function buildSystemPrompt(
 
   // Priority 2: Built-in prompt builders
   console.log(`🔧 Using built-in prompt for: ${department}`);
+  const behaviorInstructions = buildBehaviorInstructions(behaviorConfig);
   switch (department) {
-    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData);
-    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData);
-    case 'administrativo': return buildAdminPrompt(config, tenant, contactName);
-    default: return buildDefaultPrompt(config, tenant, contactName);
+    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions;
+    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions;
+    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions;
+    default: return buildDefaultPrompt(config, tenant, contactName) + behaviorInstructions;
   }
 }
 
@@ -209,4 +212,36 @@ ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}.`
 Responda de forma amigável e eficiente. Se não souber a resposta, encaminhe para atendimento humano.
 Responda em português BR.
 ${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
+}
+
+// ========== BEHAVIOR CONFIG INJECTION ==========
+
+function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null): string {
+  if (!behaviorConfig) return '';
+
+  let instructions = '';
+
+  // Essential questions
+  const questions = (behaviorConfig.essential_questions || []) as EssentialQuestion[];
+  const activeQuestions = questions.filter((q) => q.isActive !== false);
+  if (activeQuestions.length > 0) {
+    instructions += '\n\n📋 PERGUNTAS ESSENCIAIS - Você DEVE coletar respostas para estas perguntas durante a conversa:\n';
+    activeQuestions.forEach((q, i) => {
+      instructions += `${i + 1}. ${q.name}${q.isQualifying ? ' (QUALIFICATÓRIA - obrigatória antes de enviar ao CRM)' : ''}\n`;
+    });
+    instructions += 'Colete estas informações de forma natural, uma por vez. NÃO repita perguntas já respondidas.\n';
+  }
+
+  // Behavior flags
+  if (behaviorConfig.send_cold_leads === false) {
+    instructions += '\n⚠️ NÃO envie leads com score de qualificação abaixo de 4 para o CRM. Continue a conversa tentando qualificar melhor.\n';
+  }
+  if (behaviorConfig.require_cpf_for_visit) {
+    instructions += '\n🆔 Antes de agendar visita, EXIJA o CPF do cliente. Não prossiga sem o CPF.\n';
+  }
+  if (behaviorConfig.reengagement_hours && behaviorConfig.reengagement_hours > 0) {
+    instructions += `\n🔔 Se o cliente não responder, tente reengajar após ${behaviorConfig.reengagement_hours} horas com uma mensagem amigável.\n`;
+  }
+
+  return instructions;
 }

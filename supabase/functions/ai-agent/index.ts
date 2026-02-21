@@ -13,7 +13,7 @@ import { loadRegions } from '../_shared/regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState } from '../_shared/anti-loop.ts';
 import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } from '../_shared/property.ts';
 import { fragmentMessage, logError, logActivity, sleep } from '../_shared/utils.ts';
-import { Tenant, AIAgentConfig, ConversationState, ConversationMessage, PropertyResult } from '../_shared/types.ts';
+import { Tenant, AIAgentConfig, AIBehaviorConfig, ConversationState, ConversationMessage, PropertyResult } from '../_shared/types.ts';
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -91,6 +91,13 @@ serve(async (req: Request) => {
     // Regions
     const regions = await loadRegions(supabase, tenant_id);
 
+    // Behavior Config
+    const { data: behaviorConfig } = await supabase
+      .from('ai_behavior_config')
+      .select('*')
+      .eq('tenant_id', tenant_id)
+      .maybeSingle();
+
     // ========== TRIAGE PHASE ==========
 
     const triageResult = await handleTriage(
@@ -147,7 +154,7 @@ serve(async (req: Request) => {
     // Build system prompt
     const systemPrompt = await buildSystemPrompt(
       supabase, aiConfig, tenant, department, regions,
-      contact_name, mergedQual, history
+      contact_name, mergedQual, history, behaviorConfig as AIBehaviorConfig | null
     );
 
     // Get tools

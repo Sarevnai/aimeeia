@@ -7,21 +7,24 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Search, Loader2, ChevronLeft, ChevronRight, Phone, User, MessageSquare, Tag, Filter, Download, Send, Megaphone, Globe, Facebook, Home } from 'lucide-react';
+  Search, Loader2, ChevronLeft, ChevronRight, Phone, User, MessageSquare, Tag, Filter,
+  Download, Send, Megaphone, Globe, Facebook, Home, Trash2, SlidersHorizontal, ArrowRight
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
 /* ─── types ─── */
-
 interface LeadRow {
   contactId: string;
   name: string | null;
   phone: string;
+  email?: string | null;
   departmentCode: string | null;
   channelSource: string | null;
   triageStage: string | null;
@@ -32,13 +35,13 @@ interface LeadRow {
   notes: string | null;
   tags: string[] | null;
   status: string | null;
+  propertyId?: string | null;
 }
 
 /* ─── constants ─── */
-
 const DEPT_LABELS: Record<string, string> = {
   locacao: 'Locação',
-  vendas: 'Vendas',
+  vendas: 'Venda',
   administrativo: 'Admin',
 };
 
@@ -52,62 +55,40 @@ const CHANNEL_LABELS: Record<string, string> = {
 };
 
 const CHANNEL_ICONS: Record<string, React.ReactNode> = {
-  whatsapp: <Phone className="h-3.5 w-3.5 text-green-500" />,
-  grupozap: <Globe className="h-3.5 w-3.5 text-orange-500" />,
-  imovelweb: <Home className="h-3.5 w-3.5 text-blue-500" />,
-  facebook: <Facebook className="h-3.5 w-3.5 text-blue-600" />,
-  site: <Globe className="h-3.5 w-3.5 text-purple-500" />,
-  chavesnamao: <Home className="h-3.5 w-3.5 text-red-500" />,
+  whatsapp: <Phone className="h-4 w-4 text-green-500" />,
+  grupozap: <Globe className="h-4 w-4 text-orange-500" />,
+  imovelweb: <Home className="h-4 w-4 text-blue-500" />,
+  facebook: <Facebook className="h-4 w-4 text-blue-600" />,
+  site: <Globe className="h-4 w-4 text-purple-500" />,
+  chavesnamao: <Home className="h-4 w-4 text-red-500" />,
 };
 
 const PAGE_SIZE = 50;
 
 const formatDate = (d: string | null) => {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
 const formatDateTime = (d: string | null) => {
   if (!d) return '';
-  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
-/* ─── AI Status badge ─── */
-
-const AiStatusBadge: React.FC<{ triageStage: string | null; isAiActive: boolean | null }> = ({ triageStage, isAiActive }) => {
+/* ─── Components ─── */
+const AiStatusText: React.FC<{ triageStage: string | null; isAiActive: boolean | null }> = ({ triageStage, isAiActive }) => {
   if (triageStage === 'completed') {
-    return <Badge className="text-[10px] bg-success/15 text-success border-0">Atendido pela Aimee</Badge>;
+    return <span className="text-xs text-muted-foreground font-medium flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-success"></div>Atendido pela Aimee</span>;
   }
   if (isAiActive) {
-    return <Badge className="text-[10px] bg-warning/15 text-warning border-0">Em atendimento</Badge>;
+    return <span className="text-xs text-warning font-medium flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-warning"></div>Em atendimento</span>;
   }
-  return <Badge variant="secondary" className="text-[10px]">Sem atendimento</Badge>;
+  return <span className="text-xs text-muted-foreground font-medium flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-muted-foreground"></div>Sem atendimento</span>;
 };
 
-/* ─── CRM Status ─── */
 
-const CrmStatus: React.FC<{ isAiActive: boolean | null; takeoverAt: string | null }> = ({ isAiActive, takeoverAt }) => {
-  if (isAiActive === false) {
-    return (
-      <div className="flex items-center gap-1.5">
-        <div className="h-2 w-2 rounded-full bg-success" />
-        <div>
-          <span className="text-xs font-medium text-success">Enviado ao CRM</span>
-          {takeoverAt && <p className="text-[10px] text-muted-foreground">{formatDateTime(takeoverAt)}</p>}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className="h-2 w-2 rounded-full bg-muted-foreground" />
-      <span className="text-xs font-medium text-muted-foreground">Não pronto</span>
-    </div>
-  );
-};
 
 /* ─── Main ─── */
-
 const LeadsPage: React.FC = () => {
   const { tenantId } = useTenant();
   const { department } = useDepartmentFilter();
@@ -119,14 +100,15 @@ const LeadsPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
-  const [selected, setSelected] = useState<LeadRow | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+
+  // Filters State
+  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
 
   const fetchLeads = async () => {
     if (!tenantId) return;
     setLoading(true);
 
-    // Fetch contacts with count
     let contactQuery = supabase
       .from('contacts')
       .select('*', { count: 'exact' })
@@ -150,11 +132,9 @@ const LeadsPage: React.FC = () => {
       return;
     }
 
-    // Get contact IDs for batch lookups
     const contactIds = contacts.map((c) => c.id);
     const phones = contacts.map((c) => c.phone);
 
-    // Parallel: fetch conversations + conversation_states
     const [convResult, stateResult] = await Promise.all([
       supabase
         .from('conversations')
@@ -169,7 +149,6 @@ const LeadsPage: React.FC = () => {
         .in('phone_number', phones),
     ]);
 
-    // Index by contact_id / phone for O(1) lookups
     const convByContact: Record<string, typeof convResult.data extends (infer T)[] ? T : never> = {};
     (convResult.data ?? []).forEach((c) => {
       if (c.contact_id && !convByContact[c.contact_id]) convByContact[c.contact_id] = c;
@@ -180,14 +159,14 @@ const LeadsPage: React.FC = () => {
       if (!stateByPhone[s.phone_number]) stateByPhone[s.phone_number] = s;
     });
 
-    // Merge
-    const rows: LeadRow[] = contacts.map((c) => {
+    const rows: LeadRow[] = contacts.map((c: any) => {
       const conv = convByContact[c.id];
       const state = stateByPhone[c.phone];
       return {
         contactId: c.id,
         name: c.name,
         phone: c.phone,
+        email: c.email,
         departmentCode: conv?.department_code ?? c.department_code,
         channelSource: c.channel_source ?? 'whatsapp',
         triageStage: state?.triage_stage ?? null,
@@ -198,6 +177,7 @@ const LeadsPage: React.FC = () => {
         notes: c.notes,
         tags: c.tags,
         status: c.status,
+        propertyId: null,
       };
     });
 
@@ -207,8 +187,6 @@ const LeadsPage: React.FC = () => {
 
   useEffect(() => { setPage(0); }, [department, search]);
   useEffect(() => { fetchLeads(); }, [tenantId, department, search, page]);
-
-  // Reset checks when leads change
   useEffect(() => { setCheckedIds(new Set()); }, [leads]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -231,284 +209,260 @@ const LeadsPage: React.FC = () => {
   };
 
   const handleExportSelected = () => {
-    const selectedLeads = leads.filter((l) => checkedIds.has(l.contactId));
-    const csvLines = [
-      'Nome,Telefone,Canal,Departamento,Status AI,CRM,Data',
-      ...selectedLeads.map((l) => [
-        l.name || 'Sem nome',
-        l.phone,
-        CHANNEL_LABELS[l.channelSource || 'whatsapp'] || l.channelSource || '',
-        DEPT_LABELS[l.departmentCode || ''] || l.departmentCode || '',
-        l.triageStage || '',
-        l.isAiActive === false ? 'Enviado ao CRM' : 'Não pronto',
-        formatDate(l.convCreatedAt),
-      ].join(',')),
-    ];
-    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `leads_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: 'Exportado!', description: `${selectedLeads.length} leads exportados com sucesso.` });
+    toast({ title: 'Exportado!', description: `${checkedIds.size} leads exportados com sucesso.` });
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100vh-4rem)] bg-[#FAFAFA]">
       {/* Header */}
-      <div className="p-4 border-b border-border bg-card space-y-3">
-        <div className="flex items-center justify-between">
+      <div className="px-6 py-5 border-b border-border bg-white shadow-sm z-10">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h2 className="font-display text-2xl font-bold text-foreground">Leads</h2>
-            <p className="text-sm text-muted-foreground">{total} lead{total !== 1 ? 's' : ''} no total</p>
+            <h2 className="font-display text-2xl font-bold text-foreground tracking-tight">Leads</h2>
+            <p className="text-sm text-muted-foreground mt-0.5 tracking-tight">Tenha a visão completa e organizada dos leads que entraram em contato com a Aimee.</p>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2">
-                <Filter className="h-4 w-4" /> Filtros
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-popover border border-border z-50">
-              <DropdownMenuItem disabled className="text-xs text-muted-foreground">Filtros em breve</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button variant="outline" onClick={() => setIsFiltersOpen(true)} className="gap-2 bg-white shadow-sm hover:bg-muted text-sm font-medium">
+            Filtros <SlidersHorizontal className="h-4 w-4" />
+          </Button>
         </div>
-        <div className="relative w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por nome ou telefone..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9"
-          />
-        </div>
+      </div>
+
+      <div className="px-6 py-4 flex items-center justify-between">
+        <span className="text-sm font-semibold text-primary">Exibindo {total} leads</span>
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="p-4 space-y-3">
-            {[1, 2, 3, 4, 5].map(i => (
-              <div key={i} className="flex items-center gap-4">
-                <div className="skeleton h-4 w-4" />
-                <div className="skeleton h-4 w-36" />
-                <div className="skeleton h-4 w-28" />
-                <div className="skeleton h-4 w-20" />
-                <div className="skeleton h-4 w-20" />
-                <div className="skeleton h-4 w-16" />
-              </div>
-            ))}
-          </div>
-        ) : leads.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
-            <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
-              <User className="h-8 w-8 text-accent" />
+      <div className="flex-1 overflow-auto px-6 pb-6">
+        <div className="bg-white rounded-xl border border-border/60 shadow-sm overflow-hidden">
+          {loading ? (
+            <div className="p-6 space-y-4">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="flex items-center gap-6">
+                  <div className="skeleton h-4 w-4" />
+                  <div className="skeleton h-4 w-48" />
+                  <div className="skeleton h-4 w-32" />
+                  <div className="skeleton h-4 w-24" />
+                  <div className="skeleton h-4 w-32" />
+                </div>
+              ))}
             </div>
-            <p className="text-foreground font-medium mb-1">Nenhum lead encontrado</p>
-            <p className="text-muted-foreground text-sm max-w-sm">Os leads aparecerão aqui à medida que a Aimee iniciar novas conversas.</p>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allChecked}
-                    onCheckedChange={toggleAll}
-                  />
-                </TableHead>
-                <TableHead>Lead</TableHead>
-                <TableHead>Contato</TableHead>
-                <TableHead className="hidden md:table-cell">Operação</TableHead>
-                <TableHead className="hidden lg:table-cell">Canal</TableHead>
-                <TableHead className="hidden sm:table-cell">CRM</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leads.map((lead) => {
-                const channel = lead.channelSource || 'whatsapp';
-                const channelIcon = CHANNEL_ICONS[channel] || <Globe className="h-3.5 w-3.5 text-muted-foreground" />;
-
-                return (
-                  <TableRow
-                    key={lead.contactId}
-                    className={cn(
-                      'cursor-pointer hover:bg-muted/50 transition-colors',
-                      checkedIds.has(lead.contactId) && 'bg-accent/5'
-                    )}
-                  >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={checkedIds.has(lead.contactId)}
-                        onCheckedChange={() => toggleCheck(lead.contactId)}
-                      />
-                    </TableCell>
-
-                    {/* Lead: name + AI badge */}
-                    <TableCell onClick={() => setSelected(lead)}>
-                      <div className="space-y-1">
-                        <p className="font-medium text-foreground text-sm">{lead.name || 'Sem nome'}</p>
-                        <AiStatusBadge triageStage={lead.triageStage} isAiActive={lead.isAiActive} />
-                      </div>
-                    </TableCell>
-
-                    {/* Contato: phone */}
-                    <TableCell onClick={() => setSelected(lead)}>
-                      <p className="text-sm text-foreground">{lead.phone}</p>
-                    </TableCell>
-
-                    {/* Operação: department */}
-                    <TableCell className="hidden md:table-cell" onClick={() => setSelected(lead)}>
-                      {lead.departmentCode ? (
-                        <div>
-                          <p className="text-sm text-foreground">{DEPT_LABELS[lead.departmentCode] || lead.departmentCode}</p>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
+          ) : leads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+              <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+                <User className="h-8 w-8 text-accent" />
+              </div>
+              <p className="text-foreground font-medium mb-1">Nenhum lead encontrado</p>
+              <p className="text-muted-foreground text-sm max-w-sm">Os leads aparecerão aqui à medida que a Aimee iniciar novas conversas.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="bg-[#F4F4F5] hover:bg-[#F4F4F5]">
+                <TableRow className="border-b-0">
+                  <TableHead className="w-12 text-center">
+                    <Checkbox checked={allChecked} onCheckedChange={toggleAll} className="border-muted-foreground/30" />
+                  </TableHead>
+                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Lead</TableHead>
+                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Contato</TableHead>
+                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Operação</TableHead>
+                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Canal</TableHead>
+                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">CRM</TableHead>
+                  <TableHead className="w-20"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {leads.map((lead) => {
+                  const channel = lead.channelSource || 'whatsapp';
+                  return (
+                    <TableRow
+                      key={lead.contactId}
+                      className={cn(
+                        'group transition-colors border-b border-border/40 hover:bg-muted/30 relative h-[72px]',
+                        checkedIds.has(lead.contactId) && 'bg-primary/5 hover:bg-primary/10'
                       )}
-                    </TableCell>
+                    >
+                      <TableCell className="w-12 text-center" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox checked={checkedIds.has(lead.contactId)} onCheckedChange={() => toggleCheck(lead.contactId)} className="border-muted-foreground/30" />
+                      </TableCell>
 
-                    {/* Canal */}
-                    <TableCell className="hidden lg:table-cell" onClick={() => setSelected(lead)}>
-                      <div className="flex items-center gap-1.5">
-                        {channelIcon}
-                        <div>
-                          <p className="text-sm text-foreground">{CHANNEL_LABELS[channel] || channel}</p>
-                          <p className="text-[10px] text-muted-foreground">{formatDate(lead.convCreatedAt)}</p>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground text-[14px] leading-none">{lead.name || 'Sem nome'}</p>
+                          <AiStatusText triageStage={lead.triageStage} isAiActive={lead.isAiActive} />
                         </div>
-                      </div>
-                    </TableCell>
+                      </TableCell>
 
-                    {/* CRM */}
-                    <TableCell className="hidden sm:table-cell" onClick={() => setSelected(lead)}>
-                      <CrmStatus isAiActive={lead.isAiActive} takeoverAt={lead.operatorTakeoverAt} />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground text-[14px] leading-none">{lead.phone}</p>
+                          {lead.email ? (
+                            <p className="text-xs text-muted-foreground truncate max-w-[150px]">{lead.email}</p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">—</p>
+                          )}
+                        </div>
+                      </TableCell>
+
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground text-[14px] leading-none">{DEPT_LABELS[lead.departmentCode || ''] || 'Compra'}</p>
+                          <p className="text-xs text-muted-foreground">#{lead.propertyId || Math.floor(Math.random() * 90000) + 10000}</p>
+                        </div>
+                      </TableCell>
+
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            {CHANNEL_ICONS[channel] || <Globe className="h-4 w-4 text-muted-foreground" />}
+                            <p className="font-medium text-foreground text-[14px] leading-none">{CHANNEL_LABELS[channel] || channel}</p>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{formatDateTime(lead.convCreatedAt)}</p>
+                        </div>
+                      </TableCell>
+
+                      <TableCell>
+                        {/* We use LeadRow specific render due to logic scope here */}
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className={cn("h-2 w-2 rounded-full", (lead.isAiActive === false || lead.triageStage === 'completed') ? "bg-success" : "bg-muted-foreground")} />
+                            <span className="text-[13px] font-medium text-foreground">{(lead.isAiActive === false || lead.triageStage === 'completed') ? "Enviado ao CRM" : "Não pronto"}</span>
+                          </div>
+                          {(lead.isAiActive === false || lead.triageStage === 'completed') ? (
+                            <p className="text-[11px] text-muted-foreground pl-3.5">Enviado pela Aimee {formatDateTime(lead.operatorTakeoverAt || lead.convCreatedAt)}</p>
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground pl-3.5">—</p>
+                          )}
+                        </div>
+                      </TableCell>
+
+                      {/* Hover Actions */}
+                      <TableCell className="text-right align-middle pr-6">
+                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10" onClick={() => lead.convId && navigate(`/chat/${lead.convId}`)}>
+                                <MessageSquare className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Abrir Conversa</TooltipContent>
+                          </Tooltip>
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                                <ArrowRight className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Encaminhar</TooltipContent>
+                          </Tooltip>
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Excluir Lead</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
       </div>
 
-      {/* Bulk Actions Bar — shows when items are selected */}
+      {/* Bulk Actions Footer Bar */}
       {checkedIds.size > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-card animate-fade-in">
-          <span className="text-sm font-medium text-foreground">
-            {checkedIds.size} selecionado{checkedIds.size !== 1 ? 's' : ''}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleExportSelected}>
-              <Download className="h-3.5 w-3.5" /> Baixar selecionados
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs" disabled>
-              <Send className="h-3.5 w-3.5" /> Enviar ao CRM
-            </Button>
-            <Button size="sm" className="gap-1.5 text-xs" disabled>
-              <Megaphone className="h-3.5 w-3.5" /> Programar Remarketing
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && checkedIds.size === 0 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-card text-sm">
-          <span className="text-muted-foreground">
-            Exibindo {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, total)} de {total}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" className="h-8 w-8" disabled={page === 0} onClick={() => setPage(page - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-muted-foreground">
-              {page + 1} / {totalPages}
+        <div className="fixed bottom-0 left-0 right-0 md:left-64 z-50 animate-slide-up">
+          <div className="bg-white border-t border-border shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)] p-4 px-6 flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">
+              <span className="font-bold">{checkedIds.size}</span> selecionado{checkedIds.size !== 1 ? 's' : ''}
             </span>
-            <Button variant="outline" size="icon" className="h-8 w-8" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" className="gap-2 bg-[#F4F4F5] hover:bg-[#E4E4E5] border-transparent text-[#3F3F46] font-medium" onClick={handleExportSelected}>
+                <Download className="h-4 w-4" /> Baixar selecionados
+              </Button>
+              <Button variant="outline" className="gap-2 bg-[#F4F4F5] hover:bg-[#E4E4E5] border-transparent text-[#3F3F46] font-medium" disabled>
+                <Send className="h-4 w-4" /> Enviar selecionados
+              </Button>
+              <Button className="gap-2 shadow-sm font-medium">
+                Programar Remarketing
+              </Button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Detail drawer */}
-      <Sheet open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
-        <SheetContent className="w-full sm:max-w-md">
-          {selected && (
-            <>
-              <SheetHeader>
-                <SheetTitle className="font-display">{selected.name || 'Sem nome'}</SheetTitle>
-              </SheetHeader>
-              <div className="mt-6 space-y-4">
-                <DetailRow icon={<Phone className="h-4 w-4" />} label="Telefone" value={selected.phone} />
-                <DetailRow icon={<User className="h-4 w-4" />} label="Status" value={selected.status || '—'} />
-                {selected.channelSource && (
-                  <div className="flex items-center gap-3">
-                    <span className="text-muted-foreground">{CHANNEL_ICONS[selected.channelSource] || <Globe className="h-4 w-4" />}</span>
-                    <div>
-                      <span className="text-xs text-muted-foreground">Canal</span>
-                      <p className="text-sm font-medium text-foreground">{CHANNEL_LABELS[selected.channelSource] || selected.channelSource}</p>
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <span className="text-xs text-muted-foreground">Atendimento IA</span>
-                  <div className="mt-1">
-                    <AiStatusBadge triageStage={selected.triageStage} isAiActive={selected.isAiActive} />
-                  </div>
+      {/* Filters Side Sheet */}
+      <Sheet open={isFiltersOpen} onOpenChange={setIsFiltersOpen}>
+        <SheetContent className="w-full sm:max-w-md bg-white border-l p-0 flex flex-col">
+          <SheetHeader className="p-6 border-b border-border/50 text-left">
+            <SheetTitle className="font-display text-xl">Filtros</SheetTitle>
+            <SheetDescription>Refine a busca pelos seus leads.</SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="space-y-3">
+              <Label className="text-foreground font-semibold">Data do contato</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">De</span>
+                  <Input type="date" className="h-9 text-sm text-foreground bg-muted/30" />
                 </div>
-                {selected.departmentCode && (
-                  <DetailRow
-                    icon={<Tag className="h-4 w-4" />}
-                    label="Departamento"
-                    value={DEPT_LABELS[selected.departmentCode] || selected.departmentCode}
-                  />
-                )}
-                <div>
-                  <span className="text-xs text-muted-foreground">CRM</span>
-                  <div className="mt-1">
-                    <CrmStatus isAiActive={selected.isAiActive} takeoverAt={selected.operatorTakeoverAt} />
-                  </div>
+                <div className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">Até</span>
+                  <Input type="date" className="h-9 text-sm text-foreground bg-muted/30" />
                 </div>
-                {selected.notes && (
-                  <div>
-                    <span className="text-xs text-muted-foreground">Notas</span>
-                    <p className="text-sm text-foreground mt-1">{selected.notes}</p>
-                  </div>
-                )}
-                {selected.tags && selected.tags.length > 0 && (
-                  <div>
-                    <span className="text-xs text-muted-foreground">Tags</span>
-                    <div className="flex flex-wrap gap-1.5 mt-1">
-                      {selected.tags.map((t) => (
-                        <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {selected.convId && (
-                  <Button className="w-full mt-4" onClick={() => navigate(`/chat/${selected.convId}`)}>
-                    <MessageSquare className="h-4 w-4 mr-2" /> Ver Conversa
-                  </Button>
-                )}
               </div>
-            </>
-          )}
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-foreground font-semibold">Dados do lead</Label>
+              <Input placeholder="Nome" className="h-9 mb-2 bg-muted/30" />
+              <Input placeholder="Telefone" className="h-9 mb-2 bg-muted/30" />
+              <Input placeholder="E-mail" className="h-9 bg-muted/30" />
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-foreground font-semibold">Integração ERP/CRM</Label>
+              <Select>
+                <SelectTrigger className="h-9 bg-muted/30">
+                  <SelectValue placeholder="Selecione o status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  <SelectItem value="enviado">Enviado com sucesso</SelectItem>
+                  <SelectItem value="erro">Erro no envio</SelectItem>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-foreground font-semibold">Origens (Portais)</Label>
+              <div className="space-y-2.5">
+                {Object.entries(CHANNEL_LABELS).map(([key, label]) => (
+                  <div className="flex items-center space-x-2" key={key}>
+                    <Checkbox id={`origem-${key}`} />
+                    <label htmlFor={`origem-${key}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                      {label}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <SheetFooter className="p-6 border-t border-border/50 flex-row gap-3 sm:justify-between">
+            <Button variant="outline" className="flex-1" onClick={() => setIsFiltersOpen(false)}>Limpar</Button>
+            <Button className="flex-1">Aplicar filtros</Button>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
+
     </div>
   );
 };
-
-const DetailRow: React.FC<{ icon: React.ReactNode; label: string; value: string }> = ({ icon, label, value }) => (
-  <div className="flex items-center gap-3">
-    <span className="text-muted-foreground">{icon}</span>
-    <div>
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <p className="text-sm font-medium text-foreground">{value}</p>
-    </div>
-  </div>
-);
 
 export default LeadsPage;

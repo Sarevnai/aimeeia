@@ -7,13 +7,10 @@ import MobileBottomNav from '@/components/MobileBottomNav';
 import { Loader2 } from 'lucide-react';
 
 const AppLayout: React.FC = () => {
-  const { user, loading, profileLoading } = useAuth();
+  const { user, loading } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Wait for auth AND profile to load before rendering the layout.
-  // This prevents the sidebar from rendering with role = 'viewer' (the null fallback)
-  // before the real role is fetched from the database.
-  if (loading || profileLoading) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-accent" />

@@ -110,7 +110,7 @@ const HistoryPage: React.FC = () => {
                         <ArrowLeft className="h-4 w-4" />
                     </Button>
                     <div>
-                        <h2 className="font-semibold text-lg leading-tight flex items-center gap-2">{contact?.name || 'Cliente'} {convState?.is_ai_active && <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">Lais Ativa</Badge>}</h2>
+                        <h2 className="font-semibold text-lg leading-tight flex items-center gap-2">{contact?.name || 'Cliente'} {convState?.is_ai_active && <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">Aimee Ativa</Badge>}</h2>
                         <p className="text-sm text-muted-foreground">{conversation.phone_number}</p>
                     </div>
                 </div>
@@ -227,7 +227,7 @@ const HistoryPage: React.FC = () => {
                                         className={cn(
                                             "relative max-w-[85%] md:max-w-[75%] rounded-2xl px-4 py-2.5 text-[14px] shadow-sm",
                                             isAI
-                                                ? "bg-[#6345ED] text-white rounded-tl-sm" // Purple Lais color for the AI
+                                                ? "bg-[#6345ED] text-white rounded-tl-sm" // Purple Aimee color for the AI
                                                 : "bg-white text-[#1F2937] border border-border rounded-tr-sm" // Greyish white for the user
                                         )}
                                     >

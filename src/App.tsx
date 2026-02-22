@@ -36,6 +36,7 @@ import AdminTenantDetailPage from "@/pages/admin/AdminTenantDetailPage";
 import AdminBillingPage from "@/pages/admin/AdminBillingPage";
 import AdminAgentPage from "@/pages/admin/AdminAgentPage";
 import AdminMetricsPage from "@/pages/admin/AdminMetricsPage";
+import RoleGuard from "@/components/RoleGuard";
 
 const queryClient = new QueryClient();
 
@@ -57,18 +58,20 @@ const App = () => (
                   <Route path="/history/:id" element={<HistoryPage />} />
                   <Route path="/leads" element={<LeadsPage />} />
                   <Route path="/pipeline" element={<PipelinePage />} />
-                  <Route path="/campanhas" element={<CampaignsPage />} />
-                  <Route path="/campanhas/:id" element={<CampaignDetailPage />} />
+                  {/* operator+ */}
+                  <Route path="/campanhas" element={<RoleGuard minRole="operator"><CampaignsPage /></RoleGuard>} />
+                  <Route path="/campanhas/:id" element={<RoleGuard minRole="operator"><CampaignDetailPage /></RoleGuard>} />
                   <Route path="/relatorios" element={<ReportsPage />} />
-                  <Route path="/empreendimentos" element={<DevelopmentsPage />} />
-                  <Route path="/empreendimentos/novo" element={<DevelopmentFormPage />} />
-                  <Route path="/empreendimentos/:id/editar" element={<DevelopmentFormPage />} />
-                  <Route path="/minha-aimee" element={<MinhaAimeePage />} />
-                  <Route path="/acessos" element={<AcessosPage />} />
-                  <Route path="/captacao" element={<CaptacaoPage />} />
-                  <Route path="/atualizacao" element={<AtualizacaoPage />} />
-                  <Route path="/templates" element={<TemplatesPage />} />
-                  <Route path="/financeiro" element={<FinancePage />} />
+                  <Route path="/empreendimentos" element={<RoleGuard minRole="operator"><DevelopmentsPage /></RoleGuard>} />
+                  <Route path="/empreendimentos/novo" element={<RoleGuard minRole="admin"><DevelopmentFormPage /></RoleGuard>} />
+                  <Route path="/empreendimentos/:id/editar" element={<RoleGuard minRole="admin"><DevelopmentFormPage /></RoleGuard>} />
+                  <Route path="/captacao" element={<RoleGuard minRole="operator"><CaptacaoPage /></RoleGuard>} />
+                  <Route path="/atualizacao" element={<RoleGuard minRole="operator"><AtualizacaoPage /></RoleGuard>} />
+                  <Route path="/templates" element={<RoleGuard minRole="operator"><TemplatesPage /></RoleGuard>} />
+                  {/* admin+ */}
+                  <Route path="/minha-aimee" element={<RoleGuard minRole="admin"><MinhaAimeePage /></RoleGuard>} />
+                  <Route path="/acessos" element={<RoleGuard minRole="admin"><AcessosPage /></RoleGuard>} />
+                  <Route path="/financeiro" element={<RoleGuard minRole="admin"><FinancePage /></RoleGuard>} />
                   <Route path="/guia" element={<GuiaPage />} />
                 </Route>
                 {/* Admin Central — super_admin only */}

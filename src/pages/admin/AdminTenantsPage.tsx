@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Search,
@@ -9,7 +9,6 @@ import {
     Users,
     Calendar,
     Filter,
-    Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,135 +20,81 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import TenantStatusBadge, { type TenantStatus } from '@/components/admin/TenantStatusBadge';
-import { supabase } from '@/integrations/supabase/client';
 
-// ── Types ─────────────────────────────────────────────────────────────
+// ── Mock data ─────────────────────────────────────────────────────────
 
 interface Tenant {
     id: string;
     company_name: string;
     city: string;
     state: string;
+    plan: string;
     status: TenantStatus;
     conversations_month: number;
-    contacts_count: number;
+    leads_month: number;
     users_count: number;
     created_at: string;
     is_active: boolean;
 }
 
+const mockTenants: Tenant[] = [
+    {
+        id: '1', company_name: 'Smolka Imóveis', city: 'Porto Alegre', state: 'RS',
+        plan: 'Pro', status: 'active', conversations_month: 423, leads_month: 89,
+        users_count: 6, created_at: '2025-08-15', is_active: true,
+    },
+    {
+        id: '2', company_name: 'Casa Verde Imobiliária', city: 'São Paulo', state: 'SP',
+        plan: 'Enterprise', status: 'active', conversations_month: 312, leads_month: 67,
+        users_count: 14, created_at: '2025-07-20', is_active: true,
+    },
+    {
+        id: '3', company_name: 'Porto Seguro Realty', city: 'Curitiba', state: 'PR',
+        plan: 'Pro', status: 'active', conversations_month: 287, leads_month: 54,
+        users_count: 8, created_at: '2025-09-10', is_active: true,
+    },
+    {
+        id: '4', company_name: 'Horizonte Imóveis', city: 'Florianópolis', state: 'SC',
+        plan: 'Starter', status: 'active', conversations_month: 198, leads_month: 41,
+        users_count: 3, created_at: '2025-10-05', is_active: true,
+    },
+    {
+        id: '5', company_name: 'Nova Era Construtora', city: 'Belo Horizonte', state: 'MG',
+        plan: 'Pro', status: 'trial', conversations_month: 145, leads_month: 28,
+        users_count: 5, created_at: '2026-01-22', is_active: true,
+    },
+    {
+        id: '6', company_name: 'Alto Padrão Imóveis', city: 'Brasília', state: 'DF',
+        plan: 'Starter', status: 'trial', conversations_month: 67, leads_month: 12,
+        users_count: 2, created_at: '2026-02-01', is_active: true,
+    },
+    {
+        id: '7', company_name: 'Real Estate SP', city: 'São Paulo', state: 'SP',
+        plan: 'Pro', status: 'past_due', conversations_month: 89, leads_month: 15,
+        users_count: 4, created_at: '2025-11-30', is_active: true,
+    },
+    {
+        id: '8', company_name: 'Imobiliária Sol Nascente', city: 'Recife', state: 'PE',
+        plan: 'Starter', status: 'cancelled', conversations_month: 0, leads_month: 0,
+        users_count: 2, created_at: '2025-06-15', is_active: false,
+    },
+];
+
 // ── Component ─────────────────────────────────────────────────────────
 
 const AdminTenantsPage: React.FC = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
-    const [tenants, setTenants] = useState<Tenant[]>([]);
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
+    const [planFilter, setPlanFilter] = useState<string>('all');
 
-    useEffect(() => {
-        loadTenants();
-    }, []);
-
-    const loadTenants = async () => {
-        setLoading(true);
-        try {
-            // Load all tenants
-            const { data: tenantsData } = await supabase
-                .from('tenants')
-                .select('id, company_name, city, state, is_active, created_at')
-                .order('company_name');
-
-            if (!tenantsData || tenantsData.length === 0) {
-                setTenants([]);
-                return;
-            }
-
-            const monthStart = new Date();
-            monthStart.setDate(1);
-            monthStart.setHours(0, 0, 0, 0);
-
-            // Enrich each tenant with metrics
-            const enriched: Tenant[] = [];
-
-            for (const t of tenantsData) {
-                const { count: convCount } = await supabase
-                    .from('conversations')
-                    .select('id', { count: 'exact', head: true })
-                    .eq('tenant_id', t.id)
-                    .gte('created_at', monthStart.toISOString());
-
-                const { count: contactCount } = await supabase
-                    .from('contacts')
-                    .select('id', { count: 'exact', head: true })
-                    .eq('tenant_id', t.id);
-
-                const { count: usersCount } = await supabase
-                    .from('profiles')
-                    .select('id', { count: 'exact', head: true })
-                    .eq('tenant_id', t.id);
-
-                enriched.push({
-                    id: t.id,
-                    company_name: t.company_name,
-                    city: t.city || '',
-                    state: t.state || '',
-                    is_active: t.is_active ?? true,
-                    status: (t.is_active ?? true) ? 'active' : 'inactive',
-                    conversations_month: convCount ?? 0,
-                    contacts_count: contactCount ?? 0,
-                    users_count: usersCount ?? 0,
-                    created_at: t.created_at,
-                });
-            }
-
-            // Sort by conversations desc
-            enriched.sort((a, b) => b.conversations_month - a.conversations_month);
-            setTenants(enriched);
-        } catch (error) {
-            console.error('Error loading tenants:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const filtered = tenants.filter((t) => {
-        const matchesSearch =
-            t.company_name.toLowerCase().includes(search.toLowerCase()) ||
+    const filtered = mockTenants.filter((t) => {
+        const matchesSearch = t.company_name.toLowerCase().includes(search.toLowerCase()) ||
             t.city.toLowerCase().includes(search.toLowerCase());
         const matchesStatus = statusFilter === 'all' || t.status === statusFilter;
-        return matchesSearch && matchesStatus;
+        const matchesPlan = planFilter === 'all' || t.plan.toLowerCase() === planFilter;
+        return matchesSearch && matchesStatus && matchesPlan;
     });
-
-    if (loading) {
-        return (
-            <div className="flex flex-col h-[calc(100vh-4rem)]">
-                <div className="p-4 md:px-6 border-b border-border bg-card space-y-4">
-                    <div className="space-y-1">
-                        <div className="skeleton h-7 w-32" />
-                        <div className="skeleton h-4 w-56" />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                        <div className="skeleton h-9 w-64" />
-                        <div className="skeleton h-9 w-[140px]" />
-                    </div>
-                </div>
-                <div className="flex-1 p-4 space-y-3">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                        <div key={i} className="flex items-center gap-4 p-3 rounded-lg">
-                            <div className="skeleton h-9 w-9 rounded-lg" />
-                            <div className="flex-1 space-y-1">
-                                <div className="skeleton h-4 w-40" />
-                                <div className="skeleton h-3 w-24" />
-                            </div>
-                            <div className="skeleton h-5 w-16 rounded-full" />
-                            <div className="skeleton h-4 w-12 hidden md:block" />
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -159,7 +104,7 @@ const AdminTenantsPage: React.FC = () => {
                     <div>
                         <h1 className="font-display text-2xl font-bold text-foreground">Tenants</h1>
                         <p className="text-sm text-muted-foreground mt-1">
-                            {tenants.length} cliente{tenants.length !== 1 ? 's' : ''} na plataforma
+                            Gerencie todos os clientes da plataforma
                         </p>
                     </div>
                     <Button size="sm" className="gap-1.5" style={{ background: 'hsl(250 70% 60%)' }}>
@@ -187,7 +132,20 @@ const AdminTenantsPage: React.FC = () => {
                         <SelectContent>
                             <SelectItem value="all">Todos</SelectItem>
                             <SelectItem value="active">Ativos</SelectItem>
-                            <SelectItem value="inactive">Inativos</SelectItem>
+                            <SelectItem value="trial">Trial</SelectItem>
+                            <SelectItem value="past_due">Em atraso</SelectItem>
+                            <SelectItem value="cancelled">Cancelados</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select value={planFilter} onValueChange={setPlanFilter}>
+                        <SelectTrigger className="w-[140px] h-9 text-sm">
+                            <SelectValue placeholder="Plano" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos</SelectItem>
+                            <SelectItem value="starter">Starter</SelectItem>
+                            <SelectItem value="pro">Pro</SelectItem>
+                            <SelectItem value="enterprise">Enterprise</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
@@ -199,7 +157,8 @@ const AdminTenantsPage: React.FC = () => {
                     <thead className="sticky top-0 bg-card z-10">
                         <tr className="border-b border-border">
                             <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4 md:px-6">Empresa</th>
-                            <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4 hidden lg:table-cell">Localiza\u00e7\u00e3o</th>
+                            <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4 hidden lg:table-cell">Localização</th>
+                            <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4">Plano</th>
                             <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4">Status</th>
                             <th className="text-right text-xs font-medium text-muted-foreground py-3 px-4 hidden md:table-cell">
                                 <div className="flex items-center justify-end gap-1">
@@ -208,12 +167,7 @@ const AdminTenantsPage: React.FC = () => {
                             </th>
                             <th className="text-right text-xs font-medium text-muted-foreground py-3 px-4 hidden md:table-cell">
                                 <div className="flex items-center justify-end gap-1">
-                                    <Users className="h-3 w-3" /> Contatos
-                                </div>
-                            </th>
-                            <th className="text-right text-xs font-medium text-muted-foreground py-3 px-4 hidden md:table-cell">
-                                <div className="flex items-center justify-end gap-1">
-                                    <Users className="h-3 w-3" /> Usu\u00e1rios
+                                    <Users className="h-3 w-3" /> Leads
                                 </div>
                             </th>
                             <th className="text-right text-xs font-medium text-muted-foreground py-3 px-4 hidden lg:table-cell">
@@ -246,16 +200,18 @@ const AdminTenantsPage: React.FC = () => {
                                     <span className="text-sm text-muted-foreground">{tenant.city}/{tenant.state}</span>
                                 </td>
                                 <td className="py-3 px-4">
+                                    <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                                        {tenant.plan}
+                                    </span>
+                                </td>
+                                <td className="py-3 px-4">
                                     <TenantStatusBadge status={tenant.status} />
                                 </td>
                                 <td className="py-3 px-4 text-right hidden md:table-cell">
                                     <span className="text-sm font-semibold text-foreground">{tenant.conversations_month}</span>
                                 </td>
                                 <td className="py-3 px-4 text-right hidden md:table-cell">
-                                    <span className="text-sm text-muted-foreground">{tenant.contacts_count}</span>
-                                </td>
-                                <td className="py-3 px-4 text-right hidden md:table-cell">
-                                    <span className="text-sm text-muted-foreground">{tenant.users_count}</span>
+                                    <span className="text-sm text-muted-foreground">{tenant.leads_month}</span>
                                 </td>
                                 <td className="py-3 px-4 text-right hidden lg:table-cell">
                                     <span className="text-xs text-muted-foreground">

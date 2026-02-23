@@ -33,7 +33,7 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (data) setTenantInfo({
           company_name: data.company_name,
           wa_phone_number_id: data.wa_phone_number_id,
-          access_code: (data as any).access_code ?? null,
+          access_code: data.access_code ?? null,
         });
       });
   }, [tenantId]);

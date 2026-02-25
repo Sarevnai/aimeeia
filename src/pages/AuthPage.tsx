@@ -118,8 +118,18 @@ const AuthPage = () => {
       setFoundTenantId(tenant.tenant_id);
       setTenantName(tenant.company_name);
 
-      // Step 2: Create auth user
-      const { user: newUser, error: signUpError } = await signUp(email, password);
+      // Step 2: Create auth user with metadata for the DB Trigger
+      const { data: { user: newUser }, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+            tenant_id: tenant.tenant_id,
+            role: 'operator' // Defaut role when signing up via access code
+          }
+        }
+      });
 
       if (signUpError || !newUser) {
         const msg = (signUpError as any)?.message || '';
@@ -132,23 +142,7 @@ const AuthPage = () => {
         return;
       }
 
-      // Step 3: Create profile via Edge Function
-      const { data: regData, error: regError } = await supabase.functions.invoke('manage-team', {
-        body: {
-          action: 'register_new_member',
-          user_id: newUser.id,
-          tenant_id: tenant.tenant_id,
-          full_name: fullName.trim(),
-        },
-      });
-
-      if (regError) {
-        console.error('Profile creation error:', regError);
-        setError('Conta criada, mas houve um erro ao vincular à empresa. Contate o administrador.');
-        setLoading(false);
-        return;
-      }
-
+      // Step 3: Success! The database trigger automatically creates the profile.
       setSignupStep('success');
     } catch (err) {
       console.error('Signup error:', err);

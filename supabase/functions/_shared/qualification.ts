@@ -20,7 +20,9 @@ export function calculateQualificationScore(data: QualificationData | null): num
 }
 
 export function isQualificationComplete(data: QualificationData | null): boolean {
-  return calculateQualificationScore(data) >= 45;
+  // Relaxed qualification: semantic search is powerful enough to find properties
+  // with fewer strict parameters. We just need a minimum viable threshold.
+  return calculateQualificationScore(data) >= 20;
 }
 
 export function getNextQualificationQuestion(
@@ -29,28 +31,9 @@ export function getNextQualificationQuestion(
 ): string | null {
   if (!data) return null;
 
-  // Priority order for qualification
-  if (!data.detected_neighborhood) {
-    return department === 'locacao'
-      ? 'Qual região ou bairro você prefere para morar?'
-      : 'Qual região ou bairro você está buscando?';
-  }
-
-  if (!data.detected_property_type) {
-    return 'Que tipo de imóvel você procura? (apartamento, casa, terreno...)';
-  }
-
-  if (!data.detected_bedrooms) {
-    return 'Quantos quartos você precisa?';
-  }
-
-  if (!data.detected_budget_max) {
-    return department === 'locacao'
-      ? 'Qual sua faixa de valor para aluguel?'
-      : 'Qual sua faixa de investimento?';
-  }
-
-  return null; // All collected
+  // Let the AI use its judgment instead of forcing a strict flow.
+  // The system prompt should handle asking natural questions.
+  return null;
 }
 
 // ========== EXTRACT QUALIFICATION FROM TEXT ==========

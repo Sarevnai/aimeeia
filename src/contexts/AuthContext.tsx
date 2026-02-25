@@ -4,7 +4,7 @@ import type { User, Session } from '@supabase/supabase-js';
 
 interface Profile {
   id: string;
-  tenant_id: string;
+  tenant_id: string | null;  // NULL for super_admin (product admins don't need a tenant)
   full_name: string | null;
   avatar_url: string | null;
   role: 'super_admin' | 'admin' | 'operator' | 'viewer' | null;
@@ -36,38 +36,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, tenant_id, full_name, avatar_url, role')
-      .eq('id', userId)
-      .single();
-    setProfile(data as Profile | null);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, tenant_id, full_name, avatar_url, role')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+      }
+      setProfile(data as Profile | null);
+    } catch (err) {
+      console.error('Unexpected error in fetchProfile:', err);
+      setProfile(null);
+    }
   };
 
   useEffect(() => {
+    let mounted = true;
+
+    // Use only onAuthStateChange - it fires INITIAL_SESSION on mount,
+    // so there's no need for a separate getSession() call.
+    // This eliminates the race condition between initSession and onAuthStateChange.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        if (!mounted) return;
+
         setSession(session);
         setUser(session?.user ?? null);
+
         if (session?.user) {
-          setTimeout(() => fetchProfile(session.user.id), 0);
+          // Set loading=true immediately so AppLayout shows spinner
+          // while the profile is being fetched (prevents flash of error screen)
+          setLoading(true);
+          // Defer profile fetch with setTimeout to avoid Supabase internal deadlocks
+          setTimeout(async () => {
+            if (!mounted) return;
+            await fetchProfile(session.user.id);
+            if (mounted) setLoading(false);
+          }, 0);
         } else {
           setProfile(null);
+          if (mounted) setLoading(false);
         }
-        setLoading(false);
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {

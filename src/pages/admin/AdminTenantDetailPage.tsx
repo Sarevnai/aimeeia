@@ -13,11 +13,25 @@ import {
     XCircle,
     Clock,
     Loader2,
+    UserPlus,
+    Trash2,
+    Database,
+    Link as LinkIcon,
+    RefreshCw,
+    AlertCircle,
+    Save
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import TenantStatusBadge from '@/components/admin/TenantStatusBadge';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -33,6 +47,8 @@ interface TenantData {
     crm_type: string | null;
     crm_api_key: string | null;
     crm_api_url: string | null;
+    xml_catalog_url: string | null;
+    xml_parser_type: string | null;
 }
 
 interface TenantMetrics {
@@ -72,6 +88,7 @@ interface Integration {
 const AdminTenantDetailPage: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const [activeTab, setActiveTab] = useState('overview');
     const [loading, setLoading] = useState(true);
     const [tenant, setTenant] = useState<TenantData | null>(null);
@@ -84,6 +101,23 @@ const AdminTenantDetailPage: React.FC = () => {
     const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
     const [integrations, setIntegrations] = useState<Integration[]>([]);
 
+    // ── Catalog State ──────────────────────────────────────────────────
+    const [xmlUrl, setXmlUrl] = useState('');
+    const [xmlParser, setXmlParser] = useState('auto');
+    const [savingXml, setSavingXml] = useState(false);
+    const [syncingXml, setSyncingXml] = useState(false);
+    const [catalogStats, setCatalogStats] = useState({ total: 0, pending: 0, lastSync: null as string | null });
+
+    // ── Invite user state ──────────────────────────────────────────────
+    const [inviteOpen, setInviteOpen] = useState(false);
+    const [inviteLoading, setInviteLoading] = useState(false);
+    const [inviteForm, setInviteForm] = useState({ email: '', full_name: '', role: 'viewer' });
+
+    // ── Remove user state ──────────────────────────────────────────────
+    const [removeUserId, setRemoveUserId] = useState<string | null>(null);
+    const [removeName, setRemoveName] = useState('');
+    const [removeLoading, setRemoveLoading] = useState(false);
+
     useEffect(() => {
         if (id) loadTenantData(id);
     }, [id]);
@@ -94,7 +128,7 @@ const AdminTenantDetailPage: React.FC = () => {
             // Load tenant basic data
             const { data: tenantData, error: tenantErr } = await supabase
                 .from('tenants')
-                .select('id, company_name, city, state, is_active, created_at, wa_phone_number_id, crm_type, crm_api_key, crm_api_url')
+                .select('id, company_name, city, state, is_active, created_at, wa_phone_number_id, crm_type, crm_api_key, crm_api_url, xml_catalog_url, xml_parser_type')
                 .eq('id', tenantId)
                 .single();
 
@@ -105,6 +139,28 @@ const AdminTenantDetailPage: React.FC = () => {
             }
 
             setTenant(tenantData);
+            setXmlUrl(tenantData.xml_catalog_url || '');
+            setXmlParser(tenantData.xml_parser_type || 'auto');
+
+            // Load properties stats for this specific tenant
+            try {
+                const { count, error: countErr } = await supabase.from('properties').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId);
+                if (countErr) console.error("Properties count error:", countErr);
+
+                const { count: pendingCount, error: queueErr } = await supabase.from('xml_sync_queue').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('status', 'pending');
+                if (queueErr) console.error("Queue count error:", queueErr);
+
+                const { data: props, error: propsErr } = await supabase.from('properties').select('updated_at').eq('tenant_id', tenantId).order('updated_at', { ascending: false }).limit(1);
+                if (propsErr) console.error("Properties latest date error:", propsErr);
+
+                setCatalogStats({
+                    total: count || 0,
+                    pending: pendingCount || 0,
+                    lastSync: props && props.length > 0 ? props[0].updated_at : null
+                });
+            } catch (err) {
+                console.error("Catch block Error loading property stats", err);
+            }
 
             // Load metrics
             const monthStart = new Date();
@@ -232,6 +288,109 @@ const AdminTenantDetailPage: React.FC = () => {
         }
     };
 
+    // ── Catalog config & sync ──────────────────────────────────────────
+    const handleSaveXmlConfig = async () => {
+        if (!id) return;
+        setSavingXml(true);
+        try {
+            const { error } = await supabase
+                .from('tenants')
+                .update({ xml_catalog_url: xmlUrl, xml_parser_type: xmlParser })
+                .eq('id', id);
+
+            if (error) throw error;
+            toast({ title: 'Sucesso', description: 'Configurações de catálogo XML salvas.' });
+            loadTenantData(id); // Reload
+        } catch (error: any) {
+            console.error(error);
+            toast({ title: 'Erro', description: 'Falha ao salvar configurações do catálogo.', variant: 'destructive' });
+        } finally {
+            setSavingXml(false);
+        }
+    };
+
+    const handleSyncCatalog = async () => {
+        if (!xmlUrl || !id) {
+            toast({ title: 'Aviso', description: 'Salve a URL do XML primeiro.', variant: 'destructive' });
+            return;
+        }
+
+        setSyncingXml(true);
+        toast({ title: 'Sincronização Iniciada', description: 'Baixando seu XML e adicionando na fila de IA. Isso deve demorar apenas alguns segundos...' });
+
+        try {
+            const { data, error } = await supabase.functions.invoke('sync-catalog-xml', {
+                body: { tenant_id: id, xml_url: xmlUrl, parser_type: xmlParser }
+            });
+
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+
+            toast({
+                title: 'Imóveis na Fila!',
+                description: data?.message || `Sua base de imóveis está sendo lida pela IA e processada em pano de fundo.`,
+            });
+
+            // Re-fetch stats slightly later to show pending items if possible
+            setTimeout(() => { if (id) loadTenantData(id) }, 5000);
+
+        } catch (error: any) {
+            console.error(error);
+            toast({ title: 'Erro na Sincronização', description: error.message || 'Falha ao processar o XML.', variant: 'destructive' });
+        } finally {
+            setSyncingXml(false);
+        }
+    };
+
+    // ── Invite user ────────────────────────────────────────────────────
+    const handleInviteUser = async () => {
+        if (!inviteForm.email || !inviteForm.full_name) return;
+        setInviteLoading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('manage-team', {
+                body: {
+                    action: 'invite_user',
+                    email: inviteForm.email,
+                    full_name: inviteForm.full_name,
+                    tenant_id: id,
+                    role: inviteForm.role,
+                },
+            });
+            const errMsg = error?.message || (data as { error?: string })?.error;
+            if (errMsg) {
+                toast({ title: 'Erro ao convidar usuário', description: errMsg, variant: 'destructive' });
+            } else {
+                toast({ title: 'Convite enviado!', description: `${inviteForm.email} receberá um e-mail de convite.` });
+                setInviteOpen(false);
+                setInviteForm({ email: '', full_name: '', role: 'viewer' });
+                if (id) loadTenantData(id);
+            }
+        } finally {
+            setInviteLoading(false);
+        }
+    };
+
+    // ── Remove user ────────────────────────────────────────────────────
+    const handleRemoveUser = async () => {
+        if (!removeUserId) return;
+        setRemoveLoading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('manage-team', {
+                body: { action: 'remove_user', user_id: removeUserId },
+            });
+            const errMsg = error?.message || (data as { error?: string })?.error;
+            if (errMsg) {
+                toast({ title: 'Erro ao remover usuário', description: errMsg, variant: 'destructive' });
+            } else {
+                toast({ title: 'Usuário removido com sucesso.' });
+                setRemoveUserId(null);
+                if (id) loadTenantData(id);
+            }
+        } finally {
+            setRemoveLoading(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -304,6 +463,11 @@ const AdminTenantDetailPage: React.FC = () => {
                             <p className="text-sm text-muted-foreground">
                                 {tenant.city}/{tenant.state} &bull; Criado em {new Date(tenant.created_at).toLocaleDateString('pt-BR')}
                             </p>
+                            {tenant.wa_phone_number_id && (
+                                <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                                    {tenant.wa_phone_number_id}
+                                </p>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -313,6 +477,7 @@ const AdminTenantDetailPage: React.FC = () => {
                         {[
                             { value: 'overview', label: 'Vis\u00e3o Geral', icon: Building2 },
                             { value: 'agent', label: 'Config IA', icon: Bot },
+                            { value: 'catalog', label: 'Catálogo XML', icon: Database },
                             { value: 'billing', label: 'Billing', icon: CreditCard },
                             { value: 'users', label: 'Usu\u00e1rios', icon: Users },
                             { value: 'integrations', label: 'Integra\u00e7\u00f5es', icon: Plug },
@@ -416,6 +581,126 @@ const AdminTenantDetailPage: React.FC = () => {
                     </div>
                 )}
 
+                {activeTab === 'catalog' && (
+                    <div className="space-y-6 max-w-5xl mx-auto animate-fade-in">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                            {/* Form de Configuração */}
+                            <div className="lg:col-span-2 space-y-6">
+                                <div className="bg-card border border-border rounded-xl p-5 md:p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="text-sm font-semibold text-foreground">Configuração do Feed XML</h3>
+                                    </div>
+                                    <div className="space-y-4">
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="xml_url">URL do XML (Publicamente Acessível)</Label>
+                                            <div className="relative">
+                                                <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                                <Input
+                                                    id="xml_url"
+                                                    placeholder="https://crm.exemplo.com.br/export/vivareal.xml"
+                                                    className="pl-9 font-mono text-sm"
+                                                    value={xmlUrl}
+                                                    onChange={(e) => setXmlUrl(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="xml_parser">Formato de Leitura (Parser)</Label>
+                                            <Select value={xmlParser} onValueChange={setXmlParser}>
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="auto">Detecção Automática</SelectItem>
+                                                    <SelectItem value="zap_vivareal">ZAP / VivaReal Padrão</SelectItem>
+                                                    <SelectItem value="vista">Vista CRM</SelectItem>
+                                                    <SelectItem value="custom">Formato Customizado (Precisa de ajuste manual)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Se "Automática", o sistema tentará inferir através de tags comuns como &lt;Imovel&gt; ou &lt;Listing&gt;.
+                                            </p>
+                                        </div>
+
+                                        <div className="pt-4 flex items-center justify-end border-t border-border">
+                                            <Button onClick={handleSaveXmlConfig} disabled={savingXml}>
+                                                {savingXml ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />} Salvar
+                                            </Button>
+                                        </div>
+
+                                    </div>
+                                </div>
+
+                                <div className="bg-muted/30 border border-border rounded-xl p-5">
+                                    <h4 className="font-medium flex items-center gap-2 mb-2 text-sm text-foreground">
+                                        <AlertCircle className="h-4 w-4 text-amber-500" /> Funcionamento da Busca por IA
+                                    </h4>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        Ao sincronizar, o sistema processará o arquivo XML informado e criará seus <strong>Knowledge Embeddings</strong> (vetores numéricos contextuais) através da API da OpenAI (`text-embedding-3-small`).<br /><br />
+                                        Isso permite que a Aimee interprete de forma semântica o desejo exato do lead e identifique imóveis ideais baseados na semelhança do contexto e filtros quantitativos. Esta busca é limitada aos imóveis cadastrados neste tenant!
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Stats do Banco e Sincronização */}
+                            <div className="space-y-6">
+                                <div className="bg-card border border-border rounded-xl p-5 md:p-6 flex flex-col items-center justify-center text-center">
+                                    <Database className="h-10 w-10 text-[hsl(250_70%_60%)] mb-3 opacity-80" />
+                                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Visão do Catálogo</h3>
+                                    <div className="flex items-center justify-center gap-8 my-2">
+                                        <div className="flex flex-col items-center">
+                                            <div className="text-4xl font-display font-bold text-foreground">
+                                                {loading ? <span className="animate-pulse">...</span> : catalogStats.total}
+                                            </div>
+                                            <div className="text-[10px] uppercase font-bold text-muted-foreground mt-1">Imóveis BD</div>
+                                        </div>
+
+                                        <div className="h-10 w-px bg-border"></div>
+
+                                        <div className="flex flex-col items-center">
+                                            <div className="text-4xl font-display font-bold text-indigo-500">
+                                                {loading ? <span className="animate-pulse">...</span> : (catalogStats.pending || 0)}
+                                            </div>
+                                            <div className="text-[10px] uppercase font-bold text-indigo-500/80 mt-1 flex items-center gap-1"><Clock className="w-3 h-3" /> Fila IA</div>
+                                        </div>
+                                    </div>
+
+                                    {catalogStats.lastSync ? (
+                                        <div className="flex items-center justify-center gap-1.5 text-[10px] text-emerald-500 font-medium bg-emerald-500/10 py-1 px-2.5 rounded-full mx-auto w-fit mt-1">
+                                            <CheckCircle2 className="h-3 w-3" />
+                                            Sincronizado {new Date(catalogStats.lastSync).toLocaleString('pt-BR')}
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center justify-center gap-1.5 text-[10px] text-amber-500 font-medium bg-amber-500/10 py-1 px-2.5 rounded-full mx-auto w-fit mt-1">
+                                            <Clock className="h-3 w-3" />
+                                            Nunca sincronizado
+                                        </div>
+                                    )}
+
+                                    <Separator className="my-5 w-full bg-border/50" />
+
+                                    <Button
+                                        onClick={handleSyncCatalog}
+                                        disabled={syncingXml || !xmlUrl}
+                                        className="w-full bg-[hsl(250_70%_60%)] hover:bg-[hsl(250_70%_50%)] text-white shadow-lg shadow-[hsl(250_70%_60%_/0.2)]"
+                                    >
+                                        {syncingXml ? (
+                                            <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Processando Vetores...</>
+                                        ) : (
+                                            <><RefreshCw className="h-4 w-4 mr-2" /> Forçar Sincronização</>
+                                        )}
+                                    </Button>
+                                    <p className="text-[10px] text-muted-foreground mt-3">Essa ação invocará processos de inteligência artificial de leitura e geração de embeddings e pode demorar.</p>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'billing' && (
                     <div className="space-y-4 max-w-3xl mx-auto animate-fade-in">
                         <div className="bg-card border border-border rounded-xl p-5">
@@ -433,12 +718,16 @@ const AdminTenantDetailPage: React.FC = () => {
                     <div className="space-y-4 max-w-3xl mx-auto animate-fade-in">
                         <div className="bg-card border border-border rounded-xl p-5">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-semibold text-foreground">Usu\u00e1rios ({users.length})</h3>
+                                <h3 className="text-sm font-semibold text-foreground">Usuários ({users.length})</h3>
+                                <Button size="sm" onClick={() => setInviteOpen(true)}>
+                                    <UserPlus className="h-4 w-4 mr-1.5" />
+                                    Convidar Usuário
+                                </Button>
                             </div>
                             {users.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-8">
                                     <Users className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                                    <p className="text-sm text-muted-foreground">Nenhum usu\u00e1rio cadastrado</p>
+                                    <p className="text-sm text-muted-foreground">Nenhum usuário cadastrado</p>
                                 </div>
                             ) : (
                                 <div className="space-y-2">
@@ -464,11 +753,84 @@ const AdminTenantDetailPage: React.FC = () => {
                                             <span className="text-xs text-muted-foreground hidden sm:inline">
                                                 Desde {new Date(user.created_at).toLocaleDateString('pt-BR')}
                                             </span>
+                                            <button
+                                                onClick={() => { setRemoveUserId(user.id); setRemoveName(user.full_name); }}
+                                                className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors ml-1"
+                                                title="Remover usuário"
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
                             )}
                         </div>
+
+                        {/* Dialog: Convidar Usuário */}
+                        <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Convidar Usuário</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4 py-2">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="invite-email">E-mail</Label>
+                                        <Input
+                                            id="invite-email"
+                                            type="email"
+                                            placeholder="email@empresa.com"
+                                            value={inviteForm.email}
+                                            onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="invite-name">Nome completo</Label>
+                                        <Input
+                                            id="invite-name"
+                                            placeholder="João Silva"
+                                            value={inviteForm.full_name}
+                                            onChange={(e) => setInviteForm((f) => ({ ...f, full_name: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="invite-role">Papel</Label>
+                                        <Select
+                                            value={inviteForm.role}
+                                            onValueChange={(v) => setInviteForm((f) => ({ ...f, role: v }))}
+                                        >
+                                            <SelectTrigger id="invite-role">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="admin">Admin</SelectItem>
+                                                <SelectItem value="operator">Operador</SelectItem>
+                                                <SelectItem value="viewer">Visualizador</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                                <DialogFooter>
+                                    <Button variant="outline" onClick={() => setInviteOpen(false)} disabled={inviteLoading}>
+                                        Cancelar
+                                    </Button>
+                                    <Button onClick={handleInviteUser} disabled={inviteLoading || !inviteForm.email || !inviteForm.full_name}>
+                                        {inviteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enviar convite'}
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+
+                        {/* ConfirmDialog: Remover usuário */}
+                        <ConfirmDialog
+                            open={!!removeUserId}
+                            onOpenChange={(o) => { if (!o) setRemoveUserId(null); }}
+                            title="Remover usuário"
+                            description={`Tem certeza que deseja remover ${removeName}? Esta ação irá excluir o acesso do usuário à plataforma e não pode ser desfeita.`}
+                            confirmLabel="Remover"
+                            variant="destructive"
+                            loading={removeLoading}
+                            onConfirm={handleRemoveUser}
+                        />
                     </div>
                 )}
 

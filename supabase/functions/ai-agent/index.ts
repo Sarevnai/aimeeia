@@ -15,6 +15,32 @@ import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } 
 import { fragmentMessage, logError, logActivity, sleep } from '../_shared/utils.ts';
 import { Tenant, AIAgentConfig, AIBehaviorConfig, ConversationState, ConversationMessage, PropertyResult } from '../_shared/types.ts';
 
+// Helper to generate embedding for the search
+async function generateEmbedding(text: string): Promise<number[]> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY');
+  if (!apiKey) throw new Error('OPENAI_API_KEY or LOVABLE_API_KEY not configured for embeddings');
+
+  const response = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'text-embedding-3-small',
+      input: text,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Embedding API error (${response.status}): ${error}`);
+  }
+
+  const data = await response.json();
+  return data.data[0].embedding;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
 
@@ -265,27 +291,51 @@ async function executePropertySearch(
   department: string | null
 ): Promise<string> {
   try {
-    // Build search params
-    const searchParams = buildSearchParams(args, tenant, department || 'locacao');
+    // Determine the query intent
+    const semanticQuery = args.query_semantica ||
+      `Imóvel para ${args.finalidade || department || 'locacao'}`;
 
-    // Call vista-search-properties edge function
-    const { data, error } = await supabase.functions.invoke('vista-search-properties', {
-      body: {
-        tenant_id: tenantId,
-        search_params: searchParams,
-      },
+    console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}"`);
+
+    // 1. Generate text embedding for the semantic query
+    const queryEmbedding = await generateEmbedding(semanticQuery);
+
+    // 2. Query the match_properties RPC with vectors
+    const { data: properties, error } = await supabase.rpc('match_properties', {
+      query_embedding: queryEmbedding,
+      match_tenant_id: tenantId,
+      match_threshold: 0.2, // Very low threshold to ensure we return *something* similar
+      match_count: 5,
+      filter_max_price: args.preco_max || null,
+      filter_tipo: null // Assuming type is usually captured semantically anyway
     });
 
-    if (error || !data?.properties) {
-      console.error('❌ Property search error:', error);
-      return 'Não consegui buscar imóveis no momento. Tente novamente em instantes.';
+    if (error) {
+      console.error('❌ Property search vector error:', error);
+      return 'Não consegui buscar imóveis no nosso catálogo inteligente no momento. Tente novamente em instantes.';
     }
 
-    const properties: PropertyResult[] = data.properties;
-
-    if (properties.length === 0) {
-      return 'Não encontrei imóveis com esses critérios. Quer ajustar a busca? Por exemplo, mudar a região ou faixa de valor?';
+    if (!properties || properties.length === 0) {
+      return 'Não encontrei imóveis exatos com esses critérios. Quer tentar expandir a busca ou remover alguns filtros como valor máximo?';
     }
+
+    // Format the properties returned from the pgvector to match PropertyResult structure
+    const formattedProperties: PropertyResult[] = properties.map((p: any) => ({
+      codigo: p.external_id,
+      tipo: p.type || 'Imóvel',
+      bairro: p.neighborhood || 'Região',
+      cidade: p.city || tenant.city,
+      preco: p.price,
+      preco_formatado: null, // Let formatCurrency handle it in property.ts
+      quartos: p.bedrooms,
+      suites: null,
+      vagas: null,
+      area_util: null,
+      link: p.url || '',
+      foto_destaque: p.images && p.images.length > 0 ? p.images[0] : null,
+      descricao: p.description,
+      valor_condominio: null
+    }));
 
     // Save properties to conversation state for consultative flow
     await supabase
@@ -293,29 +343,29 @@ async function executePropertySearch(
       .upsert({
         tenant_id: tenantId,
         phone_number: phoneNumber,
-        pending_properties: properties.slice(0, 5),
+        pending_properties: formattedProperties,
         current_property_index: 0,
         awaiting_property_feedback: true,
-        last_search_params: searchParams,
+        last_search_params: { semantic_query: semanticQuery, ...args },
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 
     // Send first property with consultative presentation
-    const firstProperty = properties[0];
+    const firstProperty = formattedProperties[0];
     if (firstProperty.foto_destaque) {
       await sendWhatsAppImage(
         phoneNumber,
         firstProperty.foto_destaque,
-        formatConsultativeProperty(firstProperty, 0, Math.min(properties.length, 5)),
+        formatConsultativeProperty(firstProperty, 0, Math.min(formattedProperties.length, 5)),
         tenant
       );
     }
 
-    return formatPropertySummary(properties.slice(0, 5));
+    return formatPropertySummary(formattedProperties);
 
   } catch (error) {
     console.error('❌ Property search execution error:', error);
-    return 'Tive um problema ao buscar imóveis. Vou tentar novamente.';
+    return 'Tive um problema ao buscar imóveis em nosso catálogo. Vou tentar novamente.';
   }
 }
 

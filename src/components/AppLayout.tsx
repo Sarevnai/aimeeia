@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import AppSidebar from '@/components/AppSidebar';
 import AppHeader from '@/components/AppHeader';
 import MobileBottomNav from '@/components/MobileBottomNav';
 import { Loader2 } from 'lucide-react';
 
 const AppLayout: React.FC = () => {
-  const { user, loading } = useAuth();
+  const { user, profile, loading, refreshProfile } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   if (loading) {
     return (
@@ -19,6 +21,43 @@ const AppLayout: React.FC = () => {
   }
 
   if (!user) return <Navigate to="/auth" replace />;
+
+  // Super admin without tenant → redirect to admin panel (product administration)
+  if (profile?.role === 'super_admin' && !profile?.tenant_id) {
+    return <Navigate to="/admin" replace />;
+  }
+
+  if (user && !profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center flex-col bg-background p-6 text-center">
+        <h2 className="text-xl font-bold font-display text-foreground mb-2">Perfil não localizado</h2>
+        <p className="text-muted-foreground text-sm max-w-sm mb-6">
+          Sua conta existe, mas seu perfil ainda não foi atrelado a nenhuma empresa no sistema. Por favor, peça ao administrador da sua imobiliária para gerar um novo código de acesso ou vincular sua conta.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={async () => {
+              setRetrying(true);
+              await refreshProfile();
+              setRetrying(false);
+            }}
+            disabled={retrying}
+            className="bg-accent text-accent-foreground px-4 py-2 rounded-md font-medium text-sm hover:bg-accent/90 disabled:opacity-50"
+          >
+            {retrying ? 'Tentando...' : 'Tentar novamente'}
+          </button>
+          <button
+            onClick={() => {
+              supabase.auth.signOut().then(() => window.location.href = '/auth');
+            }}
+            className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm hover:bg-primary/90"
+          >
+            Voltar para o Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full bg-background">

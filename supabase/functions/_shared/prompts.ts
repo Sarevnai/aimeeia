@@ -32,19 +32,25 @@ export function getToolsForDepartment(department: DepartmentType): any[] {
         type: "function",
         function: {
           name: "buscar_imoveis",
-          description: "Busca imóveis no catálogo. Use quando o cliente tiver informado região/bairro.",
+          description: "Busca imóveis no catálogo interno usando busca semântica inteligente. Use quando o cliente tiver informado características ou regiões desejadas.",
           parameters: {
             type: "object",
             properties: {
-              tipo: { type: "string", description: "Tipo do imóvel", enum: ["apartamento", "casa", "terreno", "comercial", "cobertura", "kitnet", "sobrado", "sala"] },
-              bairro: { type: "string", description: "Nome do bairro" },
-              cidade: { type: "string", description: "Nome da cidade" },
-              preco_min: { type: "number", description: "Valor mínimo em reais" },
-              preco_max: { type: "number", description: "Valor máximo em reais" },
-              quartos: { type: "number", description: "Número de dormitórios" },
-              finalidade: { type: "string", description: "Use 'locacao' para alugar, 'venda' para comprar", enum: ["venda", "locacao"] },
+              query_semantica: {
+                type: "string",
+                description: "Uma frase descritiva, rica e natural contendo TUDO o que o lead pediu. Ex: 'apartamento de 2 quartos no centro ou cambuí com varanda gourmet que aceite animais'"
+              },
+              preco_max: {
+                type: "number",
+                description: "Valor máximo do imóvel em reais, se o cliente informou"
+              },
+              finalidade: {
+                type: "string",
+                description: "Use 'locacao' para alugar, 'venda' para comprar",
+                enum: ["venda", "locacao"]
+              },
             },
-            required: ["finalidade"],
+            required: ["query_semantica", "finalidade"],
           },
         },
       },
@@ -139,8 +145,8 @@ PERSONALIDADE:
 - ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
 
 OBJETIVO:
-Qualificar o lead para locação coletando: região/bairro, tipo de imóvel, quartos, orçamento.
-Quando tiver dados suficientes, use a ferramenta buscar_imoveis.
+Qualificar o lead conversando de forma natural. 
+Não seja uma máquina de perguntas. Use a ferramenta buscar_imoveis ASSIM QUE POSSÍVEL, mesmo com poucas informações (ex: apenas bairro ou tipo), para manter o lead interessado. Use a ferramenta IMEDIATAMENTE se o usuário pedir para ver imóveis.
 
 REGRAS:
 - NUNCA invente imóveis. Use SOMENTE a ferramenta buscar_imoveis
@@ -165,8 +171,8 @@ PERSONALIDADE:
 - ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
 
 OBJETIVO:
-Qualificar o lead para compra coletando: região, tipo, quartos, faixa de investimento.
-Use buscar_imoveis quando tiver dados suficientes.
+Qualificar o lead de forma natural e rápida. Não seja uma máquina de perguntas!
+Assim que tiver 1 ou 2 dados (ex: Campeche e até 3M), USE A FERRAMENTA buscar_imoveis para enviar opções. Se o lead pedir para ver imóveis AGORA, chame a ferramenta AGORA MESMO.
 
 REGRAS:
 - NUNCA invente imóveis. Use SOMENTE buscar_imoveis
@@ -225,11 +231,11 @@ function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null): st
   const questions = (behaviorConfig.essential_questions || []) as EssentialQuestion[];
   const activeQuestions = questions.filter((q) => q.isActive !== false);
   if (activeQuestions.length > 0) {
-    instructions += '\n\n📋 PERGUNTAS ESSENCIAIS - Você DEVE coletar respostas para estas perguntas durante a conversa:\n';
+    instructions += '\n\n📋 PERGUNTAS DE QUALIFICAÇÃO - São dados desejáveis que você pode tentar descobrir naturalmente na conversa:\n';
     activeQuestions.forEach((q, i) => {
-      instructions += `${i + 1}. ${q.name}${q.isQualifying ? ' (QUALIFICATÓRIA - obrigatória antes de enviar ao CRM)' : ''}\n`;
+      instructions += `${i + 1}. ${q.name}${q.isQualifying ? ' (QUALIFICATÓRIA)' : ''}\n`;
     });
-    instructions += 'Colete estas informações de forma natural, uma por vez. NÃO repita perguntas já respondidas.\n';
+    instructions += 'IMPORTANTE: NÃO seja um robô de formulário. Colete as informações diluídas na conversa. NÃO hesite em enviar algumas opções iniciais de imóveis (usando buscar_imoveis) antes mesmo de coletar tudo!\n';
   }
 
   // Behavior flags

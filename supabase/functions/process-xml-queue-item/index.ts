@@ -74,36 +74,86 @@ serve(async (req: Request) => {
         const listing = queueItem.raw_data;
         const details = listing.Details || listing;
 
-        // We already have string-safe extraction from the ingestion pass but let's be safe
-        const title = listing.Title || listing.TituloImovel || `${details.PropertyType || ''} em ${listing.Location?.Neighborhood || ''}`;
-        const description = listing.Description || listing.Observacao || '';
-        const price = parseFloat(String(details.ListPrice || listing.PrecoVenda || listing.PrecoLocacao || 0));
-        const type = details.PropertyType || listing.TipoImovel || '';
-        const bedrooms = parseInt(String(details.Bedrooms || listing.Dormitorios || 0));
-        const bathrooms = parseInt(String(details.Bathrooms || listing.Banheiros || 0));
-        const parking = parseInt(String(details.Garage || listing.Vagas || 0));
-        const area = parseFloat(String(details.LivingArea || listing.AreaUtil || 0));
+        // Helper: fast-xml-parser stores text content of elements with attributes in #text
+        // e.g. <ListPrice currency="BRL">505000</ListPrice> becomes { "#text": 505000, "@_currency": "BRL" }
+        const getTextValue = (val: any): any => {
+            if (val == null) return val;
+            if (typeof val === 'object' && val['#text'] !== undefined) return val['#text'];
+            return val;
+        };
+
+        const title = getTextValue(listing.Title) || listing.TituloImovel || `${getTextValue(details.PropertyType) || ''} em ${listing.Location?.Neighborhood || ''}`;
+        const description = getTextValue(details.Description) || getTextValue(listing.Description) || listing.Observacao || '';
+        const rawPrice = getTextValue(details.ListPrice) || getTextValue(details.RentalPrice) || listing.PrecoVenda || listing.PrecoLocacao || 0;
+        const price = parseFloat(String(rawPrice)) || 0;
+        const type = getTextValue(details.PropertyType) || listing.TipoImovel || '';
+        const bedrooms = parseInt(String(getTextValue(details.Bedrooms) || listing.Dormitorios || 0)) || 0;
+        const bathrooms = parseInt(String(getTextValue(details.Bathrooms) || listing.Banheiros || 0)) || 0;
+        const parking = parseInt(String(getTextValue(details.Garage) || listing.Vagas || 0)) || 0;
+        const area = parseFloat(String(getTextValue(details.LivingArea) || getTextValue(details.LotArea) || listing.AreaUtil || 0)) || 0;
 
         const location = listing.Location || listing;
-        const neighborhood = location.Neighborhood || location.Bairro || '';
-        const city = location.City || location.Cidade || '';
+        const neighborhood = getTextValue(location.Neighborhood) || location.Bairro || '';
+        const city = getTextValue(location.City) || location.Cidade || '';
 
-        // Extract Images
-        let images = [];
+        // Build property URL from listing data
+        const propertyUrl = listing.VirtualTourLink || listing.DetailViewUrl || listing.PropertyLink || '';
+
+        // Transaction type for context (venda vs locacao)
+        const transactionType = getTextValue(listing.TransactionType) || '';
+
+        // Extract Images - handle fast-xml-parser #text pattern
+        let images: string[] = [];
         const media = listing.Media || listing.Fotos?.Foto;
         if (media) {
+            const extractImageUrl = (item: any): string | null => {
+                if (typeof item === 'string') return item;
+                if (item && typeof item === 'object') {
+                    // fast-xml-parser #text pattern (most common for Vista XML)
+                    const url = item['#text'] || item.url || item.URL || item.URLArquivo;
+                    if (typeof url === 'string') return url;
+                }
+                return null;
+            };
+
             if (Array.isArray(media)) {
-                images = media.map((m: any) => m.Item?.[0]?.url || m.Item?.url || m.Item || m.URLArquivo || m.URL || m);
+                // Media is an array of media groups
+                for (const m of media) {
+                    const url = extractImageUrl(m);
+                    if (url) { images.push(url); continue; }
+                    // Nested Item inside each media group
+                    if (m.Item) {
+                        const items = Array.isArray(m.Item) ? m.Item : [m.Item];
+                        for (const item of items) {
+                            const u = extractImageUrl(item);
+                            if (u) images.push(u);
+                        }
+                    }
+                }
             } else if (media.Item) {
-                images = Array.isArray(media.Item) ? media.Item.map((m: any) => m.url || m) : [media.Item?.url || media.Item];
-            } else if (media.URLArquivo) {
-                images = [media.URLArquivo];
+                // Media is an object with Item array (standard Vista XML format)
+                const items = Array.isArray(media.Item) ? media.Item : [media.Item];
+                for (const item of items) {
+                    const url = extractImageUrl(item);
+                    if (url) images.push(url);
+                }
+            } else {
+                const url = extractImageUrl(media);
+                if (url) images.push(url);
             }
         }
-        // Filter purely string urls
-        images = images.filter((i: any) => typeof i === 'string');
+        // Filter only valid image URLs (exclude videos etc.)
+        images = images.filter((url) =>
+            typeof url === 'string' &&
+            url.startsWith('http') &&
+            !url.includes('youtube.com') &&
+            !url.includes('youtu.be')
+        );
 
-        const semanticText = `Imóvel: ${title}. ${type} em ${neighborhood}, ${city}. \nPreço: R$ ${price || 0}. \n${bedrooms || 0} quartos, ${bathrooms || 0} banheiros, ${parking || 0} vagas de garagem. \nÁrea útil: ${area || 0}m². \nDescrição detalhada: ${description}`;
+        // Truncate description for embedding (avoid token limits, keep meaningful content)
+        const descForEmbedding = description.length > 1000 ? description.substring(0, 1000) : description;
+        const transactionLabel = transactionType.toLowerCase().includes('rent') ? 'para locação' : transactionType.toLowerCase().includes('sale') ? 'à venda' : '';
+        const semanticText = `Imóvel ${transactionLabel}: ${title}. ${type} em ${neighborhood}, ${city}. Preço: R$ ${price || 'sob consulta'}. ${bedrooms || 0} quartos, ${bathrooms || 0} banheiros, ${parking || 0} vagas de garagem. Área útil: ${area || 0}m². Descrição: ${descForEmbedding}`;
 
         // 3. Generate Embedding
         console.log(`Generating embedding for ${queueItem.external_id}...`);
@@ -117,7 +167,7 @@ serve(async (req: Request) => {
                 external_id: queueItem.external_id,
                 title: title || 'Imóvel sem título',
                 description,
-                price,
+                price: price || null,
                 type: type || 'Indefinido',
                 bedrooms,
                 bathrooms,
@@ -126,7 +176,7 @@ serve(async (req: Request) => {
                 neighborhood,
                 city,
                 images,
-                url: '',
+                url: propertyUrl,
                 status: 'ativo',
                 embedding,
                 updated_at: new Date().toISOString()

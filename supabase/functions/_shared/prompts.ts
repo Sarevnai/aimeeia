@@ -71,6 +71,59 @@ export function getToolsForDepartment(department: DepartmentType): any[] {
     ];
   }
 
+  if (department === 'administrativo') {
+    return [
+      {
+        type: "function",
+        function: {
+          name: "criar_ticket",
+          description: "Cria um chamado/ticket para a demanda do cliente. Use quando identificar uma solicitação concreta (boleto, manutenção, contrato, etc.).",
+          parameters: {
+            type: "object",
+            properties: {
+              titulo: {
+                type: "string",
+                description: "Título curto e descritivo do chamado. Ex: 'Segunda via de boleto - Apto 302'"
+              },
+              categoria: {
+                type: "string",
+                description: "Categoria principal da demanda",
+                enum: ["Financeiro", "Manutenção", "Contrato", "Rescisão", "Vistoria", "Chaves", "Outros"]
+              },
+              descricao: {
+                type: "string",
+                description: "Descrição detalhada coletada na conversa com o cliente"
+              },
+              prioridade: {
+                type: "string",
+                description: "Prioridade baseada na urgência. Use 'urgente' para vazamentos, falta de água/luz. Use 'alta' para boletos vencidos, problemas de segurança. Use 'media' para manutenções gerais. Use 'baixa' para dúvidas e informações.",
+                enum: ["baixa", "media", "alta", "urgente"]
+              },
+            },
+            required: ["titulo", "categoria", "descricao", "prioridade"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "encaminhar_humano",
+          description: "Transfere o atendimento para um operador humano. Use quando o cliente solicitar expressamente um humano, quando a demanda for muito complexa para resolver via IA, ou quando envolver negociação de valores.",
+          parameters: {
+            type: "object",
+            properties: {
+              motivo: {
+                type: "string",
+                description: "Motivo detalhado da transferência para o operador"
+              },
+            },
+            required: ["motivo"],
+          },
+        },
+      },
+    ];
+  }
+
   return [];
 }
 
@@ -191,18 +244,49 @@ function buildAdminPrompt(
   return `Você é ${config.agent_name || 'Aimee'}, assistente virtual do setor administrativo da ${tenant.company_name}.
 
 PERSONALIDADE:
-- Tom: profissional e empático
+- Tom: profissional, empático e resolutivo
+- ${config.emoji_intensity === 'none' ? 'Não use emojis' : 'Use emojis com moderação (📋, ✅, 🔧)'}
 - ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
 
 OBJETIVO:
-Atender solicitações administrativas: boletos, contratos, manutenção, vistorias, chaves, rescisões.
+Você é a primeira linha de atendimento administrativo. Sua função é:
+1. Identificar a necessidade do cliente
+2. Coletar as informações necessárias
+3. Criar um chamado (ticket) usando a ferramenta criar_ticket
+4. Informar ao cliente que o chamado foi aberto e será acompanhado pela equipe
+
+CLASSIFICAÇÃO DE INTENÇÃO:
+- Palavras como "boleto", "pagamento", "2ª via", "segunda via", "cobrança", "financeiro", "pagar" → Categoria: Financeiro
+- Palavras como "vazamento", "goteira", "reparo", "manutenção", "quebrou", "estrago", "infiltração", "entupiu" → Categoria: Manutenção
+- Palavras como "contrato", "renovação", "cláusula", "reajuste", "aditivo" → Categoria: Contrato
+- Palavras como "rescisão", "sair", "devolver", "desocupar", "encerrar contrato" → Categoria: Rescisão
+- Palavras como "vistoria", "laudo", "checklist", "entrada", "saída" → Categoria: Vistoria
+- Palavras como "chave", "cópia", "chaveiro", "acesso" → Categoria: Chaves
+
+FLUXO DE ATENDIMENTO:
+1. Identifique a categoria da demanda pela mensagem do cliente
+2. Colete as informações ESSENCIAIS (não exija tudo de uma vez):
+   - FINANCEIRO: CPF/CNPJ, unidade/imóvel
+   - MANUTENÇÃO: descrição do problema, endereço/unidade, URGÊNCIA (vazamento = urgente)
+   - CONTRATO: tipo de solicitação, unidade
+   - RESCISÃO: unidade, motivo, data pretendida
+   - VISTORIA: unidade, tipo (entrada/saída)
+   - CHAVES: unidade, motivo
+3. Após coletar dados suficientes, USE a ferramenta criar_ticket para registrar o chamado
+4. Confirme ao cliente que o chamado foi criado e informe prazo estimado
+
+PRIORIDADES:
+- URGENTE: vazamentos, falta de água/luz/gás, problemas de segurança, risco estrutural
+- ALTA: boletos vencidos, problemas que impedem uso do imóvel
+- MÉDIA: manutenções gerais, dúvidas contratuais
+- BAIXA: informações gerais, solicitações sem urgência
 
 REGRAS:
-- Para BOLETOS: peça CPF ou CNPJ e encaminhe para o financeiro
-- Para MANUTENÇÃO: peça descrição do problema e endereço
-- Para CONTRATOS/RESCISÃO: colete dados e encaminhe
-- Quando não puder resolver, encaminhe para atendimento humano
-- Responda em português BR, max 3 parágrafos
+- Pergunte UMA informação por vez, de forma natural
+- Se tiver informações suficientes para abrir o chamado, USE criar_ticket SEM esperar ter todos os dados
+- Se o cliente pedir atendimento humano ou a demanda for muito complexa, use encaminhar_humano
+- NUNCA prometa prazos específicos de resolução - diga "nossa equipe vai analisar"
+- Responda em português BR, máximo 3 parágrafos
 ${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
 

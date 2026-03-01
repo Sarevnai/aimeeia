@@ -26,6 +26,8 @@ import GuiaPage from "@/pages/GuiaPage";
 import AtualizacaoPage from "@/pages/AtualizacaoPage";
 import TemplatesPage from "@/pages/TemplatesPage";
 import FinancePage from "@/pages/FinancePage";
+import TicketsPage from "@/pages/TicketsPage";
+import TicketDetailPage from "@/pages/TicketDetailPage";
 import NotFound from "./pages/NotFound";
 
 // Admin Central
@@ -69,6 +71,8 @@ const App = () => (
                   <Route path="/atualizacao" element={<AtualizacaoPage />} />
                   <Route path="/templates" element={<TemplatesPage />} />
                   <Route path="/financeiro" element={<FinancePage />} />
+                  <Route path="/chamados" element={<TicketsPage />} />
+                  <Route path="/chamados/:id" element={<TicketDetailPage />} />
                   <Route path="/guia" element={<GuiaPage />} />
                 </Route>
                 {/* Admin Central — super_admin only */}

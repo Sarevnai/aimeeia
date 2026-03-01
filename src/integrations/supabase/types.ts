@@ -413,8 +413,8 @@ export type Database = {
           created_at?: string | null
           delivered_count?: number | null
           department_code?:
-          | Database["public"]["Enums"]["department_type"]
-          | null
+            | Database["public"]["Enums"]["department_type"]
+            | null
           id?: string
           name: string
           sent_count?: number | null
@@ -427,8 +427,8 @@ export type Database = {
           created_at?: string | null
           delivered_count?: number | null
           department_code?:
-          | Database["public"]["Enums"]["department_type"]
-          | null
+            | Database["public"]["Enums"]["department_type"]
+            | null
           id?: string
           name?: string
           sent_count?: number | null
@@ -451,13 +451,18 @@ export type Database = {
         Row: {
           channel_source: string | null
           communication_preference: string | null
+          contact_type: string | null
+          cpf_cnpj: string | null
           created_at: string | null
           department_code: Database["public"]["Enums"]["department_type"] | null
+          email: string | null
           id: string
+          lease_contract_id: string | null
           name: string | null
           notes: string | null
           onboarding_status: string | null
           phone: string
+          property_unit: string | null
           status: string | null
           tags: string[] | null
           tenant_id: string
@@ -466,15 +471,20 @@ export type Database = {
         Insert: {
           channel_source?: string | null
           communication_preference?: string | null
+          contact_type?: string | null
+          cpf_cnpj?: string | null
           created_at?: string | null
           department_code?:
-          | Database["public"]["Enums"]["department_type"]
-          | null
+            | Database["public"]["Enums"]["department_type"]
+            | null
+          email?: string | null
           id?: string
+          lease_contract_id?: string | null
           name?: string | null
           notes?: string | null
           onboarding_status?: string | null
           phone: string
+          property_unit?: string | null
           status?: string | null
           tags?: string[] | null
           tenant_id: string
@@ -483,15 +493,20 @@ export type Database = {
         Update: {
           channel_source?: string | null
           communication_preference?: string | null
+          contact_type?: string | null
+          cpf_cnpj?: string | null
           created_at?: string | null
           department_code?:
-          | Database["public"]["Enums"]["department_type"]
-          | null
+            | Database["public"]["Enums"]["department_type"]
+            | null
+          email?: string | null
           id?: string
+          lease_contract_id?: string | null
           name?: string | null
           notes?: string | null
           onboarding_status?: string | null
           phone?: string
+          property_unit?: string | null
           status?: string | null
           tags?: string[] | null
           tenant_id?: string
@@ -621,8 +636,8 @@ export type Database = {
           contact_id?: string | null
           created_at?: string | null
           department_code?:
-          | Database["public"]["Enums"]["department_type"]
-          | null
+            | Database["public"]["Enums"]["department_type"]
+            | null
           id?: string
           last_message_at?: string | null
           phone_number: string
@@ -634,8 +649,8 @@ export type Database = {
           contact_id?: string | null
           created_at?: string | null
           department_code?:
-          | Database["public"]["Enums"]["department_type"]
-          | null
+            | Database["public"]["Enums"]["department_type"]
+            | null
           id?: string
           last_message_at?: string | null
           phone_number?: string
@@ -824,8 +839,8 @@ export type Database = {
           conversation_id?: string | null
           created_at?: string | null
           department_code?:
-          | Database["public"]["Enums"]["department_type"]
-          | null
+            | Database["public"]["Enums"]["department_type"]
+            | null
           direction: Database["public"]["Enums"]["message_direction"]
           id?: number
           media_caption?: string | null
@@ -844,8 +859,8 @@ export type Database = {
           conversation_id?: string | null
           created_at?: string | null
           department_code?:
-          | Database["public"]["Enums"]["department_type"]
-          | null
+            | Database["public"]["Enums"]["department_type"]
+            | null
           direction?: Database["public"]["Enums"]["message_direction"]
           id?: number
           media_caption?: string | null
@@ -1161,6 +1176,50 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          full_name: string | null
+          id: string
+          role: Database["public"]["Enums"]["user_role"] | null
+          tenant_id: string | null
+          user_code: number | null
+          user_id: string | null
+          username: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          full_name?: string | null
+          id: string
+          role?: Database["public"]["Enums"]["user_role"] | null
+          tenant_id?: string | null
+          user_code?: number | null
+          user_id?: string | null
+          username?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          full_name?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["user_role"] | null
+          tenant_id?: string | null
+          user_code?: number | null
+          user_id?: string | null
+          username?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       properties: {
         Row: {
           area: number | null
@@ -1228,50 +1287,6 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "properties_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      profiles: {
-        Row: {
-          avatar_url: string | null
-          created_at: string | null
-          full_name: string | null
-          id: string
-          role: Database["public"]["Enums"]["user_role"] | null
-          tenant_id: string
-          user_code: number | null
-          user_id: string | null
-          username: string | null
-        }
-        Insert: {
-          avatar_url?: string | null
-          created_at?: string | null
-          full_name?: string | null
-          id: string
-          role?: Database["public"]["Enums"]["user_role"] | null
-          tenant_id: string
-          user_code?: number | null
-          user_id?: string | null
-          username?: string | null
-        }
-        Update: {
-          avatar_url?: string | null
-          created_at?: string | null
-          full_name?: string | null
-          id?: string
-          role?: Database["public"]["Enums"]["user_role"] | null
-          tenant_id?: string
-          user_code?: number | null
-          user_id?: string | null
-          username?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "profiles_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -1409,40 +1424,127 @@ export type Database = {
         }
         Relationships: []
       }
-      xml_sync_queue: {
+      ticket_categories: {
         Row: {
           created_at: string | null
-          error_message: string | null
-          external_id: string
+          description: string | null
           id: string
-          raw_data: Json
-          status: string
-          tenant_id: string | null
-          updated_at: string | null
+          is_active: boolean | null
+          name: string
+          sla_hours: number | null
+          tenant_id: string
         }
         Insert: {
           created_at?: string | null
-          error_message?: string | null
-          external_id: string
+          description?: string | null
           id?: string
-          raw_data: Json
-          status?: string
-          tenant_id?: string | null
-          updated_at?: string | null
+          is_active?: boolean | null
+          name: string
+          sla_hours?: number | null
+          tenant_id: string
         }
         Update: {
           created_at?: string | null
-          error_message?: string | null
-          external_id?: string
+          description?: string | null
           id?: string
-          raw_data?: Json
-          status?: string
-          tenant_id?: string | null
-          updated_at?: string | null
+          is_active?: boolean | null
+          name?: string
+          sla_hours?: number | null
+          tenant_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "xml_sync_queue_tenant_id_fkey"
+            foreignKeyName: "ticket_categories_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ticket_comments: {
+        Row: {
+          body: string
+          created_at: string | null
+          id: string
+          is_internal: boolean | null
+          tenant_id: string
+          ticket_id: string
+          user_id: string | null
+        }
+        Insert: {
+          body: string
+          created_at?: string | null
+          id?: string
+          is_internal?: boolean | null
+          tenant_id: string
+          ticket_id: string
+          user_id?: string | null
+        }
+        Update: {
+          body?: string
+          created_at?: string | null
+          id?: string
+          is_internal?: boolean | null
+          tenant_id?: string
+          ticket_id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_comments_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_comments_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_comments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ticket_stages: {
+        Row: {
+          color: string | null
+          created_at: string | null
+          id: string
+          is_terminal: boolean | null
+          name: string
+          order_index: number | null
+          tenant_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string | null
+          id?: string
+          is_terminal?: boolean | null
+          name: string
+          order_index?: number | null
+          tenant_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string | null
+          id?: string
+          is_terminal?: boolean | null
+          name?: string
+          order_index?: number | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_stages_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -1454,8 +1556,11 @@ export type Database = {
         Row: {
           assigned_to: string | null
           category: string
+          category_id: string | null
           contact_id: string | null
+          conversation_id: string | null
           created_at: string
+          department_code: Database["public"]["Enums"]["department_type"] | null
           description: string | null
           email: string | null
           id: string
@@ -1465,8 +1570,13 @@ export type Database = {
           property_address: string | null
           property_code: string | null
           property_type: string | null
+          resolution_notes: string | null
+          resolved_at: string | null
+          sla_deadline: string | null
           source: string
           stage: string
+          stage_id: string | null
+          subcategory: string | null
           tenant_id: string | null
           title: string
           updated_at: string
@@ -1475,8 +1585,13 @@ export type Database = {
         Insert: {
           assigned_to?: string | null
           category: string
+          category_id?: string | null
           contact_id?: string | null
+          conversation_id?: string | null
           created_at?: string
+          department_code?:
+            | Database["public"]["Enums"]["department_type"]
+            | null
           description?: string | null
           email?: string | null
           id?: string
@@ -1486,8 +1601,13 @@ export type Database = {
           property_address?: string | null
           property_code?: string | null
           property_type?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          sla_deadline?: string | null
           source?: string
           stage?: string
+          stage_id?: string | null
+          subcategory?: string | null
           tenant_id?: string | null
           title: string
           updated_at?: string
@@ -1496,8 +1616,13 @@ export type Database = {
         Update: {
           assigned_to?: string | null
           category?: string
+          category_id?: string | null
           contact_id?: string | null
+          conversation_id?: string | null
           created_at?: string
+          department_code?:
+            | Database["public"]["Enums"]["department_type"]
+            | null
           description?: string | null
           email?: string | null
           id?: string
@@ -1507,8 +1632,13 @@ export type Database = {
           property_address?: string | null
           property_code?: string | null
           property_type?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          sla_deadline?: string | null
           source?: string
           stage?: string
+          stage_id?: string | null
+          subcategory?: string | null
           tenant_id?: string | null
           title?: string
           updated_at?: string
@@ -1523,10 +1653,31 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "tickets_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "ticket_categories"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "tickets_contact_id_fkey"
             columns: ["contact_id"]
             isOneToOne: false
             referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "ticket_stages"
             referencedColumns: ["id"]
           },
           {
@@ -1579,6 +1730,47 @@ export type Database = {
           },
         ]
       }
+      xml_sync_queue: {
+        Row: {
+          created_at: string | null
+          error_message: string | null
+          external_id: string
+          id: string
+          raw_data: Json
+          status: string
+          tenant_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          error_message?: string | null
+          external_id: string
+          id?: string
+          raw_data: Json
+          status?: string
+          tenant_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          error_message?: string | null
+          external_id?: string
+          id?: string
+          raw_data?: Json
+          status?: string
+          tenant_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xml_sync_queue_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1589,11 +1781,36 @@ export type Database = {
       get_user_tenant_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
       is_manager: { Args: never; Returns: boolean }
+      is_super_admin: { Args: never; Returns: boolean }
       lookup_tenant_by_access_code: {
         Args: { code: string }
         Returns: {
           company_name: string
           tenant_id: string
+        }[]
+      }
+      match_properties: {
+        Args: {
+          filter_max_price?: number
+          filter_tipo?: string
+          match_count: number
+          match_tenant_id: string
+          match_threshold: number
+          query_embedding: string
+        }
+        Returns: {
+          bedrooms: number
+          city: string
+          description: string
+          external_id: string
+          id: string
+          images: Json
+          neighborhood: string
+          price: number
+          similarity: number
+          title: string
+          type: string
+          url: string
         }[]
       }
     }
@@ -1602,10 +1819,10 @@ export type Database = {
       department_type: "locacao" | "vendas" | "administrativo"
       message_direction: "inbound" | "outbound"
       triage_stage:
-      | "greeting"
-      | "awaiting_name"
-      | "awaiting_triage"
-      | "completed"
+        | "greeting"
+        | "awaiting_name"
+        | "awaiting_triage"
+        | "completed"
       user_role: "admin" | "operator" | "viewer" | "super_admin"
     }
     CompositeTypes: {
@@ -1620,116 +1837,116 @@ type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-  | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-  : never = never,
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
-  ? R
-  : never
+    ? R
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-    DefaultSchema["Views"])
-  ? (DefaultSchema["Tables"] &
-    DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-      Row: infer R
-    }
-  ? R
-  : never
-  : never
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-  | keyof DefaultSchema["Tables"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-    Insert: infer I
-  }
-  ? I
-  : never
+      Insert: infer I
+    }
+    ? I
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-    Insert: infer I
-  }
-  ? I
-  : never
-  : never
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-  | keyof DefaultSchema["Tables"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-    Update: infer U
-  }
-  ? U
-  : never
+      Update: infer U
+    }
+    ? U
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-    Update: infer U
-  }
-  ? U
-  : never
-  : never
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-  | keyof DefaultSchema["Enums"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-  ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-  : never
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-  | keyof DefaultSchema["CompositeTypes"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-  ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-  : never
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
 
 export const Constants = {
   public: {

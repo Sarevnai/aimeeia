@@ -278,6 +278,14 @@ async function executeToolCall(
     return await executeLeadHandoff(supabase, tenantId, phoneNumber, conversationId, contactId, args, qualData);
   }
 
+  if (toolName === 'criar_ticket') {
+    return await executeCreateTicket(supabase, tenantId, phoneNumber, conversationId, contactId, args);
+  }
+
+  if (toolName === 'encaminhar_humano') {
+    return await executeAdminHandoff(supabase, tenantId, phoneNumber, conversationId, args);
+  }
+
   return `Ferramenta desconhecida: ${toolName}`;
 }
 
@@ -407,6 +415,122 @@ async function executeLeadHandoff(
   } catch (error) {
     console.error('❌ Lead handoff error:', error);
     return 'Vou transferir você para um corretor. Aguarde um momento.';
+  }
+}
+
+// ========== ADMIN TICKET CREATION ==========
+
+async function executeCreateTicket(
+  supabase: any,
+  tenantId: string,
+  phoneNumber: string,
+  conversationId: string,
+  contactId: string,
+  args: any
+): Promise<string> {
+  try {
+    const { titulo, categoria, descricao, prioridade } = args;
+
+    // Look up the ticket category to get SLA hours
+    const { data: categoryRow } = await supabase
+      .from('ticket_categories')
+      .select('id, sla_hours')
+      .eq('tenant_id', tenantId)
+      .eq('name', categoria)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    // Look up the first (default) ticket stage ("Novo")
+    const { data: defaultStage } = await supabase
+      .from('ticket_stages')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('order_index', 0)
+      .maybeSingle();
+
+    // Calculate SLA deadline
+    const slaHours = categoryRow?.sla_hours || 48;
+    const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
+
+    // Create the ticket
+    const { data: ticket, error } = await supabase
+      .from('tickets')
+      .insert({
+        tenant_id: tenantId,
+        title: titulo,
+        category: categoria,
+        category_id: categoryRow?.id || null,
+        description: descricao,
+        priority: prioridade || 'media',
+        stage: 'Novo',
+        stage_id: defaultStage?.id || null,
+        phone: phoneNumber,
+        source: 'whatsapp_ai',
+        contact_id: contactId || null,
+        conversation_id: conversationId || null,
+        department_code: 'administrativo',
+        sla_deadline: slaDeadline,
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('❌ Ticket creation error:', error);
+      return 'Houve um problema ao criar o chamado. Vou transferir para um atendente humano.';
+    }
+
+    // Log activity
+    await logActivity(supabase, tenantId, 'ticket_created', 'tickets', ticket.id, {
+      category: categoria,
+      priority: prioridade,
+      source: 'ai_agent',
+      conversation_id: conversationId,
+    });
+
+    console.log(`✅ Ticket created: ${ticket.id} | Category: ${categoria} | Priority: ${prioridade}`);
+
+    return `Chamado #${ticket.id.slice(0, 8)} criado com sucesso. Categoria: ${categoria}. Prioridade: ${prioridade}. A equipe administrativa será notificada.`;
+
+  } catch (error) {
+    console.error('❌ Ticket creation execution error:', error);
+    return 'Não consegui registrar o chamado automaticamente. Vou transferir para atendimento humano.';
+  }
+}
+
+// ========== ADMIN OPERATOR HANDOFF ==========
+
+async function executeAdminHandoff(
+  supabase: any,
+  tenantId: string,
+  phoneNumber: string,
+  conversationId: string,
+  args: any
+): Promise<string> {
+  try {
+    // Disable AI for this conversation (operator takes over)
+    await supabase
+      .from('conversation_states')
+      .upsert({
+        tenant_id: tenantId,
+        phone_number: phoneNumber,
+        is_ai_active: false,
+        operator_takeover_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,phone_number' });
+
+    // Log activity
+    await logActivity(supabase, tenantId, 'admin_handoff', 'conversations', conversationId, {
+      reason: args.motivo,
+      department: 'administrativo',
+    });
+
+    console.log(`🔄 Admin handoff: conversation ${conversationId} | Reason: ${args.motivo}`);
+
+    return `Atendimento transferido para operador humano. Motivo: ${args.motivo}`;
+
+  } catch (error) {
+    console.error('❌ Admin handoff error:', error);
+    return 'Vou transferir você para um atendente. Aguarde um momento.';
   }
 }
 

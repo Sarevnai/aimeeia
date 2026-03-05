@@ -81,25 +81,57 @@ const defaultConfig: Omit<AgentConfig, 'id' | 'tenant_id'> = {
 const PROVIDERS = [
     {
         value: 'openai', label: 'OpenAI', models: [
-            { value: 'gpt-4o-mini', label: 'GPT-4o Mini — Rápido e econômico' },
-            { value: 'gpt-4o', label: 'GPT-4o — Alta performance' },
-            { value: 'o3-mini', label: 'o3 Mini — Raciocínio avançado' },
+            // Frontier Models
+            { value: 'gpt-5.2', label: 'GPT-5.2 — Melhor para coding/agentes' },
+            { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro — Versão mais precisa do 5.2' },
+            { value: 'gpt-5.1', label: 'GPT-5.1 — Raciocínio configurável' },
+            { value: 'gpt-5', label: 'GPT-5 — Raciocínio anterior (complexo)' },
+            { value: 'gpt-5-mini', label: 'GPT-5 mini — Rápido e econômico (5)' },
+            { value: 'gpt-5-nano', label: 'GPT-5 nano — Rápido e barato (5)' },
+            { value: 'gpt-4.1', label: 'GPT-4.1 — Não-raciocínio mais inteligente' },
+            { value: 'gpt-4.1-mini', label: 'GPT-4.1 mini — Versão menor/rápida' },
+            { value: 'gpt-4.1-nano', label: 'GPT-4.1 nano — Mais acessível' },
+            { value: 'gpt-4o', label: 'GPT-4o — Rápido, inteligente e flexível' },
+            { value: 'gpt-4o-mini', label: 'GPT-4o mini — Pequeno e acessível' },
+            // Reasoning
+            { value: 'o3', label: 'o3 — Raciocínio de tarefas complexas' },
+            { value: 'o3-pro', label: 'o3 Pro — o3 com mais compute' },
+            { value: 'o4-mini', label: 'o4 mini — Raciocínio rápido e econômico' },
+            { value: 'o1', label: 'o1 — Raciocínio anterior' },
+            { value: 'o1-pro', label: 'o1 Pro — o1 com mais compute' },
+            { value: 'o3-deep-research', label: 'o3 Deep Research — Pesquisa profunda' },
+            { value: 'o4-mini-deep-research', label: 'o4 mini Deep Res. — Pesquisa acessível' },
+            // Codex
+            { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex — Melhor para coding agêntico' },
+            { value: 'gpt-5.1-codex', label: 'GPT-5.1 Codex — 5.1 Otimizado para coding' },
+            { value: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max — Para longas durações' },
+            { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex mini — Versão menor' },
         ]
     },
     {
         value: 'anthropic', label: 'Anthropic Claude', models: [
-            { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku — Rápido' },
-            { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet — Balanceado' },
-            { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus — Alta capacidade' },
+            // Claude 4.x
+            { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 — Mais poderoso' },
+            { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 — Rápido/balanceado' },
+            { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — O mais rápido' },
+            // Legado 3.x
+            { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (Anterior)' },
+            { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (Anterior)' },
         ]
     },
     {
         value: 'google', label: 'Google Gemini', models: [
-            { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash — Rápido' },
-            { value: 'gemini-2.0-flash-thinking-exp', label: 'Gemini 2.0 Flash Thinking — Raciocínio' },
-            { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro — Alta capacidade' },
+            // Gemini 3 Preview
+            { value: 'gemini-3', label: 'Gemini 3 Preview — Inteligência agêntica' },
+            // Gemini 2.5
+            { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro — Mais avançado/complexo' },
+            { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash — Custo-benefício e raciocínio' },
+            { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite — Rápido e barato' },
+            // Legado 2.0
+            { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Depreciando)' },
+            { value: 'gemini-2.0-flash-lite-preview-02-05', label: 'Gemini 2.0 Flash Lite (Depreciando)' },
         ]
-    },
+    }
 ];
 
 const capabilities = [

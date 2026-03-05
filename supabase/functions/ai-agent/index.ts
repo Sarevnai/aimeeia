@@ -41,6 +41,24 @@ async function generateEmbedding(text: string): Promise<number[]> {
   return data.data[0].embedding;
 }
 
+// Helper to decrypt a tenant API key stored as AES-GCM base64
+async function decryptApiKey(encrypted: string | null | undefined): Promise<string | undefined> {
+  if (!encrypted) return undefined;
+  try {
+    const secret = Deno.env.get('ENCRYPTION_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'default-fallback-key-32bytes!!!';
+    const rawKey = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+    const cryptoKey = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['decrypt']);
+    const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const data = combined.slice(12);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, data);
+    return new TextDecoder().decode(decrypted);
+  } catch (e) {
+    console.warn('⚠️ Failed to decrypt API key, falling back to env var:', (e as Error).message);
+    return undefined;
+  }
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
 
@@ -86,7 +104,7 @@ serve(async (req: Request) => {
       tone: 'friendly',
       greeting_message: null,
       fallback_message: 'Desculpe, tive um problema. Vou encaminhar para atendimento humano.',
-      ai_model: 'google/gemini-3-flash-preview',
+      ai_model: 'gpt-4o-mini',
       max_tokens: 500,
       max_history_messages: 10,
       humanize_responses: true,
@@ -98,6 +116,10 @@ serve(async (req: Request) => {
       custom_instructions: '',
       vista_integration_enabled: false,
     } as any;
+
+    // Decrypt tenant-specific API key (falls back to env var if not set)
+    const tenantApiKey = await decryptApiKey((config as any)?.api_key_encrypted);
+    const tenantProvider = (config as any)?.ai_provider || 'openai';
 
     // Conversation State
     const { data: state } = await supabase
@@ -244,7 +266,9 @@ serve(async (req: Request) => {
         return await executeToolCall(supabase, tenant as Tenant, tenant_id, phone_number, conversation_id, contact_id, toolName, args, mergedQual, effectiveDepartment);
       },
       {
-        model: aiConfig.ai_model || 'openai/gpt-4o-mini',
+        model: aiConfig.ai_model || 'gpt-4o-mini',
+        provider: tenantProvider,
+        apiKey: tenantApiKey,
         temperature: 0.7,
         maxTokens: aiConfig.max_tokens || 500,
       }

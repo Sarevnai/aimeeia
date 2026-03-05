@@ -21,7 +21,13 @@ import {
     Link as LinkIcon,
     RefreshCw,
     AlertCircle,
-    Save
+    Save,
+    Megaphone,
+    Send,
+    Home,
+    CheckCircle,
+    FileText,
+    Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -33,6 +39,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import TenantStatusBadge from '@/components/admin/TenantStatusBadge';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import AdminNewCampaignSheet from '@/components/admin/AdminNewCampaignSheet';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -102,6 +109,12 @@ const AdminTenantDetailPage: React.FC = () => {
     const [users, setUsers] = useState<TenantUser[]>([]);
     const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
     const [integrations, setIntegrations] = useState<Integration[]>([]);
+
+    // ── Campaigns state ────────────────────────────────────────────────
+    const [tenantCampaigns, setTenantCampaigns] = useState<any[]>([]);
+    const [tenantUpdateCampaigns, setTenantUpdateCampaigns] = useState<any[]>([]);
+    const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+    const [campaignSheetOpen, setCampaignSheetOpen] = useState(false);
 
     // ── Catalog State ──────────────────────────────────────────────────
     const [xmlUrl, setXmlUrl] = useState('');
@@ -536,6 +549,7 @@ const AdminTenantDetailPage: React.FC = () => {
                             { value: 'billing', label: 'Billing', icon: CreditCard },
                             { value: 'users', label: 'Usu\u00e1rios', icon: Users },
                             { value: 'integrations', label: 'Integra\u00e7\u00f5es', icon: Plug },
+                            { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
                         ].map((tab) => (
                             <TabsTrigger
                                 key={tab.value}
@@ -1023,9 +1037,146 @@ const AdminTenantDetailPage: React.FC = () => {
                         </div>
                     </div>
                 )}
+
+                {/* ═══ CAMPAIGNS TAB ═══ */}
+                {activeTab === 'campaigns' && (
+                    <div className="space-y-4 max-w-5xl mx-auto animate-fade-in">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-semibold text-foreground">Campanhas do Tenant</h3>
+                                <p className="text-xs text-muted-foreground mt-0.5">Campanhas de marketing e pedidos de atualização de carteira.</p>
+                            </div>
+                            <Button size="sm" className="gap-1.5" onClick={async () => {
+                                setLoadingCampaigns(true);
+                                const [mkt, upd] = await Promise.all([
+                                    supabase.from('campaigns').select('*').eq('tenant_id', id!).order('created_at', { ascending: false }),
+                                    supabase.from('owner_update_campaigns').select('*').eq('tenant_id', id!).order('created_at', { ascending: false }),
+                                ]);
+                                setTenantCampaigns(mkt.data ?? []);
+                                setTenantUpdateCampaigns(upd.data ?? []);
+                                setLoadingCampaigns(false);
+                                setCampaignSheetOpen(true);
+                            }}>
+                                <Plus className="h-4 w-4" /> Nova Campanha
+                            </Button>
+                        </div>
+
+                        {/* Load campaigns lazily */}
+                        {activeTab === 'campaigns' && tenantCampaigns.length === 0 && tenantUpdateCampaigns.length === 0 && !loadingCampaigns ? (
+                            <div>
+                                <LoadCampaignsButton tenantId={id!} onLoad={(mkt, upd) => { setTenantCampaigns(mkt); setTenantUpdateCampaigns(upd); }} />
+                            </div>
+                        ) : loadingCampaigns ? (
+                            <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin" /></div>
+                        ) : (
+                            <>
+                                {/* Marketing campaigns */}
+                                {tenantCampaigns.length > 0 && (
+                                    <div className="space-y-2">
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Marketing ({tenantCampaigns.length})</p>
+                                        {tenantCampaigns.map((c: any) => (
+                                            <div key={c.id} className="flex items-center gap-3 rounded-xl bg-card border border-border p-4 shadow-sm">
+                                                <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+                                                    <Megaphone className="h-4 w-4" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-semibold truncate">{c.name}</p>
+                                                    {c.template_name && <p className="text-[11px] font-mono text-muted-foreground">{c.template_name}</p>}
+                                                </div>
+                                                <div className="text-xs text-right text-muted-foreground">
+                                                    <p>{c.sent_count || 0} enviados</p>
+                                                    <p>{c.delivered_count || 0} entregues</p>
+                                                </div>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${c.status === 'sent' ? 'bg-success/15 text-success' :
+                                                    c.status === 'draft' ? 'bg-muted text-muted-foreground' : 'bg-warning/15 text-warning'
+                                                    }`}>{c.status || 'draft'}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {/* Update campaigns */}
+                                {tenantUpdateCampaigns.length > 0 && (
+                                    <div className="space-y-2">
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Atualização de Carteira ({tenantUpdateCampaigns.length})</p>
+                                        {tenantUpdateCampaigns.map((c: any) => (
+                                            <div key={c.id} className="flex items-center gap-3 rounded-xl bg-card border border-border p-4 shadow-sm">
+                                                <div className="p-2 rounded-lg bg-warning/10 text-warning shrink-0">
+                                                    <Home className="h-4 w-4" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-semibold truncate">{c.name}</p>
+                                                    {c.description && <p className="text-[11px] text-muted-foreground truncate">{c.description}</p>}
+                                                </div>
+                                                <div className="text-xs text-right text-muted-foreground">
+                                                    <p>{c.total_contacts || 0} proprietários</p>
+                                                    <p>{c.contacted_count || 0} contatados</p>
+                                                </div>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${c.status === 'completed' ? 'bg-success/15 text-success' :
+                                                    c.status === 'draft' ? 'bg-muted text-muted-foreground' :
+                                                        c.status === 'in_progress' ? 'bg-warning/15 text-warning' : 'bg-info/15 text-info'
+                                                    }`}>{c.status || 'draft'}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {tenantCampaigns.length === 0 && tenantUpdateCampaigns.length === 0 && (
+                                    <div className="flex flex-col items-center py-16 text-center">
+                                        <Megaphone className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                                        <p className="text-sm text-muted-foreground">Nenhuma campanha para este tenant.</p>
+                                        <Button size="sm" className="gap-1.5 mt-4" onClick={() => setCampaignSheetOpen(true)}>
+                                            <Plus className="h-4 w-4" /> Criar Campanha
+                                        </Button>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
+
+            <AdminNewCampaignSheet
+                open={campaignSheetOpen}
+                onOpenChange={setCampaignSheetOpen}
+                preselectedTenantId={id || null}
+                onCreated={async () => {
+                    const [mkt, upd] = await Promise.all([
+                        supabase.from('campaigns').select('*').eq('tenant_id', id!).order('created_at', { ascending: false }),
+                        supabase.from('owner_update_campaigns').select('*').eq('tenant_id', id!).order('created_at', { ascending: false }),
+                    ]);
+                    setTenantCampaigns(mkt.data ?? []);
+                    setTenantUpdateCampaigns(upd.data ?? []);
+                }}
+            />
+        </div>
+    );
+};
+
+/* ── Lazy campaign loader sub-component ── */
+const LoadCampaignsButton: React.FC<{
+    tenantId: string;
+    onLoad: (mkt: any[], upd: any[]) => void;
+}> = ({ tenantId, onLoad }) => {
+    const [loading, setLoading] = React.useState(false);
+    const load = async () => {
+        setLoading(true);
+        const [mkt, upd] = await Promise.all([
+            supabase.from('campaigns').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false }),
+            supabase.from('owner_update_campaigns').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false }),
+        ]);
+        onLoad(mkt.data ?? [], upd.data ?? []);
+        setLoading(false);
+    };
+    return (
+        <div className="flex flex-col items-center py-10 text-center">
+            <Megaphone className="h-10 w-10 text-muted-foreground/30 mb-3" />
+            <p className="text-sm text-muted-foreground mb-3">Clique para carregar as campanhas deste tenant.</p>
+            <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1.5">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />}
+                Carregar Campanhas
+            </Button>
         </div>
     );
 };
 
 export default AdminTenantDetailPage;
+

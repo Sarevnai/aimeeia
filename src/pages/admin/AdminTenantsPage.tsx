@@ -7,14 +7,12 @@ import {
     MoreHorizontal,
     MessageSquare,
     Users,
+    UserCog,
     Calendar,
     Filter,
-    Loader2,
-    Link as LinkIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
@@ -22,16 +20,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogFooter,
-} from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/separator';
 import TenantStatusBadge, { type TenantStatus } from '@/components/admin/TenantStatusBadge';
-import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -210,7 +199,7 @@ const AdminTenantsPage: React.FC = () => {
                     <thead className="sticky top-0 bg-card z-10">
                         <tr className="border-b border-border">
                             <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4 md:px-6">Empresa</th>
-                            <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4 hidden lg:table-cell">Localiza\u00e7\u00e3o</th>
+                            <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4 hidden lg:table-cell">Localização</th>
                             <th className="text-left text-xs font-medium text-muted-foreground py-3 px-4">Status</th>
                             <th className="text-right text-xs font-medium text-muted-foreground py-3 px-4 hidden md:table-cell">
                                 <div className="flex items-center justify-end gap-1">
@@ -224,7 +213,7 @@ const AdminTenantsPage: React.FC = () => {
                             </th>
                             <th className="text-right text-xs font-medium text-muted-foreground py-3 px-4 hidden md:table-cell">
                                 <div className="flex items-center justify-end gap-1">
-                                    <Users className="h-3 w-3" /> Usu\u00e1rios
+                                    <UserCog className="h-3 w-3" /> Usuários
                                 </div>
                             </th>
                             <th className="text-right text-xs font-medium text-muted-foreground py-3 px-4 hidden lg:table-cell">
@@ -249,12 +238,12 @@ const AdminTenantsPage: React.FC = () => {
                                         </div>
                                         <div className="min-w-0">
                                             <p className="text-sm font-medium text-foreground truncate">{tenant.company_name}</p>
-                                            <p className="text-xs text-muted-foreground lg:hidden">{tenant.city}/{tenant.state}</p>
+                                            <p className="text-xs text-muted-foreground lg:hidden">{tenant.city}, {tenant.state}</p>
                                         </div>
                                     </div>
                                 </td>
                                 <td className="py-3 px-4 hidden lg:table-cell">
-                                    <span className="text-sm text-muted-foreground">{tenant.city}/{tenant.state}</span>
+                                    <span className="text-sm text-muted-foreground">{tenant.city}, {tenant.state}</span>
                                 </td>
                                 <td className="py-3 px-4">
                                     <TenantStatusBadge status={tenant.status} />

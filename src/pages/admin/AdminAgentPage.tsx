@@ -12,6 +12,14 @@ import {
     Zap,
     Loader2,
     Building2,
+    Key,
+    Eye,
+    EyeOff,
+    CheckCircle2,
+    XCircle,
+    Cpu,
+    TestTube,
+    Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +49,7 @@ interface AgentConfig {
     greeting_message: string;
     fallback_message: string;
     ai_model: string;
+    ai_provider: string;
     max_tokens: number;
     max_history_messages: number;
     custom_instructions: string | null;
@@ -48,6 +57,8 @@ interface AgentConfig {
     audio_mode: string;
     emoji_intensity: string;
     vista_integration_enabled: boolean;
+    // api_key_encrypted is never loaded to frontend (handled by edge function)
+    has_api_key?: boolean;
 }
 
 const defaultConfig: Omit<AgentConfig, 'id' | 'tenant_id'> = {
@@ -56,6 +67,7 @@ const defaultConfig: Omit<AgentConfig, 'id' | 'tenant_id'> = {
     greeting_message: '',
     fallback_message: '',
     ai_model: 'gpt-4o-mini',
+    ai_provider: 'openai',
     max_tokens: 300,
     max_history_messages: 10,
     custom_instructions: null,
@@ -63,10 +75,35 @@ const defaultConfig: Omit<AgentConfig, 'id' | 'tenant_id'> = {
     audio_mode: 'text_only',
     emoji_intensity: 'low',
     vista_integration_enabled: true,
+    has_api_key: false,
 };
 
+const PROVIDERS = [
+    {
+        value: 'openai', label: 'OpenAI', models: [
+            { value: 'gpt-4o-mini', label: 'GPT-4o Mini — Rápido e econômico' },
+            { value: 'gpt-4o', label: 'GPT-4o — Alta performance' },
+            { value: 'o3-mini', label: 'o3 Mini — Raciocínio avançado' },
+        ]
+    },
+    {
+        value: 'anthropic', label: 'Anthropic Claude', models: [
+            { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku — Rápido' },
+            { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet — Balanceado' },
+            { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus — Alta capacidade' },
+        ]
+    },
+    {
+        value: 'google', label: 'Google Gemini', models: [
+            { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash — Rápido' },
+            { value: 'gemini-2.0-flash-thinking-exp', label: 'Gemini 2.0 Flash Thinking — Raciocínio' },
+            { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro — Alta capacidade' },
+        ]
+    },
+];
+
 const capabilities = [
-    { id: 'search_properties', name: 'Buscar Imoveis', description: 'Pesquisar catalogo de imoveis por filtros', icon: '🏠' },
+    { id: 'search_properties', name: 'Buscar Imoveis', description: 'Pesquisar catalogo de imoveis por filtros', icon: '\uD83C\uDFE0' },
     { id: 'schedule_visit', name: 'Agendar Visita', description: 'Criar agendamento de visita com corretor', icon: '📅' },
     { id: 'qualify_lead', name: 'Qualificar Lead', description: 'Coletar dados e qualificar automaticamente', icon: '✅' },
     { id: 'send_to_crm', name: 'Enviar ao CRM', description: 'Transferir lead qualificado ao CRM', icon: '📤' },

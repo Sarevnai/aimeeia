@@ -12,6 +12,7 @@ import {
     FileText,
     ScrollText,
     Database,
+    Megaphone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -46,6 +47,12 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
             items: [
                 { label: 'Tenants', icon: Building2, path: '/admin/tenants' },
                 { label: 'Billing', icon: CreditCard, path: '/admin/billing' },
+            ],
+        },
+        {
+            label: 'Disparos',
+            items: [
+                { label: 'Campanhas', icon: Megaphone, path: '/admin/campanhas' },
             ],
         },
         {

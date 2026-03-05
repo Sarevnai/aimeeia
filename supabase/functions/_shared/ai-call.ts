@@ -1,6 +1,7 @@
-// ========== AIMEE.iA v2 - AI CALL ==========
-// Unified LLM gateway via Lovable AI gateway.
-// Supports function calling (tools).
+// ========== AIMEE.iA - AI CALL v3 ==========
+// Multi-provider LLM gateway.
+// Supports: OpenAI, Anthropic, Google Gemini + Tool Calling.
+// Falls back to env-level OPENAI_API_KEY if no tenant key is provided.
 
 import { ConversationMessage } from './types.ts';
 
@@ -9,39 +10,48 @@ export interface LLMResponse {
   toolCalls: any[];
 }
 
-export async function callLLM(
-  systemPrompt: string,
-  conversationHistory: ConversationMessage[],
-  userMessage: string,
-  tools: any[] = [],
-  options: {
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-  } = {}
-): Promise<LLMResponse> {
-  const apiKey = Deno.env.get('LOVABLE_API_KEY');
-  if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
+// ─────────────────────────────────────────────
+// Provider routing helpers
+// ─────────────────────────────────────────────
 
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    ...conversationHistory.map(m => ({ role: m.role, content: m.content })),
-    { role: 'user', content: userMessage }
-  ];
+type Provider = 'openai' | 'anthropic' | 'google' | 'lovable';
 
-  const body: any = {
-    model: options.model || 'google/gemini-3-flash-preview',
-    messages,
-    temperature: options.temperature ?? 0.7,
-    max_tokens: options.maxTokens ?? 500,
-  };
+function detectProvider(model: string, explicitProvider?: string): Provider {
+  if (explicitProvider) return explicitProvider as Provider;
+  if (model.startsWith('claude')) return 'anthropic';
+  if (model.startsWith('gemini') || model.startsWith('google/')) return 'google';
+  if (model.startsWith('gpt') || model.startsWith('o1') || model.startsWith('o3')) return 'openai';
+  // Fallback to openai-compatible endpoint
+  return 'openai';
+}
 
-  if (tools.length > 0) {
-    body.tools = tools;
-    body.tool_choice = 'auto';
+function resolveApiKey(provider: Provider, tenantApiKey?: string): string {
+  // Tenant-supplied key takes priority
+  if (tenantApiKey) return tenantApiKey;
+
+  // Fall back to global env secrets
+  switch (provider) {
+    case 'anthropic':
+      return Deno.env.get('ANTHROPIC_API_KEY') || Deno.env.get('OPENAI_API_KEY') || '';
+    case 'google':
+      return Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
+    case 'lovable':
+      return Deno.env.get('LOVABLE_API_KEY') || '';
+    default: // openai
+      return Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY') || '';
   }
+}
 
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+// ─────────────────────────────────────────────
+// OpenAI-compatible call (OpenAI, Lovable gateway)
+// ─────────────────────────────────────────────
+
+async function callOpenAI(
+  endpoint: string,
+  apiKey: string,
+  body: any
+): Promise<any> {
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -52,124 +62,321 @@ export async function callLLM(
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`LLM API error (${response.status}): ${error}`);
+    throw new Error(`OpenAI API error (${response.status}): ${error}`);
+  }
+  return response.json();
+}
+
+// ─────────────────────────────────────────────
+// Anthropic call
+// ─────────────────────────────────────────────
+
+async function callAnthropic(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  messages: any[],
+  tools: any[],
+  maxTokens: number,
+  temperature: number,
+): Promise<{ content: string; toolCalls: any[] }> {
+  // Convert OpenAI message format to Anthropic format
+  const anthropicMessages = messages
+    .filter(m => m.role !== 'system')
+    .map(m => {
+      if (m.role === 'tool') {
+        return {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content }]
+        };
+      }
+      if (m.tool_calls) {
+        return {
+          role: 'assistant',
+          content: m.tool_calls.map((tc: any) => ({
+            type: 'tool_use',
+            id: tc.id,
+            name: tc.function.name,
+            input: JSON.parse(tc.function.arguments),
+          }))
+        };
+      }
+      return { role: m.role, content: m.content };
+    });
+
+  // Convert OpenAI tools to Anthropic tools format
+  const anthropicTools = tools.map(t => ({
+    name: t.function.name,
+    description: t.function.description,
+    input_schema: t.function.parameters,
+  }));
+
+  const body: any = {
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: anthropicMessages,
+  };
+
+  if (anthropicTools.length > 0) {
+    body.tools = anthropicTools;
+  }
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Anthropic API error (${response.status}): ${error}`);
   }
 
   const data = await response.json();
-  const choice = data.choices?.[0];
 
-  if (!choice) throw new Error('No response from LLM');
+  // Extract text and tool calls from Anthropic response
+  const textContent = data.content?.find((c: any) => c.type === 'text')?.text || '';
+  const toolCalls = (data.content || [])
+    .filter((c: any) => c.type === 'tool_use')
+    .map((c: any) => ({
+      id: c.id,
+      type: 'function',
+      function: {
+        name: c.name,
+        arguments: JSON.stringify(c.input),
+      }
+    }));
 
-  return {
-    content: choice.message.content || '',
-    toolCalls: choice.message.tool_calls || [],
-  };
+  return { content: textContent, toolCalls };
 }
 
-/**
- * Execute a tool call and return the result as a follow-up message.
- * The caller provides the tool executor function.
- */
+// ─────────────────────────────────────────────
+// Google Gemini call (via REST API)
+// ─────────────────────────────────────────────
+
+async function callGoogle(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  messages: any[],
+  tools: any[],
+  maxTokens: number,
+): Promise<{ content: string; toolCalls: any[] }> {
+  // Normalize model name (strip google/ prefix if present)
+  const modelName = model.replace(/^google\//, '');
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+  // Convert to Gemini format
+  const contents = messages
+    .filter(m => m.role !== 'system')
+    .map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content || JSON.stringify(m.tool_calls || '') }],
+    }));
+
+  // Convert OpenAI tools to Gemini function declarations
+  const functionDeclarations = tools.map(t => ({
+    name: t.function.name,
+    description: t.function.description,
+    parameters: t.function.parameters,
+  }));
+
+  const body: any = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents,
+    generationConfig: { maxOutputTokens: maxTokens },
+  };
+
+  if (functionDeclarations.length > 0) {
+    body.tools = [{ function_declarations: functionDeclarations }];
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Google API error (${response.status}): ${error}`);
+  }
+
+  const data = await response.json();
+  const candidate = data.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
+
+  const text = parts.find((p: any) => p.text)?.text || '';
+  const functionCalls = parts
+    .filter((p: any) => p.functionCall)
+    .map((p: any, i: number) => ({
+      id: `call_gemini_${i}`,
+      type: 'function',
+      function: {
+        name: p.functionCall.name,
+        arguments: JSON.stringify(p.functionCall.args),
+      }
+    }));
+
+  return { content: text, toolCalls: functionCalls };
+}
+
+// ─────────────────────────────────────────────
+// Unified call — routes to the correct provider
+// ─────────────────────────────────────────────
+
+async function callProviderOnce(
+  provider: Provider,
+  apiKey: string,
+  model: string,
+  messages: any[],
+  tools: any[],
+  options: { temperature?: number; maxTokens?: number },
+): Promise<{ content: string; toolCalls: any[] }> {
+  const systemMessage = messages.find(m => m.role === 'system');
+  const systemPrompt = systemMessage?.content || '';
+  const nonSystemMessages = messages.filter(m => m.role !== 'system');
+
+  switch (provider) {
+    case 'anthropic':
+      return callAnthropic(apiKey, model, systemPrompt, messages, tools, options.maxTokens ?? 500, options.temperature ?? 0.7);
+
+    case 'google':
+      return callGoogle(apiKey, model, systemPrompt, nonSystemMessages, tools, options.maxTokens ?? 500);
+
+    case 'lovable': {
+      const lovableBody: any = {
+        model,
+        messages,
+        temperature: options.temperature ?? 0.7,
+        max_tokens: options.maxTokens ?? 500,
+      };
+      if (tools.length > 0) { lovableBody.tools = tools; lovableBody.tool_choice = 'auto'; }
+      const data = await callOpenAI('https://ai.gateway.lovable.dev/v1/chat/completions', apiKey, lovableBody);
+      const choice = data.choices?.[0];
+      return {
+        content: choice?.message?.content || '',
+        toolCalls: choice?.message?.tool_calls || [],
+      };
+    }
+
+    default: { // openai
+      const openaiBody: any = {
+        model,
+        messages,
+        temperature: options.temperature ?? 0.7,
+        max_tokens: options.maxTokens ?? 500,
+      };
+      if (tools.length > 0) { openaiBody.tools = tools; openaiBody.tool_choice = 'auto'; }
+      const data = await callOpenAI('https://api.openai.com/v1/chat/completions', apiKey, openaiBody);
+      const choice = data.choices?.[0];
+      return {
+        content: choice?.message?.content || '',
+        toolCalls: choice?.message?.tool_calls || [],
+      };
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────
+
+export interface LLMCallOptions {
+  model?: string;
+  provider?: string;
+  apiKey?: string;    // Tenant-specific (decrypted) API key
+  temperature?: number;
+  maxTokens?: number;
+}
+
+export async function callLLM(
+  systemPrompt: string,
+  conversationHistory: ConversationMessage[],
+  userMessage: string,
+  tools: any[] = [],
+  options: LLMCallOptions = {}
+): Promise<LLMResponse> {
+  const model = options.model || 'gpt-4o-mini';
+  const provider = detectProvider(model, options.provider);
+  const apiKey = resolveApiKey(provider, options.apiKey);
+
+  if (!apiKey) throw new Error(`No API key found for provider: ${provider}. Configure it in Admin > Agente Aimee.`);
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    ...conversationHistory.map(m => ({ role: m.role, content: m.content })),
+    { role: 'user', content: userMessage }
+  ];
+
+  const result = await callProviderOnce(provider, apiKey, model, messages, tools, options);
+  return result;
+}
+
 export async function callLLMWithToolExecution(
   systemPrompt: string,
   conversationHistory: ConversationMessage[],
   userMessage: string,
   tools: any[],
   toolExecutor: (name: string, args: any) => Promise<string>,
-  options: {
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-    maxIterations?: number;
-  } = {}
+  options: LLMCallOptions & { maxIterations?: number } = {}
 ): Promise<string> {
+  const model = options.model || 'gpt-4o-mini';
+  const provider = detectProvider(model, options.provider);
+  const apiKey = resolveApiKey(provider, options.apiKey);
+
+  if (!apiKey) throw new Error(`No API key found for provider: ${provider}. Configure it in Admin > Agente Aimee.`);
+
   const maxIterations = options.maxIterations ?? 3;
-  let messages = [
-    { role: 'system' as const, content: systemPrompt },
+  let messages: any[] = [
+    { role: 'system', content: systemPrompt },
     ...conversationHistory.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-    { role: 'user' as const, content: userMessage }
+    { role: 'user', content: userMessage }
   ];
 
   for (let i = 0; i < maxIterations; i++) {
-    const apiKey = Deno.env.get('LOVABLE_API_KEY');
-    if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
+    const result = await callProviderOnce(provider, apiKey, model, messages, tools, options);
 
-    const body: any = {
-      model: options.model || 'google/gemini-3-flash-preview',
-      messages,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 500,
-      tools,
-      tool_choice: 'auto',
-    };
+    // No tool calls → return text
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      return result.content || '';
+    }
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+    // Append assistant message with tool calls (OpenAI format for state tracking)
+    messages.push({
+      role: 'assistant',
+      content: result.content || null,
+      tool_calls: result.toolCalls,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`LLM API error (${response.status}): ${error}`);
-    }
-
-    const data = await response.json();
-    const choice = data.choices?.[0];
-    if (!choice) throw new Error('No response from LLM');
-
-    const assistantMessage = choice.message;
-
-    // If no tool calls, return the text content
-    if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-      return assistantMessage.content || '';
-    }
-
-    // Execute tool calls
-    messages.push(assistantMessage);
-
-    for (const toolCall of assistantMessage.tool_calls) {
+    // Execute each tool call
+    for (const toolCall of result.toolCalls) {
       const args = JSON.parse(toolCall.function.arguments);
       console.log(`🔧 Tool call: ${toolCall.function.name}`, args);
 
       try {
-        const result = await toolExecutor(toolCall.function.name, args);
+        const toolResult = await toolExecutor(toolCall.function.name, args);
         messages.push({
-          role: 'tool' as any,
-          content: result,
+          role: 'tool',
+          content: toolResult,
           tool_call_id: toolCall.id,
-        } as any);
+        });
       } catch (e) {
         messages.push({
-          role: 'tool' as any,
+          role: 'tool',
           content: `Error: ${(e as Error).message}`,
           tool_call_id: toolCall.id,
-        } as any);
+        });
       }
     }
   }
 
-  // If we exhausted iterations, get a final response without tools
-  const finalBody: any = {
-    model: options.model || 'google/gemini-3-flash-preview',
-    messages,
-    temperature: options.temperature ?? 0.7,
-    max_tokens: options.maxTokens ?? 500,
-  };
-
-  const apiKey = Deno.env.get('LOVABLE_API_KEY')!;
-  const finalResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(finalBody),
-  });
-
-  const finalData = await finalResp.json();
-  return finalData.choices?.[0]?.message?.content || 'Desculpe, tive um problema ao processar sua solicitação.';
+  // Final call without tools
+  const finalResult = await callProviderOnce(provider, apiKey, model, messages, [], options);
+  return finalResult.content || 'Desculpe, tive um problema ao processar sua solicitação.';
 }

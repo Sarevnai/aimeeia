@@ -2,7 +2,7 @@
 // Manages the initial conversation flow: greeting → name → department selection.
 // All config from DB (ai_agent_config), no hardcoded tenant references.
 
-import { DepartmentType, Tenant, AIAgentConfig, ConversationState } from './types.ts';
+import { DepartmentType, Tenant, AIAgentConfig, ConversationState, TriageConfig } from './types.ts';
 
 // ========== TRIAGE BUTTON MAPPING ==========
 
@@ -80,14 +80,27 @@ export async function handleTriage(
   message: any,
   messageBody: string,
   phoneNumber: string,
-  conversationId: string
+  conversationId: string,
+  triageConfig?: TriageConfig | null
 ): Promise<TriageResult> {
   const stage = state?.triage_stage || 'greeting';
+  const agentName = config.agent_name || 'Aimee';
 
-  // ========== STAGE: GREETING ==========
+  // Helper to replace triage template variables
+  const replaceTvars = (text: string, name?: string): string => {
+    return text
+      .replaceAll('{{AGENT_NAME}}', agentName)
+      .replaceAll('{{COMPANY_NAME}}', tenant.company_name)
+      .replaceAll('{{CITY}}', tenant.city || '')
+      .replaceAll('{{NAME}}', name || 'cliente');
+  };
+
+  // ========== STAGE: GREETING (Fase 1 — Ancoragem) ==========
   if (stage === 'greeting') {
-    const greetingMsg = config.greeting_message ||
-      `Olá! 👋 Eu sou a ${config.agent_name || 'Aimee'}, assistente virtual da ${tenant.company_name}.\n\nComo posso te chamar?`;
+    const greetingMsg = triageConfig?.greeting_message
+      ? replaceTvars(triageConfig.greeting_message)
+      : config.greeting_message ||
+        `Olá! 👋 Eu sou a ${agentName}, assistente virtual da ${tenant.company_name}.\n\nComo posso te chamar?`;
 
     await updateTriageStage(supabase, tenant.id, phoneNumber, 'awaiting_name');
 
@@ -97,7 +110,7 @@ export async function handleTriage(
     };
   }
 
-  // ========== STAGE: AWAITING NAME ==========
+  // ========== STAGE: AWAITING NAME (+ VIP Intro) ==========
   if (stage === 'awaiting_name') {
     const name = extractName(messageBody);
 
@@ -112,26 +125,42 @@ export async function handleTriage(
 
     await updateTriageStage(supabase, tenant.id, phoneNumber, 'awaiting_triage');
 
-    const triageMsg = name
-      ? `Prazer, ${name}! 😊\n\nComo posso te ajudar?`
-      : `Prazer! 😊\n\nComo posso te ajudar?`;
+    // Build response messages
+    const messages: string[] = [];
+
+    // Name confirmation
+    const nameConfirmation = triageConfig?.name_confirmation_template
+      ? replaceTvars(triageConfig.name_confirmation_template, name || undefined)
+      : name ? `Prazer, ${name}! 😊` : `Prazer! 😊`;
+    messages.push(nameConfirmation);
+
+    // VIP intro (if configured — adds ancoragem VIP after name)
+    if (triageConfig?.vip_intro) {
+      messages.push(replaceTvars(triageConfig.vip_intro, name || undefined));
+    }
+
+    // Department prompt (if no VIP intro, append default)
+    if (!triageConfig?.vip_intro) {
+      messages[0] += `\n\nComo posso te ajudar?`;
+    }
 
     return {
       shouldContinue: true,
-      responseMessages: [triageMsg],
+      responseMessages: messages,
       contactName: name || undefined,
     };
   }
 
-  // ========== STAGE: AWAITING TRIAGE ==========
+  // ========== STAGE: AWAITING TRIAGE (Departamento) ==========
   if (stage === 'awaiting_triage') {
     // Check if user selected a department via button
     const buttonResult = extractTriageButtonId(message);
     if (buttonResult?.department) {
       await completeTriage(supabase, tenant.id, phoneNumber, conversationId, buttonResult.department);
 
-      const welcomeMsg = DEPARTMENT_WELCOME[buttonResult.department] ||
-        'Como posso te ajudar?';
+      const welcomeMsg = triageConfig?.department_welcome?.[buttonResult.department]
+        ? replaceTvars(triageConfig.department_welcome[buttonResult.department], state?.contact_name)
+        : DEPARTMENT_WELCOME[buttonResult.department] || 'Como posso te ajudar?';
 
       return {
         shouldContinue: true,
@@ -145,7 +174,9 @@ export async function handleTriage(
     if (inferredDept) {
       await completeTriage(supabase, tenant.id, phoneNumber, conversationId, inferredDept);
 
-      const welcomeMsg = DEPARTMENT_WELCOME[inferredDept] || 'Como posso te ajudar?';
+      const welcomeMsg = triageConfig?.department_welcome?.[inferredDept]
+        ? replaceTvars(triageConfig.department_welcome[inferredDept], state?.contact_name)
+        : DEPARTMENT_WELCOME[inferredDept] || 'Como posso te ajudar?';
 
       return {
         shouldContinue: true,

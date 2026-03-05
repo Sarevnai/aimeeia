@@ -145,7 +145,55 @@ const TicketDetailPage: React.FC = () => {
     setLoading(false);
   }, [tenantId, id, navigate, toast]);
 
-  useEffect(() => { fetchTicket(); }, [fetchTicket]);
+  useEffect(() => {
+    fetchTicket();
+
+    if (!tenantId || !id) return;
+
+    const channel = supabase
+      .channel(`ticket_detail_${id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'tickets',
+        filter: `id=eq.${id}`,
+      }, () => {
+        fetchTicket();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'ticket_comments',
+        filter: `ticket_id=eq.${id}`,
+      }, () => {
+        fetchTicket();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchTicket, tenantId, id]);
+
+  useEffect(() => {
+    if (!ticket?.conversation_id) return;
+
+    const messagesChannel = supabase
+      .channel(`ticket_messages_${ticket.conversation_id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${ticket.conversation_id}`,
+      }, () => {
+        fetchTicket();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messagesChannel);
+    };
+  }, [ticket?.conversation_id, fetchTicket]);
 
   const updateTicket = async (updates: Record<string, any>) => {
     if (!id) return;

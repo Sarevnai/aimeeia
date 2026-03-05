@@ -2,6 +2,7 @@
 // Send messages via Meta Cloud API. Multi-tenant: credentials from tenant.
 
 import { Tenant } from './types.ts';
+import { formatWhatsAppMarkdown } from './utils.ts';
 
 const META_API_VERSION = 'v21.0';
 const META_API_BASE = 'https://graph.facebook.com';
@@ -52,7 +53,7 @@ export async function sendWhatsAppMessage(
         recipient_type: 'individual',
         to: phoneNumber,
         type: 'text',
-        text: { body: message },
+        text: { body: formatWhatsAppMarkdown(message) },
       }),
     });
 
@@ -215,7 +216,10 @@ export async function saveOutboundMessage(
   waMessageId?: string,
   departmentCode?: string,
   mediaType?: string,
-  mediaUrl?: string
+  mediaUrl?: string,
+  senderType?: string,
+  senderId?: string,
+  eventType?: string
 ) {
   await supabase.from('messages').insert({
     tenant_id: tenantId,
@@ -228,6 +232,9 @@ export async function saveOutboundMessage(
     department_code: departmentCode || null,
     media_type: mediaType || null,
     media_url: mediaUrl || null,
+    sender_type: senderType || 'ai',
+    sender_id: senderId || null,
+    event_type: eventType || null,
     created_at: new Date().toISOString(),
   });
 }

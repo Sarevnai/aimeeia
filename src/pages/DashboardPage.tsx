@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { Loader2, ChevronDown, TrendingUp, Users, UserCheck, ArrowRightLeft, Clock, Calendar } from 'lucide-react';
+import { Loader2, ChevronDown, TrendingUp, Users, UserCheck, ArrowRightLeft, Clock, Calendar, Ticket, AlertTriangle, CheckCircle2, Timer } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, AreaChart, Area,
@@ -129,6 +129,14 @@ const DashboardPage: React.FC = () => {
   const now = new Date();
   const [selMonth, setSelMonth] = useState(now.getMonth());
   const [selYear, setSelYear] = useState(now.getFullYear());
+
+  const isAdminDept = profile?.department_code === 'administrativo';
+
+  // Ticket KPIs (for administrative department)
+  const [ticketOpen, setTicketOpen] = useState(0);
+  const [ticketUrgent, setTicketUrgent] = useState(0);
+  const [ticketSlaBreach, setTicketSlaBreach] = useState(0);
+  const [ticketResolved, setTicketResolved] = useState(0);
 
   // Data state
   const [loading, setLoading] = useState(true);
@@ -270,6 +278,23 @@ const DashboardPage: React.FC = () => {
       }
       setMonthlyData(months6);
 
+      // ── Ticket KPIs (for administrative department dashboard) ──
+      const [openRes, urgentRes, slaRes, resolvedRes] = await Promise.all([
+        supabase.from('tickets').select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId).neq('stage', 'Resolvido').neq('stage', 'Fechado'),
+        supabase.from('tickets').select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId).eq('priority', 'urgente').neq('stage', 'Resolvido').neq('stage', 'Fechado'),
+        supabase.from('tickets').select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId).lt('sla_deadline', new Date().toISOString()).is('resolved_at', null),
+        supabase.from('tickets').select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId).in('stage', ['Resolvido', 'Fechado'])
+          .gte('updated_at', monthStart).lte('updated_at', monthEnd),
+      ]);
+      setTicketOpen(openRes.count ?? 0);
+      setTicketUrgent(urgentRes.count ?? 0);
+      setTicketSlaBreach(slaRes.count ?? 0);
+      setTicketResolved(resolvedRes.count ?? 0);
+
       setLoading(false);
     };
 
@@ -286,7 +311,7 @@ const DashboardPage: React.FC = () => {
     return opts;
   }, []);
 
-  // Super admin always redirects to admin central
+  // Super admin always redirects to painel de controle
   if (!authLoading && profile?.role === 'super_admin') {
     return <Navigate to="/admin" replace />;
   }
@@ -353,6 +378,56 @@ const DashboardPage: React.FC = () => {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Administrative Department KPIs */}
+      {isAdminDept && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Chamados Abertos</p>
+                <p className="mt-2 text-3xl font-bold font-display text-foreground">{ticketOpen}</p>
+              </div>
+              <div className="p-2.5 rounded-lg bg-info/15">
+                <Ticket className="h-5 w-5 text-info" />
+              </div>
+            </div>
+          </Card>
+          <Card>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Urgentes</p>
+                <p className="mt-2 text-3xl font-bold font-display text-destructive">{ticketUrgent}</p>
+              </div>
+              <div className="p-2.5 rounded-lg bg-destructive/15">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+              </div>
+            </div>
+          </Card>
+          <Card>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">SLA Estourado</p>
+                <p className="mt-2 text-3xl font-bold font-display text-warning">{ticketSlaBreach}</p>
+              </div>
+              <div className="p-2.5 rounded-lg bg-warning/15">
+                <Timer className="h-5 w-5 text-warning" />
+              </div>
+            </div>
+          </Card>
+          <Card>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Resolvidos (mes)</p>
+                <p className="mt-2 text-3xl font-bold font-display text-success">{ticketResolved}</p>
+              </div>
+              <div className="p-2.5 rounded-lg bg-success/15">
+                <CheckCircle2 className="h-5 w-5 text-success" />
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Row 1 — Funnel cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

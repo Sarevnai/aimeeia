@@ -87,7 +87,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
                             <h1 className="text-sm font-bold text-white truncate font-display">
                                 Aimee<span style={{ color: 'hsl(250 70% 70%)' }}>.Platform</span>
                             </h1>
-                            <p className="text-[10px] opacity-50">Admin Central</p>
+                            <p className="text-[10px] opacity-50">Painel de Controle</p>
                         </div>
                     </div>
                 ) : (

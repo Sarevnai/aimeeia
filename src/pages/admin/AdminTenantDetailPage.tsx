@@ -15,6 +15,8 @@ import {
     Loader2,
     UserPlus,
     Trash2,
+    Pencil,
+    KeyRound,
     Database,
     Link as LinkIcon,
     RefreshCw,
@@ -111,12 +113,22 @@ const AdminTenantDetailPage: React.FC = () => {
     // ── Invite user state ──────────────────────────────────────────────
     const [inviteOpen, setInviteOpen] = useState(false);
     const [inviteLoading, setInviteLoading] = useState(false);
-    const [inviteForm, setInviteForm] = useState({ email: '', full_name: '', role: 'viewer' });
+    const [inviteForm, setInviteForm] = useState({ email: '', full_name: '', role: 'viewer', password: '' });
 
     // ── Remove user state ──────────────────────────────────────────────
     const [removeUserId, setRemoveUserId] = useState<string | null>(null);
     const [removeName, setRemoveName] = useState('');
     const [removeLoading, setRemoveLoading] = useState(false);
+
+    // ── Edit role state ────────────────────────────────────────────────
+    const [editRoleUser, setEditRoleUser] = useState<TenantUser | null>(null);
+    const [editRoleValue, setEditRoleValue] = useState('');
+    const [editRoleLoading, setEditRoleLoading] = useState(false);
+
+    // ── Reset password state ───────────────────────────────────────────
+    const [resetPwdUser, setResetPwdUser] = useState<TenantUser | null>(null);
+    const [resetPwdValue, setResetPwdValue] = useState('');
+    const [resetPwdLoading, setResetPwdLoading] = useState(false);
 
     useEffect(() => {
         if (id) loadTenantData(id);
@@ -342,15 +354,16 @@ const AdminTenantDetailPage: React.FC = () => {
         }
     };
 
-    // ── Invite user ────────────────────────────────────────────────────
+    // ── Create user ────────────────────────────────────────────────────
     const handleInviteUser = async () => {
-        if (!inviteForm.email || !inviteForm.full_name) return;
+        if (!inviteForm.email || !inviteForm.full_name || inviteForm.password.length < 8) return;
         setInviteLoading(true);
         try {
             const { data, error } = await supabase.functions.invoke('manage-team', {
                 body: {
-                    action: 'invite_user',
+                    action: 'create_user',
                     email: inviteForm.email,
+                    password: inviteForm.password,
                     full_name: inviteForm.full_name,
                     tenant_id: id,
                     role: inviteForm.role,
@@ -358,11 +371,11 @@ const AdminTenantDetailPage: React.FC = () => {
             });
             const errMsg = error?.message || (data as { error?: string })?.error;
             if (errMsg) {
-                toast({ title: 'Erro ao convidar usuário', description: errMsg, variant: 'destructive' });
+                toast({ title: 'Erro ao criar usuário', description: errMsg, variant: 'destructive' });
             } else {
-                toast({ title: 'Convite enviado!', description: `${inviteForm.email} receberá um e-mail de convite.` });
+                toast({ title: 'Usuário criado com sucesso.' });
                 setInviteOpen(false);
-                setInviteForm({ email: '', full_name: '', role: 'viewer' });
+                setInviteForm({ email: '', full_name: '', role: 'viewer', password: '' });
                 if (id) loadTenantData(id);
             }
         } finally {
@@ -388,6 +401,48 @@ const AdminTenantDetailPage: React.FC = () => {
             }
         } finally {
             setRemoveLoading(false);
+        }
+    };
+
+    // ── Update role ────────────────────────────────────────────────────
+    const handleUpdateRole = async () => {
+        if (!editRoleUser || !editRoleValue) return;
+        setEditRoleLoading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('manage-team', {
+                body: { action: 'update_role', user_id: editRoleUser.id, role: editRoleValue },
+            });
+            const errMsg = error?.message || (data as { error?: string })?.error;
+            if (errMsg) {
+                toast({ title: 'Erro ao alterar papel', description: errMsg, variant: 'destructive' });
+            } else {
+                toast({ title: 'Papel atualizado com sucesso.' });
+                setEditRoleUser(null);
+                if (id) loadTenantData(id);
+            }
+        } finally {
+            setEditRoleLoading(false);
+        }
+    };
+
+    // ── Reset password ─────────────────────────────────────────────────
+    const handleResetPassword = async () => {
+        if (!resetPwdUser || !resetPwdValue) return;
+        setResetPwdLoading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('manage-team', {
+                body: { action: 'reset_password', user_id: resetPwdUser.id, new_password: resetPwdValue },
+            });
+            const errMsg = error?.message || (data as { error?: string })?.error;
+            if (errMsg) {
+                toast({ title: 'Erro ao redefinir senha', description: errMsg, variant: 'destructive' });
+            } else {
+                toast({ title: 'Senha redefinida com sucesso.' });
+                setResetPwdUser(null);
+                setResetPwdValue('');
+            }
+        } finally {
+            setResetPwdLoading(false);
         }
     };
 
@@ -721,7 +776,7 @@ const AdminTenantDetailPage: React.FC = () => {
                                 <h3 className="text-sm font-semibold text-foreground">Usuários ({users.length})</h3>
                                 <Button size="sm" onClick={() => setInviteOpen(true)}>
                                     <UserPlus className="h-4 w-4 mr-1.5" />
-                                    Convidar Usuário
+                                    Criar Usuário
                                 </Button>
                             </div>
                             {users.length === 0 ? (
@@ -754,8 +809,22 @@ const AdminTenantDetailPage: React.FC = () => {
                                                 Desde {new Date(user.created_at).toLocaleDateString('pt-BR')}
                                             </span>
                                             <button
+                                                onClick={() => { setEditRoleUser(user); setEditRoleValue(user.role); }}
+                                                className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                                title="Alterar papel"
+                                            >
+                                                <Pencil className="h-4 w-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => { setResetPwdUser(user); setResetPwdValue(''); }}
+                                                className="p-1.5 rounded text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                                                title="Redefinir senha"
+                                            >
+                                                <KeyRound className="h-4 w-4" />
+                                            </button>
+                                            <button
                                                 onClick={() => { setRemoveUserId(user.id); setRemoveName(user.full_name); }}
-                                                className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors ml-1"
+                                                className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                                                 title="Remover usuário"
                                             >
                                                 <Trash2 className="h-4 w-4" />
@@ -766,11 +835,11 @@ const AdminTenantDetailPage: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Dialog: Convidar Usuário */}
+                        {/* Dialog: Criar Usuário */}
                         <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
                             <DialogContent>
                                 <DialogHeader>
-                                    <DialogTitle>Convidar Usuário</DialogTitle>
+                                    <DialogTitle>Criar Usuário</DialogTitle>
                                 </DialogHeader>
                                 <div className="space-y-4 py-2">
                                     <div className="space-y-1.5">
@@ -790,6 +859,16 @@ const AdminTenantDetailPage: React.FC = () => {
                                             placeholder="João Silva"
                                             value={inviteForm.full_name}
                                             onChange={(e) => setInviteForm((f) => ({ ...f, full_name: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="invite-password">Senha</Label>
+                                        <Input
+                                            id="invite-password"
+                                            type="password"
+                                            placeholder="Mínimo 8 caracteres"
+                                            value={inviteForm.password}
+                                            onChange={(e) => setInviteForm((f) => ({ ...f, password: e.target.value }))}
                                         />
                                     </div>
                                     <div className="space-y-1.5">
@@ -813,8 +892,75 @@ const AdminTenantDetailPage: React.FC = () => {
                                     <Button variant="outline" onClick={() => setInviteOpen(false)} disabled={inviteLoading}>
                                         Cancelar
                                     </Button>
-                                    <Button onClick={handleInviteUser} disabled={inviteLoading || !inviteForm.email || !inviteForm.full_name}>
-                                        {inviteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enviar convite'}
+                                    <Button onClick={handleInviteUser} disabled={inviteLoading || !inviteForm.email || !inviteForm.full_name || inviteForm.password.length < 8}>
+                                        {inviteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Criar usuário'}
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+
+                        {/* Dialog: Alterar Papel */}
+                        <Dialog open={!!editRoleUser} onOpenChange={(o) => { if (!o) setEditRoleUser(null); }}>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Alterar Papel</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4 py-2">
+                                    <p className="text-sm text-muted-foreground">
+                                        Alterando papel de <span className="font-medium text-foreground">{editRoleUser?.full_name}</span>
+                                    </p>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="edit-role">Papel</Label>
+                                        <Select value={editRoleValue} onValueChange={setEditRoleValue}>
+                                            <SelectTrigger id="edit-role">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="admin">Admin</SelectItem>
+                                                <SelectItem value="operator">Operador</SelectItem>
+                                                <SelectItem value="viewer">Visualizador</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                                <DialogFooter>
+                                    <Button variant="outline" onClick={() => setEditRoleUser(null)} disabled={editRoleLoading}>
+                                        Cancelar
+                                    </Button>
+                                    <Button onClick={handleUpdateRole} disabled={editRoleLoading || !editRoleValue}>
+                                        {editRoleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+
+                        {/* Dialog: Redefinir Senha */}
+                        <Dialog open={!!resetPwdUser} onOpenChange={(o) => { if (!o) { setResetPwdUser(null); setResetPwdValue(''); } }}>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Redefinir Senha</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4 py-2">
+                                    <p className="text-sm text-muted-foreground">
+                                        Definindo nova senha para <span className="font-medium text-foreground">{resetPwdUser?.full_name}</span>
+                                    </p>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="reset-pwd">Nova senha</Label>
+                                        <Input
+                                            id="reset-pwd"
+                                            type="password"
+                                            placeholder="Mínimo 8 caracteres"
+                                            value={resetPwdValue}
+                                            onChange={(e) => setResetPwdValue(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                                <DialogFooter>
+                                    <Button variant="outline" onClick={() => { setResetPwdUser(null); setResetPwdValue(''); }} disabled={resetPwdLoading}>
+                                        Cancelar
+                                    </Button>
+                                    <Button onClick={handleResetPassword} disabled={resetPwdLoading || resetPwdValue.length < 8}>
+                                        {resetPwdLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
                                     </Button>
                                 </DialogFooter>
                             </DialogContent>

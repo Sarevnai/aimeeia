@@ -29,7 +29,16 @@ import {
   MessageSquare,
   ChevronDown,
   Image,
+  ArrowRightLeft,
+  Info,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import type { Tables } from '@/integrations/supabase/types';
 import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
@@ -70,11 +79,17 @@ const CHANNEL_ICONS: Record<string, React.ReactNode> = {
   chavesnamao: <Home className="h-3.5 w-3.5 text-red-500" />,
 };
 
+interface TeamMember {
+  id: string;
+  full_name: string | null;
+  role: string | null;
+}
+
 const ChatPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { tenantId } = useTenant();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [contact, setContact] = useState<Contact | null>(null);
@@ -85,6 +100,10 @@ const ChatPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [sending, setSending] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [operatorName, setOperatorName] = useState<string | null>(null);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [senderNames, setSenderNames] = useState<Record<string, string>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -148,6 +167,41 @@ const ChatPage: React.FC = () => {
     fetchData();
   }, [id, tenantId]);
 
+  // Resolve operator name when convState changes
+  useEffect(() => {
+    if (!convState?.operator_id) {
+      setOperatorName(null);
+      return;
+    }
+    supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', convState.operator_id)
+      .single()
+      .then(({ data }) => setOperatorName(data?.full_name || null));
+  }, [convState?.operator_id]);
+
+  // Resolve sender names for operator messages
+  useEffect(() => {
+    const operatorMsgs = messages.filter((m) => m.sender_type === 'operator' && m.sender_id);
+    const uniqueIds = [...new Set(operatorMsgs.map((m) => m.sender_id!))];
+    const missingIds = uniqueIds.filter((uid) => !senderNames[uid]);
+    if (missingIds.length === 0) return;
+
+    supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', missingIds)
+      .then(({ data }) => {
+        if (!data) return;
+        setSenderNames((prev) => {
+          const next = { ...prev };
+          data.forEach((p) => { next[p.id] = p.full_name || 'Operador'; });
+          return next;
+        });
+      });
+  }, [messages]);
+
   // Scroll on new messages
   useEffect(() => {
     scrollToBottom();
@@ -168,7 +222,19 @@ const ChatPage: React.FC = () => {
           filter: `conversation_id=eq.${id}`,
         },
         (payload) => {
-          setMessages((prev) => [...prev, payload.new as Message]);
+          setMessages((prev) => {
+            // Remove a mensagem otimista correspondente antes de inserir a definitiva
+            // para evitar duplicação (mesmo body + direction outbound + id temporário)
+            const filtered = prev.filter(
+              (m) =>
+                !(
+                  typeof m.id === 'string' && (m.id as string).startsWith('temp-') &&
+                  m.body === (payload.new as Message).body &&
+                  m.direction === 'outbound'
+                )
+            );
+            return [...filtered, payload.new as Message];
+          });
         }
       )
       .subscribe();
@@ -181,18 +247,50 @@ const ChatPage: React.FC = () => {
   const handleSend = async () => {
     if (!inputValue.trim() || !conversation || !tenantId || sending) return;
     setSending(true);
+
+    const tempId = `temp-${Date.now()}`;
+    const messageText = inputValue.trim();
+
+    // Optimistic update: exibe a mensagem imediatamente sem esperar o servidor.
+    // O evento Realtime posterior substituirá esta entrada pela versão definitiva do banco.
+    const optimisticMsg = {
+      id: tempId,
+      body: messageText,
+      direction: 'outbound',
+      sender_type: convState?.is_ai_active === false ? 'operator' : 'ai',
+      sender_id: convState?.is_ai_active === false ? (user?.id ?? null) : null,
+      conversation_id: id ?? '',
+      tenant_id: tenantId,
+      created_at: new Date().toISOString(),
+      wa_message_id: null,
+      wa_from: null,
+      wa_to: null,
+      media_type: null,
+      media_url: null,
+      department_code: conversation.department_code ?? null,
+      event_type: null,
+      raw: null,
+    } as Message;
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setInputValue('');
+
     try {
       await supabase.functions.invoke('send-wa-message', {
         body: {
           tenant_id: tenantId,
           phone_number: conversation.phone_number,
-          message: inputValue.trim(),
+          message: messageText,
           conversation_id: id,
           department_code: conversation.department_code,
+          sender_type: convState?.is_ai_active === false ? 'operator' : 'ai',
+          sender_id: convState?.is_ai_active === false ? user?.id : null,
         },
       });
-      setInputValue('');
     } catch (error) {
+      // Reverter a mensagem otimista e restaurar o input em caso de falha
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setInputValue(messageText);
       console.error('Error sending message:', error);
     } finally {
       setSending(false);
@@ -201,6 +299,8 @@ const ChatPage: React.FC = () => {
 
   const handleTakeover = async () => {
     if (!conversation || !tenantId || !user) return;
+    const myName = profile?.full_name || 'Operador';
+
     await supabase
       .from('conversation_states')
       .update({
@@ -211,13 +311,34 @@ const ChatPage: React.FC = () => {
       .eq('phone_number', conversation.phone_number)
       .eq('tenant_id', tenantId);
 
+    // Insert system event message
+    await supabase.from('messages').insert({
+      tenant_id: tenantId,
+      conversation_id: id,
+      direction: 'outbound',
+      body: `Operador ${myName} assumiu a conversa`,
+      sender_type: 'system',
+      event_type: 'operator_joined',
+      sender_id: user.id,
+    });
+
+    // Record event in audit log
+    await supabase.from('conversation_events').insert({
+      tenant_id: tenantId,
+      conversation_id: id,
+      event_type: 'operator_joined',
+      actor_id: user.id,
+    });
+
     setConvState((prev) =>
       prev ? { ...prev, is_ai_active: false, operator_id: user.id, operator_takeover_at: new Date().toISOString() } : prev
     );
   };
 
   const handleReturnToAI = async () => {
-    if (!conversation || !tenantId) return;
+    if (!conversation || !tenantId || !user) return;
+    const myName = profile?.full_name || 'Operador';
+
     await supabase
       .from('conversation_states')
       .update({
@@ -227,9 +348,92 @@ const ChatPage: React.FC = () => {
       .eq('phone_number', conversation.phone_number)
       .eq('tenant_id', tenantId);
 
+    // Insert system event message
+    await supabase.from('messages').insert({
+      tenant_id: tenantId,
+      conversation_id: id,
+      direction: 'outbound',
+      body: `Operador ${myName} devolveu a conversa para a IA`,
+      sender_type: 'system',
+      event_type: 'ai_resumed',
+      sender_id: user.id,
+    });
+
+    // Record event in audit log
+    await supabase.from('conversation_events').insert({
+      tenant_id: tenantId,
+      conversation_id: id,
+      event_type: 'ai_resumed',
+      actor_id: user.id,
+    });
+
     setConvState((prev) =>
       prev ? { ...prev, is_ai_active: true, operator_id: null } : prev
     );
+  };
+
+  const handleTransfer = async (targetOperator: TeamMember) => {
+    if (!conversation || !tenantId || !user) return;
+    const myName = profile?.full_name || 'Operador';
+    const targetName = targetOperator.full_name || 'Operador';
+
+    // Insert "operator left" system message
+    await supabase.from('messages').insert({
+      tenant_id: tenantId,
+      conversation_id: id,
+      direction: 'outbound',
+      body: `Operador ${myName} saiu da conversa`,
+      sender_type: 'system',
+      event_type: 'operator_left',
+      sender_id: user.id,
+    });
+
+    // Update conversation_states to new operator
+    await supabase
+      .from('conversation_states')
+      .update({
+        operator_id: targetOperator.id,
+        operator_takeover_at: new Date().toISOString(),
+      })
+      .eq('phone_number', conversation.phone_number)
+      .eq('tenant_id', tenantId);
+
+    // Insert "operator joined" system message
+    await supabase.from('messages').insert({
+      tenant_id: tenantId,
+      conversation_id: id,
+      direction: 'outbound',
+      body: `Operador ${targetName} entrou na conversa`,
+      sender_type: 'system',
+      event_type: 'operator_joined',
+      sender_id: targetOperator.id,
+    });
+
+    // Record transfer event
+    await supabase.from('conversation_events').insert({
+      tenant_id: tenantId,
+      conversation_id: id,
+      event_type: 'transfer',
+      actor_id: user.id,
+      target_id: targetOperator.id,
+    });
+
+    setConvState((prev) =>
+      prev ? { ...prev, operator_id: targetOperator.id, operator_takeover_at: new Date().toISOString() } : prev
+    );
+    setShowTransferModal(false);
+  };
+
+  const openTransferModal = async () => {
+    if (!tenantId) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name, role')
+      .eq('tenant_id', tenantId)
+      .in('role', ['admin', 'operator'])
+      .neq('id', user?.id || '');
+    setTeamMembers(data || []);
+    setShowTransferModal(true);
   };
 
   const formatTime = (dateStr: string | null) => {
@@ -317,7 +521,7 @@ const ChatPage: React.FC = () => {
                 </Badge>
               ) : (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-warning text-warning">
-                  <UserCheck className="h-3 w-3 mr-0.5" /> Operador
+                  <UserCheck className="h-3 w-3 mr-0.5" /> {operatorName || 'Operador'}
                 </Badge>
               )}
             </div>
@@ -329,9 +533,14 @@ const ChatPage: React.FC = () => {
                 <UserCheck className="h-3.5 w-3.5 mr-1" /> Assumir
               </Button>
             ) : (
-              <Button size="sm" variant="outline" onClick={handleReturnToAI} className="text-xs">
-                <Bot className="h-3.5 w-3.5 mr-1" /> Devolver AI
-              </Button>
+              <>
+                <Button size="sm" variant="outline" onClick={handleReturnToAI} className="text-xs">
+                  <Bot className="h-3.5 w-3.5 mr-1" /> Devolver AI
+                </Button>
+                <Button size="sm" variant="outline" onClick={openTransferModal} className="text-xs">
+                  <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transferir
+                </Button>
+              </>
             )}
             <Button
               size="sm"
@@ -348,6 +557,23 @@ const ChatPage: React.FC = () => {
         <div className="flex-1 overflow-auto p-4 space-y-1" style={{ background: 'var(--gradient-surface)' }}>
           {messages.map((msg) => {
             const isOutbound = msg.direction === 'outbound';
+            const isSystem = msg.sender_type === 'system' || msg.event_type != null;
+            const isOperatorMsg = msg.sender_type === 'operator';
+            const isAiMsg = msg.sender_type === 'ai' || (isOutbound && !isSystem && !isOperatorMsg);
+
+            // System event messages (centered, no bubble)
+            if (isSystem) {
+              return (
+                <div key={msg.id} className="flex justify-center my-2 animate-fade-in">
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 border border-border">
+                    <Info className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-[11px] italic text-muted-foreground">{msg.body}</span>
+                    <span className="text-[9px] text-muted-foreground/60 ml-1">{formatTime(msg.created_at)}</span>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div key={msg.id} className={cn('flex', isOutbound ? 'justify-end' : 'justify-start')}>
                 <div
@@ -358,6 +584,24 @@ const ChatPage: React.FC = () => {
                       : 'bg-[hsl(var(--chat-inbound))] text-foreground rounded-bl-md'
                   )}
                 >
+                  {/* Sender label for outbound messages */}
+                  {isOutbound && (
+                    <div className="flex items-center gap-1 mb-0.5">
+                      {isOperatorMsg ? (
+                        <>
+                          <UserCheck className="h-3 w-3 text-warning" />
+                          <span className="text-[10px] font-semibold text-warning">
+                            {msg.sender_id ? (senderNames[msg.sender_id] || 'Operador') : 'Operador'}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Bot className="h-3 w-3 text-success" />
+                          <span className="text-[10px] font-semibold text-success">Aimee</span>
+                        </>
+                      )}
+                    </div>
+                  )}
                   {isAudioMessage(msg) ? (
                     <div className="flex items-center gap-2 min-w-[180px]">
                       <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
@@ -585,6 +829,39 @@ const ChatPage: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Transfer Modal */}
+      <Dialog open={showTransferModal} onOpenChange={setShowTransferModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Transferir conversa</DialogTitle>
+            <DialogDescription>Selecione o operador para transferir esta conversa.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 mt-2">
+            {teamMembers.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Nenhum operador disponivel.</p>
+            ) : (
+              teamMembers.map((member) => (
+                <button
+                  key={member.id}
+                  onClick={() => handleTransfer(member)}
+                  className="flex items-center gap-3 w-full rounded-lg px-3 py-2.5 text-left hover:bg-accent/50 transition-colors border border-border"
+                >
+                  <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                    <span className="text-xs font-semibold text-secondary-foreground">
+                      {(member.full_name?.[0] || '?').toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{member.full_name || 'Sem nome'}</p>
+                    <p className="text-[10px] text-muted-foreground capitalize">{member.role}</p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

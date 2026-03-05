@@ -155,6 +155,7 @@ async function handleMakeWebhook(supabase: any, payload: MakeWebhookRequest): Pr
     waPhoneNumberId: tenant.wa_phone_number_id || '',
     rawMessage: payload,
     timestamp: payload.timestamp || String(Math.floor(Date.now() / 1000)),
+    department: payload.department,
   });
 
   // Return response in Make-expected format
@@ -177,6 +178,7 @@ interface InboundMessageParams {
   waPhoneNumberId: string;
   rawMessage: any;
   timestamp: string;
+  department?: string;
 }
 
 interface ProcessResult {
@@ -206,6 +208,19 @@ async function processInboundMessage(
   // 3. Find or create conversation
   const conversation = await findOrCreateConversation(supabase, tenant.id, phoneNumber, contact.id);
 
+  // 3.5 Update conversation department if provided via Make webhook
+  if (params.department && conversation.department_code !== params.department) {
+    await supabase.from('conversations').update({ department_code: params.department }).eq('id', conversation.id);
+    conversation.department_code = params.department;
+
+    // Issue 2: Backfill department_code em mensagens anteriores sem departamento
+    await supabase
+      .from('messages')
+      .update({ department_code: params.department })
+      .eq('conversation_id', conversation.id)
+      .is('department_code', null);
+  }
+
   // 4. Save inbound message
   await supabase.from('messages').insert({
     tenant_id: tenant.id,
@@ -218,6 +233,7 @@ async function processInboundMessage(
     media_type: params.messageType !== 'text' ? params.messageType : null,
     department_code: conversation.department_code,
     raw: params.rawMessage,
+    sender_type: 'customer',
     created_at: new Date().toISOString(),
   });
 
@@ -226,6 +242,31 @@ async function processInboundMessage(
     .from('conversations')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', conversation.id);
+
+  // 5.5 Check for open tickets to append comments
+  const { data: openTicket } = await supabase
+    .from('tickets')
+    .select('id, stage')
+    .eq('tenant_id', tenant.id)
+    .eq('phone', phoneNumber)
+    .neq('stage', 'Resolvido')
+    .neq('stage', 'Fechado')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (openTicket) {
+    console.log(`🎫 Open ticket found (${openTicket.id}). Appending message as comment.`);
+    await supabase.from('ticket_comments').insert({
+      tenant_id: tenant.id,
+      ticket_id: openTicket.id,
+      body: messageBody,
+      is_internal: false
+    });
+
+    // Optionally notify the user or just silently add the comment and let human operators see it
+    return { action: 'ticket_comment_added' };
+  }
 
   // 6. Check if AI is active
   const { data: state } = await supabase

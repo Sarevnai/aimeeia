@@ -30,7 +30,7 @@ import TicketsPage from "@/pages/TicketsPage";
 import TicketDetailPage from "@/pages/TicketDetailPage";
 import NotFound from "./pages/NotFound";
 
-// Admin Central
+// Painel de Controle
 import AdminLayout from "@/components/admin/AdminLayout";
 import AdminDashboardPage from "@/pages/admin/AdminDashboardPage";
 import AdminTenantsPage from "@/pages/admin/AdminTenantsPage";

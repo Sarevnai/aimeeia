@@ -13,7 +13,7 @@ serve(async (req: Request) => {
   const supabase = getSupabaseClient();
 
   try {
-    const { tenant_id, phone_number, message, conversation_id, department_code } = await req.json();
+    const { tenant_id, phone_number, message, conversation_id, department_code, sender_type, sender_id, event_type } = await req.json();
 
     if (!tenant_id || !phone_number || !message) {
       return errorResponse('Missing required fields', 400);
@@ -28,15 +28,57 @@ serve(async (req: Request) => {
 
     if (!tenant) return errorResponse('Tenant not found', 404);
 
-    // Send message
-    const { success, messageId } = await sendWhatsAppMessage(phone_number, message, tenant as Tenant);
+    // Issue 4: Formatar mensagem com identidade do operador
+    let formattedMessage = message;
+
+    if (sender_type === 'operator' && sender_id) {
+      // Cascade: tenta por user_id (auth.users.id) primeiro, depois por profiles.id como fallback.
+      // O ChatPage envia user?.id (auth ID) como sender_id, que mapeia para profiles.user_id.
+      // Porém, alguns perfis podem ter user_id nulo — o fallback por profiles.id cobre esse caso.
+      let profile: { full_name: string | null } | null = null;
+
+      const { data: byUserId } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('user_id', sender_id)
+        .eq('tenant_id', tenant_id)
+        .maybeSingle();
+
+      if (byUserId?.full_name) {
+        profile = byUserId;
+      } else {
+        const { data: byId } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', sender_id)
+          .eq('tenant_id', tenant_id)
+          .maybeSingle();
+        profile = byId;
+      }
+
+      const operatorName = profile?.full_name || 'Operador';
+
+      if (event_type === 'operator_joined') {
+        // Handoff: monospace no WhatsApp
+        formattedMessage = `\`${operatorName} entrou na conversa\``;
+      } else {
+        // Mensagem comum: negrito + quebra de linha
+        formattedMessage = `*${operatorName}*\n\n${message}`;
+      }
+    }
+
+    // Send message (with formatted content for WhatsApp)
+    const { success, messageId } = await sendWhatsAppMessage(phone_number, formattedMessage, tenant as Tenant);
 
     if (!success) return errorResponse('Failed to send message', 502);
 
-    // Save to DB
+    // Save to DB (original message, without operator prefix)
     await saveOutboundMessage(
       supabase, tenant_id, conversation_id || null,
-      phone_number, message, messageId, department_code
+      phone_number, message, messageId, department_code,
+      undefined, undefined,
+      sender_type || 'operator', sender_id || null,
+      event_type || null
     );
 
     // Update conversation last_message_at

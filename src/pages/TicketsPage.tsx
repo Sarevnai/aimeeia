@@ -259,7 +259,27 @@ const TicketsPage: React.FC = () => {
     setLoading(false);
   }, [tenantId]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+
+    if (!tenantId) return;
+
+    const channel = supabase
+      .channel('public:tickets')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'tickets',
+        filter: `tenant_id=eq.${tenantId}`,
+      }, () => {
+        fetchData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchData, tenantId]);
 
   const filteredTickets = tickets.filter((t) => {
     if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase()) && !t.phone?.includes(searchQuery)) return false;

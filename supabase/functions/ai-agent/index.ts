@@ -13,7 +13,7 @@ import { loadRegions } from '../_shared/regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState } from '../_shared/anti-loop.ts';
 import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } from '../_shared/property.ts';
 import { fragmentMessage, logError, logActivity, sleep } from '../_shared/utils.ts';
-import { Tenant, AIAgentConfig, AIBehaviorConfig, ConversationState, ConversationMessage, PropertyResult } from '../_shared/types.ts';
+import { Tenant, AIAgentConfig, AIBehaviorConfig, ConversationState, ConversationMessage, PropertyResult, StructuredConfig, TriageConfig } from '../_shared/types.ts';
 
 // Helper to generate embedding for the search
 async function generateEmbedding(text: string): Promise<number[]> {
@@ -126,10 +126,14 @@ serve(async (req: Request) => {
 
     // ========== TRIAGE PHASE ==========
 
+    // Extract triage config (Fase 1 customization) from ai_agent_config
+    const triageConfig: TriageConfig | null = (config as any)?.triage_config || null;
+
     const triageResult = await handleTriage(
       supabase, tenant as Tenant, aiConfig, state as ConversationState | null,
       raw_message || { text: { body: message_body } },
-      message_body, phone_number, conversation_id
+      message_body, phone_number, conversation_id,
+      triageConfig
     );
 
     if (triageResult.shouldContinue) {
@@ -153,6 +157,15 @@ serve(async (req: Request) => {
         );
       }
 
+      // Issue 2: Backfill department_code nas mensagens anteriores da conversa
+      if (triageResult.department) {
+        await supabase
+          .from('messages')
+          .update({ department_code: triageResult.department })
+          .eq('conversation_id', conversation_id)
+          .is('department_code', null);
+      }
+
       return jsonResponse({
         action: 'triage',
         department: triageResult.department,
@@ -163,7 +176,41 @@ serve(async (req: Request) => {
     // ========== AI PHASE ==========
 
     const department = conversation?.department_code || null;
+
+    // Issue 1: Verificar se há ticket administrativo aberto para sobrepor departamento.
+    // Previne que o AI use prompt de vendas/locação quando o contexto real é administrativo.
+    const { data: openAdminTicket } = await supabase
+      .from('tickets')
+      .select('id')
+      .eq('tenant_id', tenant_id)
+      .eq('phone', phone_number)
+      .eq('department_code', 'administrativo')
+      .neq('stage', 'Resolvido')
+      .neq('stage', 'Fechado')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const effectiveDepartment = openAdminTicket ? 'administrativo' : department;
     const qualData = conversation?.qualification_data || {};
+
+    // Load AI directive (with structured_config) — single query, reused by buildSystemPrompt
+    let directive: any = null;
+    let structuredConfig: StructuredConfig | null = null;
+    if (effectiveDepartment) {
+      const { data: directiveRow } = await supabase
+        .from('ai_directives')
+        .select('directive_content, structured_config')
+        .eq('tenant_id', tenant_id)
+        .eq('department', effectiveDepartment)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (directiveRow) {
+        directive = directiveRow;
+        structuredConfig = directiveRow.structured_config as StructuredConfig | null;
+      }
+    }
 
     // Extract qualification from current message
     const extracted = extractQualificationFromText(message_body, qualData, regions);
@@ -175,16 +222,17 @@ serve(async (req: Request) => {
     }
 
     // Load conversation history
-    const history = await loadConversationHistory(supabase, tenant_id, conversation_id, aiConfig.max_history_messages || 10);
+    const history = await loadConversationHistory(supabase, tenant_id, conversation_id, aiConfig.max_history_messages || 10, effectiveDepartment);
 
-    // Build system prompt
+    // Build system prompt (pass preloaded directive to avoid double DB query)
     const systemPrompt = await buildSystemPrompt(
-      supabase, aiConfig, tenant, department, regions,
-      contact_name, mergedQual, history, behaviorConfig as AIBehaviorConfig | null
+      supabase, aiConfig, tenant, effectiveDepartment, regions,
+      contact_name, mergedQual, history, behaviorConfig as AIBehaviorConfig | null,
+      directive
     );
 
-    // Get tools
-    const tools = getToolsForDepartment(department);
+    // Get tools (enhanced with skill descriptions if structured_config defines them)
+    const tools = getToolsForDepartment(effectiveDepartment, structuredConfig?.skills);
 
     // Call LLM with tool execution
     const aiResponse = await callLLMWithToolExecution(
@@ -193,7 +241,7 @@ serve(async (req: Request) => {
       message_body,
       tools,
       async (toolName, args) => {
-        return await executeToolCall(supabase, tenant as Tenant, tenant_id, phone_number, conversation_id, contact_id, toolName, args, mergedQual, department);
+        return await executeToolCall(supabase, tenant as Tenant, tenant_id, phone_number, conversation_id, contact_id, toolName, args, mergedQual, effectiveDepartment);
       },
       {
         model: aiConfig.ai_model || 'openai/gpt-4o-mini',
@@ -226,24 +274,24 @@ serve(async (req: Request) => {
     if (aiConfig.fragment_long_messages) {
       const fragments = fragmentMessage(finalResponse);
       for (let i = 0; i < fragments.length; i++) {
-        await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, fragments[i], department);
+        await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, fragments[i], effectiveDepartment);
         if (i < fragments.length - 1 && aiConfig.message_delay_ms) {
           await sleep(Math.min(aiConfig.message_delay_ms, 3000));
         }
       }
     } else {
-      await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, department);
+      await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
     }
 
     // Log activity
     await logActivity(supabase, tenant_id, 'ai_response', 'conversations', conversation_id, {
-      department,
+      department: effectiveDepartment,
       qualification_score: mergedQual.qualification_score,
     });
 
     return jsonResponse({
       action: 'responded',
-      department,
+      department: effectiveDepartment,
       ai_response: finalResponse,
       qualification_score: mergedQual.qualification_score,
     });
@@ -410,6 +458,25 @@ async function executeLeadHandoff(
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 
+    // Insert system event message
+    await supabase.from('messages').insert({
+      tenant_id: tenantId,
+      conversation_id: conversationId,
+      direction: 'outbound',
+      body: 'Lead transferido para atendimento humano via CRM.',
+      sender_type: 'system',
+      event_type: 'ai_paused',
+      created_at: new Date().toISOString(),
+    });
+
+    // Record event in conversation_events
+    await supabase.from('conversation_events').insert({
+      tenant_id: tenantId,
+      conversation_id: conversationId,
+      event_type: 'ai_paused',
+      metadata: { reason: args.motivo, crm: 'c2s' },
+    });
+
     return 'Lead transferido com sucesso para atendimento humano.';
 
   } catch (error) {
@@ -518,6 +585,25 @@ async function executeAdminHandoff(
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 
+    // Insert system event message (visible in chat)
+    await supabase.from('messages').insert({
+      tenant_id: tenantId,
+      conversation_id: conversationId,
+      direction: 'outbound',
+      body: `Atendimento transferido para operador humano. Motivo: ${args.motivo}`,
+      sender_type: 'system',
+      event_type: 'ai_paused',
+      created_at: new Date().toISOString(),
+    });
+
+    // Record event in conversation_events audit log
+    await supabase.from('conversation_events').insert({
+      tenant_id: tenantId,
+      conversation_id: conversationId,
+      event_type: 'ai_paused',
+      metadata: { reason: args.motivo },
+    });
+
     // Log activity
     await logActivity(supabase, tenantId, 'admin_handoff', 'conversations', conversationId, {
       reason: args.motivo,
@@ -540,14 +626,22 @@ async function loadConversationHistory(
   supabase: any,
   tenantId: string,
   conversationId: string,
-  maxMessages: number
+  maxMessages: number,
+  departmentCode: string | null = null
 ): Promise<ConversationMessage[]> {
-  const { data: messages } = await supabase
+  let query = supabase
     .from('messages')
-    .select('direction, body')
+    .select('direction, body, sender_type')
     .eq('tenant_id', tenantId)
     .eq('conversation_id', conversationId)
     .not('body', 'is', null)
+    .neq('sender_type', 'system');
+
+  if (departmentCode) {
+    query = query.or(`department_code.eq.${departmentCode},department_code.is.null`);
+  }
+
+  const { data: messages } = await query
     .order('created_at', { ascending: false })
     .limit(maxMessages);
 

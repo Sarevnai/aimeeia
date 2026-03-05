@@ -1,35 +1,94 @@
-# Workflow A: Supabase Auth & Profile Fetch Debugging
+# Directive: Auth & Profile Debug (Workflow A)
 
-## Layer 1: Directive (Goal & Context)
-**Goal:** Identify why a user with a valid Supabase authentication record cannot load their `profile` (resulting in missing roles/classifications) and diagnose the resulting infinite redirect loops within the application.
+## Goal
+Diagnosticar por que um usuário com autenticação Supabase válida não consegue carregar seu `profile`, resultando em roles ausentes e loops de redirect na aplicação.
 
-**Context:** The application uses `AuthContext.tsx` to establish a session and then fetch the user's profile from the `profiles` table. When this query fails or returns null, the routing logic (e.g., in `App.tsx` or `AppLayout.tsx`) may cause a redirect loop by repeatedly bouncing the user between authenticated but unauthorized states.
+## Inputs
+| Campo | Obrigatório | Descrição |
+|-------|-------------|-----------|
+| User UUID | Sim | ID do usuário em `auth.users` |
+| Tenant ID | Não | Para verificar isolamento RLS |
+| Descrição do erro | Sim | Ex: "tela em branco", "redirect loop", "perfil nulo" |
 
-## Diagnostics Checklist (To be executed by the Orchestrator)
+## Tools/Scripts to use
+- `mcp__execute_sql` para queries no DB
+- `execution/check_users.js` para validar existência de profile
+- `execution/fix_missing_profiles.sql` se profile estiver ausente
+- Ler `src/contexts/AuthContext.tsx` para rastrear o fluxo de autenticação
 
-### Phase 1: Validate Supabase Profile Query & RLS
-1. **Check Database Existence:** Verify if the user's UUID actually exists in the `profiles` table. The Supabase auth system registers the user, but the corresponding `profile` might not be created via the trigger.
-2. **Review Row Level Security (RLS):** Check the RLS policies on the `profiles` table. The user might not have `SELECT` privileges for their own row due to a missing or misconfigured policy.
-3. **Inspect the Fetch Query:** In `AuthContext.tsx`, `fetchProfile` executes: 
-   ```javascript
-   supabase.from('profiles').select('id, tenant_id, full_name, avatar_url, role').eq('id', userId).single()
-   ```
-   Check if any error is being caught and swallowed in the client network logs.
+## Step-by-step
 
-### Phase 2: Identify Redirect Loop Source
-1. **Analyze `RequireAuth` / Route Guards:** Review routing components (`App.tsx`, `AppLayout.tsx`, `AdminLayout.tsx`). 
-2. **Condition Mismatch:** A loop happens when:
-   - Route requires `profile` -> `profile` is null -> redirects off route (e.g. to `/auth`).
-   - `/auth` route checks `session` -> `session` exists -> redirects back to protected route.
-   - *Action:* We need to handle the state where `session` is valid but `profile` is null properly (e.g., redirect to an onboarding or error page, not back and forth).
+### Fase 1: Validar Profile no DB
 
-### Phase 3: Network & Request Body Consistency
-1. **Inspect API Payload:** Check if `.env` keys (Anon Key vs Service Role) are correctly configured in the client. 
-2. **Tenant ID issues:** Verify if the failure is related to a missing `tenant_id` causing the app context to crash or reject the user.
+**1. Verificar se profile existe**
+```sql
+SELECT id, tenant_id, full_name, role FROM profiles WHERE id = '<user_uuid>';
+```
+- Se nulo → profile não foi criado. Ir para "Correção".
+- Se existe → problema é RLS ou front-end.
 
-## Layer 3: Execution Plan
-- [ ] Script or query Supabase to check if the specific user has a record in the `profiles` table.
-- [ ] Read `src/App.tsx` to map out the exact router redirect loop.
-- [ ] Trace the `supabase.auth.onAuthStateChange` to see if a race condition leads to premature router navigation.
+**2. Verificar se RLS está bloqueando**
+A query usada pelo frontend em `src/contexts/AuthContext.tsx`:
+```javascript
+supabase.from('profiles')
+  .select('id, tenant_id, full_name, avatar_url, role')
+  .eq('id', userId)
+  .single()
+```
+Se retornar vazio mesmo com profile existente → RLS bloqueando SELECT.
 
-**Self-annealing notes:** Once the bottleneck is confirmed (e.g., missing RLS policy or missing profile trigger), we will apply the fix SQL snippet, test creating a new user, and update this directive with the final solution.
+**3. Verificar políticas RLS ativas**
+```sql
+SELECT policyname, cmd, qual FROM pg_policies WHERE tablename = 'profiles';
+```
+Política correta deve ter `USING (id = auth.uid())`.
+
+### Fase 2: Identificar Redirect Loop
+
+Loop ocorre quando:
+1. Rota protegida: `profile = null` → redireciona para `/auth`
+2. `/auth`: `session` existe → redireciona para rota protegida
+3. **Fix**: estado `session válido + profile null` deve ir para `/onboarding` ou página de erro — não de volta para rota protegida
+
+Verificar em `src/App.tsx` como `RequireAuth` trata `profile = null` vs `loading = true`.
+
+### Fase 3: Verificar Tenant ID
+
+```sql
+SELECT p.id, p.tenant_id, t.company_name, p.role
+FROM profiles p
+LEFT JOIN tenants t ON t.id = p.tenant_id
+WHERE p.id = '<user_uuid>';
+```
+Se `tenant_id = null` → `get_user_tenant_id()` retorna null → todas as queries RLS falham.
+
+### Correção: Criar ou reparar profile ausente
+
+**Opção A: Via script**
+```bash
+node execution/fix_missing_profiles.js <user_uuid> <tenant_id> <role>
+```
+
+**Opção B: Via SQL direto**
+```sql
+INSERT INTO profiles (id, tenant_id, full_name, role)
+VALUES ('<user_uuid>', '<tenant_id>', 'Nome do Usuário', 'operator')
+ON CONFLICT (id) DO UPDATE
+SET tenant_id = EXCLUDED.tenant_id, role = EXCLUDED.role;
+```
+
+## Edge Cases
+- **Trigger de criação não executou**: `on_auth_user_created` pode ter falhado → criar profile manualmente
+- **Email não confirmado**: Supabase bloqueia login até confirmação de email
+- **Tenant inativo**: `tenants.is_active = false` pode afetar queries dependendo das políticas
+- **Super admin**: `role = 'super_admin'` não precisa de `tenant_id` válido para acessar `/admin`
+
+## Outputs esperados após correção
+- `profiles` tem row com `tenant_id` e `role` corretos
+- Login redireciona para dashboard sem loop
+- Queries retornam dados do tenant correto
+
+## Self-annealing notes
+- Se loop persistir após criar profile → verificar se `AuthContext.tsx` aguarda `profile` antes de setar `loading = false`
+- Após correção de RLS → usuário precisa fazer logout + login para recarregar JWT com novo estado
+- Ver `directives/tenant-onboarding.md` para o fluxo completo de criação de usuário do zero

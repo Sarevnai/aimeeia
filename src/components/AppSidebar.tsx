@@ -57,13 +57,25 @@ const ROLE_PATHS: Record<string, string[]> = {
   viewer: ['/', '/relatorios', '/guia'],
 };
 
+// Department-specific paths for operators (overrides ROLE_PATHS.operator when set)
+const DEPT_PATHS: Record<string, string[]> = {
+  administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/financeiro', '/guia'],
+  vendas: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/empreendimentos', '/guia'],
+  locacao: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/empreendimentos', '/guia'],
+};
+
 const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
   const { tenantId, tenantInfo } = useTenant();
   const { profile } = useAuth();
   const [activeConvCount, setActiveConvCount] = useState(0);
+  const [activeTicketCount, setActiveTicketCount] = useState(0);
   const role = profile?.role || 'viewer';
-  const allowedPaths = ROLE_PATHS[role] || ROLE_PATHS.viewer;
+  const dept = profile?.department_code;
+  // Operators with a department_code get department-specific paths; admin/super_admin see everything
+  const allowedPaths = (role === 'operator' && dept && DEPT_PATHS[dept])
+    ? DEPT_PATHS[dept]
+    : (ROLE_PATHS[role] || ROLE_PATHS.viewer);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -73,6 +85,14 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
       .then(({ count }) => setActiveConvCount(count ?? 0));
+
+    supabase
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .neq('stage', 'Resolvido')
+      .neq('stage', 'Fechado')
+      .then(({ count }) => setActiveTicketCount(count ?? 0));
   }, [tenantId]);
 
   const navGroups: NavGroup[] = [
@@ -89,7 +109,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
         { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
         { label: 'Captação', icon: Radar, path: '/captacao' },
         { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
-        { label: 'Chamados', icon: Ticket, path: '/chamados' },
+        { label: 'Chamados', icon: Ticket, path: '/chamados', badge: activeTicketCount },
       ],
     },
     {
@@ -154,57 +174,57 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
           if (visibleItems.length === 0) return null;
 
           return (
-          <div key={gi}>
-            {gi > 0 && (
-              <Separator className="my-2 bg-sidebar-border" />
-            )}
-            {group.label && !collapsed && (
-              <span className="block px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-                {group.label}
-              </span>
-            )}
-            <div className="space-y-0.5">
-              {visibleItems.map((item) => {
-                const isActive = location.pathname === item.path ||
-                  (item.path !== '/' && location.pathname.startsWith(item.path));
+            <div key={gi}>
+              {gi > 0 && (
+                <Separator className="my-2 bg-sidebar-border" />
+              )}
+              {group.label && !collapsed && (
+                <span className="block px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+                  {group.label}
+                </span>
+              )}
+              <div className="space-y-0.5">
+                {visibleItems.map((item) => {
+                  const isActive = location.pathname === item.path ||
+                    (item.path !== '/' && location.pathname.startsWith(item.path));
 
-                if (item.external) {
+                  if (item.external) {
+                    return (
+                      <span
+                        key={item.label}
+                        className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/60 cursor-default"
+                      >
+                        <item.icon className="h-5 w-5 shrink-0" />
+                        {!collapsed && <span>{item.label}</span>}
+                      </span>
+                    );
+                  }
+
                   return (
-                    <span
-                      key={item.label}
-                      className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/60 cursor-default"
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      className={cn(
+                        'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                        isActive
+                          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                          : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
+                      )}
                     >
                       <item.icon className="h-5 w-5 shrink-0" />
-                      {!collapsed && <span>{item.label}</span>}
-                    </span>
+                      {!collapsed && (
+                        <span className="flex-1 truncate">{item.label}</span>
+                      )}
+                      {!collapsed && item.badge && item.badge > 0 ? (
+                        <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] bg-accent text-accent-foreground border-0 rounded-full">
+                          {item.badge}
+                        </Badge>
+                      ) : null}
+                    </NavLink>
                   );
-                }
-
-                return (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
-                    )}
-                  >
-                    <item.icon className="h-5 w-5 shrink-0" />
-                    {!collapsed && (
-                      <span className="flex-1 truncate">{item.label}</span>
-                    )}
-                    {!collapsed && item.badge && item.badge > 0 ? (
-                      <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] bg-accent text-accent-foreground border-0 rounded-full">
-                        {item.badge}
-                      </Badge>
-                    ) : null}
-                  </NavLink>
-                );
-              })}
+                })}
+              </div>
             </div>
-          </div>
           );
         })}
       </nav>

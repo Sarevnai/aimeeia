@@ -522,6 +522,68 @@ export type Database = {
           },
         ]
       }
+      conversation_events: {
+        Row: {
+          actor_id: string | null
+          conversation_id: string
+          created_at: string | null
+          event_type: string
+          id: string
+          metadata: Json | null
+          target_id: string | null
+          tenant_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          conversation_id: string
+          created_at?: string | null
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          target_id?: string | null
+          tenant_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          conversation_id?: string
+          created_at?: string | null
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          target_id?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_events_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_events_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_events_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversation_stages: {
         Row: {
           color: string | null
@@ -822,6 +884,7 @@ export type Database = {
           created_at: string | null
           department_code: Database["public"]["Enums"]["department_type"] | null
           direction: Database["public"]["Enums"]["message_direction"]
+          event_type: string | null
           id: number
           media_caption: string | null
           media_filename: string | null
@@ -829,6 +892,8 @@ export type Database = {
           media_type: string | null
           media_url: string | null
           raw: Json | null
+          sender_id: string | null
+          sender_type: string | null
           tenant_id: string
           wa_from: string | null
           wa_message_id: string | null
@@ -842,6 +907,7 @@ export type Database = {
             | Database["public"]["Enums"]["department_type"]
             | null
           direction: Database["public"]["Enums"]["message_direction"]
+          event_type?: string | null
           id?: number
           media_caption?: string | null
           media_filename?: string | null
@@ -849,6 +915,8 @@ export type Database = {
           media_type?: string | null
           media_url?: string | null
           raw?: Json | null
+          sender_id?: string | null
+          sender_type?: string | null
           tenant_id: string
           wa_from?: string | null
           wa_message_id?: string | null
@@ -862,6 +930,7 @@ export type Database = {
             | Database["public"]["Enums"]["department_type"]
             | null
           direction?: Database["public"]["Enums"]["message_direction"]
+          event_type?: string | null
           id?: number
           media_caption?: string | null
           media_filename?: string | null
@@ -869,6 +938,8 @@ export type Database = {
           media_type?: string | null
           media_url?: string | null
           raw?: Json | null
+          sender_id?: string | null
+          sender_type?: string | null
           tenant_id?: string
           wa_from?: string | null
           wa_message_id?: string | null
@@ -880,6 +951,13 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1180,6 +1258,7 @@ export type Database = {
         Row: {
           avatar_url: string | null
           created_at: string | null
+          department_code: Database["public"]["Enums"]["department_type"] | null
           full_name: string | null
           id: string
           role: Database["public"]["Enums"]["user_role"] | null
@@ -1191,6 +1270,9 @@ export type Database = {
         Insert: {
           avatar_url?: string | null
           created_at?: string | null
+          department_code?:
+            | Database["public"]["Enums"]["department_type"]
+            | null
           full_name?: string | null
           id: string
           role?: Database["public"]["Enums"]["user_role"] | null
@@ -1202,6 +1284,9 @@ export type Database = {
         Update: {
           avatar_url?: string | null
           created_at?: string | null
+          department_code?:
+            | Database["public"]["Enums"]["department_type"]
+            | null
           full_name?: string | null
           id?: string
           role?: Database["public"]["Enums"]["user_role"] | null

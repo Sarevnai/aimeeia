@@ -232,4 +232,70 @@ export interface MakeWebhookRequest {
   button_id?: string;
   button_text?: string;
   timestamp?: string;
+  department?: string;
+}
+
+// ========== STRUCTURED CONFIG (Consultora VIP Pattern) ==========
+
+export interface StructuredConfig {
+  role: RoleConfig;
+  directives: CoreDirective[];
+  phases: ConversationPhase[];       // Fases 2-4 (Fase 1 = triage code)
+  handoff: HandoffConfig;
+  guardrails: string[];
+  skills?: SkillConfig[];
+}
+
+export interface RoleConfig {
+  identity: string;           // "Consultora VIP de imóveis..."
+  essence: string;            // "Atua como Personal Trainer VIP..."
+  not_allowed: string[];      // ["Não é chatbot genérico", ...]
+  value_proposition: string;  // "Custo zero, pauta total..."
+}
+
+export interface CoreDirective {
+  code: string;         // "D-01"
+  title: string;        // "Condução Ativa"
+  instruction: string;  // "O cliente responde; você avança."
+}
+
+export interface ConversationPhase {
+  phase_number: number;           // 2, 3, 4
+  name: string;                   // "Contrato de Honestidade"
+  objective: string;
+  instructions: string;           // Instruções detalhadas para o LLM
+  transition_criteria: string;    // Quando avançar para próxima fase
+  max_messages?: number;
+}
+
+export interface HandoffConfig {
+  max_curation_rounds: number;         // 3
+  max_properties_per_round: number;    // 3
+  handoff_trigger: string;             // Quando acionar handoff
+  dossier_fields: string[];            // Campos do dossiê de handoff
+  handoff_message: string;             // Mensagem ao cliente no handoff
+}
+
+export interface SkillConfig {
+  skill_name: string;              // "imoveis_crm"
+  tool_name: string;               // "buscar_imoveis" (mapeia para tool existente)
+  enhanced_description: string;    // Descrição rica para o LLM
+  usage_instructions: string;      // Quando/como usar
+}
+
+// ========== TRIAGE CONFIG (Fase 1 Configurável) ==========
+
+export interface TriageConfig {
+  greeting_message?: string;
+  vip_intro?: string;                          // Texto VIP após coleta do nome
+  name_confirmation_template?: string;         // "Prazer, {{NAME}}!"
+  department_prompt?: string;
+  department_buttons?: TriageDepartmentButton[];
+  department_welcome?: Record<string, string>;
+}
+
+export interface TriageDepartmentButton {
+  id: string;           // "dept_locacao"
+  title: string;        // "Quero Alugar"
+  department: DepartmentType;
 }

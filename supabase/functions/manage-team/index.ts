@@ -1,11 +1,13 @@
 // ========== AIMEE.iA v2 - MANAGE TEAM ==========
-// Admin-only operations to invite and remove users from tenants.
+// Admin-only operations to manage users within tenants.
 // Requires caller to be authenticated as super_admin.
 // verify_jwt is OFF — auth is handled entirely in our code below.
 //
 // Actions:
-//   invite_user  → Invite a new user via email with tenant/role metadata
-//   remove_user  → Remove user from tenant (deletes profile + auth user)
+//   create_user    → Create user immediately with password (no email confirmation)
+//   remove_user    → Remove user from tenant (deletes profile + auth user)
+//   update_role    → Change a user's role in the profiles table
+//   reset_password → Set a new password for a user via admin API
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -93,12 +95,20 @@ serve(async (req: Request) => {
         const { action } = body;
         console.log('✅ [DIAG] Auth passed. Action:', action);
 
-        if (action === 'invite_user') {
-            return await inviteUser(admin, req, body);
+        if (action === 'create_user') {
+            return await createUser(admin, body);
         }
 
         if (action === 'remove_user') {
             return await removeUser(admin, body);
+        }
+
+        if (action === 'update_role') {
+            return await updateRole(admin, body);
+        }
+
+        if (action === 'reset_password') {
+            return await resetPassword(admin, body);
         }
 
         return errorResponse(`Unknown action: ${action}`, 400);
@@ -110,15 +120,15 @@ serve(async (req: Request) => {
 });
 
 // ═══════════════════════════════════════════════
-// INVITE: Send email invitation with tenant/role
+// CREATE USER: Directly create user with password
 // ═══════════════════════════════════════════════
 
 // deno-lint-ignore no-explicit-any
-async function inviteUser(admin: any, req: Request, body: any): Promise<Response> {
-    const { email, full_name, tenant_id, role } = body;
+async function createUser(admin: any, body: any): Promise<Response> {
+    const { email, password, full_name, tenant_id, role } = body;
 
-    if (!email || !full_name || !tenant_id || !role) {
-        return errorResponse('Missing required fields: email, full_name, tenant_id, role', 400);
+    if (!email || !password || !full_name || !tenant_id || !role) {
+        return errorResponse('Missing required fields: email, password, full_name, tenant_id, role', 400);
     }
 
     const allowedRoles = ['admin', 'operator', 'viewer'];
@@ -126,37 +136,102 @@ async function inviteUser(admin: any, req: Request, body: any): Promise<Response
         return errorResponse(`Invalid role. Must be one of: ${allowedRoles.join(', ')}`, 400);
     }
 
-    const origin = req.headers.get('origin') || req.headers.get('referer') || 'https://app.aimee.ia';
-    const redirectTo = `${new URL(origin).origin}/auth`;
+    if (password.length < 8) {
+        return errorResponse('Password must be at least 8 characters', 400);
+    }
 
-    console.log(`📧 Inviting ${email} to tenant ${tenant_id} as ${role}`);
+    console.log(`👤 Creating user ${email} in tenant ${tenant_id} as ${role}`);
 
-    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
-        redirectTo,
-        data: { full_name, tenant_id, role },
+    const { data, error } = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name, tenant_id, role },
     });
 
     if (error) {
-        console.error('❌ Invite error:', error);
+        console.error('❌ Create user error:', error);
         if (
             error.message?.includes('already been registered') ||
             error.message?.includes('already registered') ||
             error.status === 422
         ) {
             return jsonResponse(
-                { error: 'Este e-mail já está cadastrado no sistema. O usuário pode fazer login normalmente.' },
+                { error: 'Este e-mail já está cadastrado no sistema.' },
                 409
             );
         }
         return errorResponse(error.message, 400);
     }
 
-    console.log(`✅ Invitation sent to ${email}, user id: ${data.user?.id}`);
+    console.log(`✅ User created: ${data.user?.id}`);
     return jsonResponse({ success: true, user_id: data.user?.id });
 }
 
 // ═══════════════════════════════════════════════
-// REMOVE: Delete profile + auth user
+// UPDATE ROLE: Change a user's role in profiles
+// ═══════════════════════════════════════════════
+
+// deno-lint-ignore no-explicit-any
+async function updateRole(admin: any, body: any): Promise<Response> {
+    const { user_id, role } = body;
+
+    if (!user_id || !role) {
+        return errorResponse('Missing required fields: user_id, role', 400);
+    }
+
+    const allowedRoles = ['admin', 'operator', 'viewer'];
+    if (!allowedRoles.includes(role)) {
+        return errorResponse(`Invalid role. Must be one of: ${allowedRoles.join(', ')}`, 400);
+    }
+
+    console.log(`✏️ Updating role of user ${user_id} to ${role}`);
+
+    const { error } = await admin
+        .from('profiles')
+        .update({ role })
+        .eq('id', user_id);
+
+    if (error) {
+        console.error('❌ Update role error:', error.message);
+        return errorResponse(error.message, 400);
+    }
+
+    console.log(`✅ Role of user ${user_id} updated to ${role}`);
+    return jsonResponse({ success: true });
+}
+
+// ═══════════════════════════════════════════════
+// RESET PASSWORD: Set a new password for a user
+// ═══════════════════════════════════════════════
+
+// deno-lint-ignore no-explicit-any
+async function resetPassword(admin: any, body: any): Promise<Response> {
+    const { user_id, new_password } = body;
+
+    if (!user_id || !new_password) {
+        return errorResponse('Missing required fields: user_id, new_password', 400);
+    }
+
+    if (new_password.length < 8) {
+        return errorResponse('Password must be at least 8 characters', 400);
+    }
+
+    console.log(`🔑 Resetting password for user ${user_id}`);
+
+    const { error } = await admin.auth.admin.updateUserById(user_id, { password: new_password });
+
+    if (error) {
+        console.error('❌ Reset password error:', error.message);
+        return errorResponse(error.message, 400);
+    }
+
+    console.log(`✅ Password reset for user ${user_id}`);
+    return jsonResponse({ success: true });
+}
+
+// ═══════════════════════════════════════════════
+// REMOVE: Nullify FK refs → delete profile → delete auth user
 // ═══════════════════════════════════════════════
 
 // deno-lint-ignore no-explicit-any
@@ -167,17 +242,47 @@ async function removeUser(admin: any, body: any): Promise<Response> {
         return errorResponse('Missing required field: user_id', 400);
     }
 
-    console.log(`🗑️ Removing user ${user_id}`);
+    console.log(`🗑️ [1/3] Nullifying FK references for user ${user_id}`);
 
+    // Step 1: Nullify all FK references across tables that block profile deletion.
+    // All 9 foreign keys on profiles.id are ON DELETE NO ACTION, so they must be
+    // cleared before the profile row can be removed.
+    const nullifyOps = [
+        admin.from('messages').update({ sender_id: null }).eq('sender_id', user_id),
+        admin.from('conversation_states').update({ operator_id: null }).eq('operator_id', user_id),
+        admin.from('conversation_events').update({ actor_id: null }).eq('actor_id', user_id),
+        admin.from('conversation_events').update({ target_id: null }).eq('target_id', user_id),
+        admin.from('activity_logs').update({ user_id: null }).eq('user_id', user_id),
+        admin.from('tickets').update({ assigned_to: null }).eq('assigned_to', user_id),
+        admin.from('ticket_comments').update({ user_id: null }).eq('user_id', user_id),
+        admin.from('owner_update_campaigns').update({ created_by: null }).eq('created_by', user_id),
+        admin.from('ai_directives').update({ updated_by: null }).eq('updated_by', user_id),
+    ];
+
+    const nullifyResults = await Promise.all(nullifyOps);
+    for (const { error } of nullifyResults) {
+        if (error) {
+            // Log but do not abort — some tables may have no rows for this user
+            console.warn('⚠️ Nullify warning:', error.message);
+        }
+    }
+
+    console.log(`🗑️ [2/3] Deleting profile for user ${user_id}`);
+
+    // Step 2: Delete profile row — now safe because FK refs have been cleared
     const { error: profileErr } = await admin
         .from('profiles')
         .delete()
         .eq('id', user_id);
 
     if (profileErr) {
-        console.warn('⚠️ Profile delete warning:', profileErr.message);
+        console.error('❌ Profile delete error:', profileErr.message);
+        return errorResponse(`Falha ao remover perfil: ${profileErr.message}`, 400);
     }
 
+    console.log(`🗑️ [3/3] Deleting auth user ${user_id}`);
+
+    // Step 3: Delete auth user — profile is already gone, no cascading issues
     const { error: authErr } = await admin.auth.admin.deleteUser(user_id);
 
     if (authErr) {
@@ -185,6 +290,6 @@ async function removeUser(admin: any, body: any): Promise<Response> {
         return errorResponse(authErr.message, 400);
     }
 
-    console.log(`✅ User ${user_id} removed`);
+    console.log(`✅ User ${user_id} fully removed`);
     return jsonResponse({ success: true });
 }

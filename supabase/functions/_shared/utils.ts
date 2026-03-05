@@ -32,6 +32,22 @@ export function truncate(text: string, maxLength: number): string {
 }
 
 /**
+ * Format string to WhatsApp Markdown syntax.
+ * Converts **bold** to *bold*, and headers to bold text.
+ */
+export function formatWhatsAppMarkdown(text: string): string {
+  if (!text) return '';
+
+  let formatted = text.replace(/\*\*(.*?)\*\*/g, '*$1*');
+
+  formatted = formatted.replace(/^###\s+(.*)$/gm, '*$1*');
+  formatted = formatted.replace(/^##\s+(.*)$/gm, '*$1*');
+  formatted = formatted.replace(/^#\s+(.*)$/gm, '*$1*');
+
+  return formatted;
+}
+
+/**
  * Deduplicate WhatsApp message by wa_message_id.
  * Returns true if message already exists (duplicate).
  */

@@ -2,7 +2,7 @@
 // Priority: ai_directives (DB) → ai_department_configs (DB) → hardcoded fallback
 // NO hardcoded client names. Everything from config/tenant.
 
-import { AIAgentConfig, AIBehaviorConfig, EssentialQuestion, ConversationMessage, QualificationData, DepartmentType } from './types.ts';
+import { AIAgentConfig, AIBehaviorConfig, EssentialQuestion, ConversationMessage, QualificationData, DepartmentType, StructuredConfig, SkillConfig } from './types.ts';
 import { generateRegionKnowledge } from './regions.ts';
 import { Region } from './types.ts';
 import { formatCurrency } from './utils.ts';
@@ -25,7 +25,28 @@ export function buildContextSummary(qualificationData: QualificationData | null)
 
 // ========== OPENAI TOOLS ==========
 
-export function getToolsForDepartment(department: DepartmentType): any[] {
+export function getToolsForDepartment(department: DepartmentType, skills?: SkillConfig[]): any[] {
+  const baseTools = getBaseToolsForDepartment(department);
+
+  if (!skills || skills.length === 0) return baseTools;
+
+  // Enhance tool descriptions with skill config
+  return baseTools.map(tool => {
+    const skill = skills.find(s => s.tool_name === tool.function.name);
+    if (skill) {
+      return {
+        ...tool,
+        function: {
+          ...tool.function,
+          description: skill.enhanced_description || tool.function.description,
+        }
+      };
+    }
+    return tool;
+  });
+}
+
+function getBaseToolsForDepartment(department: DepartmentType): any[] {
   if (department === 'locacao' || department === 'vendas') {
     return [
       {
@@ -138,25 +159,34 @@ export async function buildSystemPrompt(
   contactName: string | null,
   qualificationData: QualificationData | null,
   conversationHistory: ConversationMessage[],
-  behaviorConfig?: AIBehaviorConfig | null
+  behaviorConfig?: AIBehaviorConfig | null,
+  preloadedDirective?: any | null
 ): Promise<string> {
   // Priority 1: Check ai_directives table for custom prompt
   try {
-    const { data: directive } = await supabase
+    const directive = preloadedDirective ?? (await supabase
       .from('ai_directives')
-      .select('system_prompt')
+      .select('directive_content, structured_config')
       .eq('tenant_id', tenant.id)
-      .eq('department_code', department)
+      .eq('department', department)
       .eq('is_active', true)
-      .maybeSingle();
+      .maybeSingle())?.data;
 
-    if (directive?.system_prompt) {
-      // Inject dynamic context into custom prompt
-      let prompt = directive.system_prompt;
-      prompt = prompt.replace('{{AGENT_NAME}}', config.agent_name || 'Aimee');
-      prompt = prompt.replace('{{COMPANY_NAME}}', tenant.company_name);
-      prompt = prompt.replace('{{CITY}}', tenant.city);
-      prompt = prompt.replace('{{CONTACT_NAME}}', contactName || 'cliente');
+    // Priority 1A: Structured config (Consultora VIP pattern)
+    if (directive?.structured_config) {
+      return buildStructuredPrompt(
+        directive.structured_config as StructuredConfig,
+        config, tenant, regions, contactName, qualificationData, behaviorConfig
+      );
+    }
+
+    // Priority 1B: Flat text directive (legacy)
+    if (directive?.directive_content) {
+      let prompt = directive.directive_content;
+      prompt = prompt.replaceAll('{{AGENT_NAME}}', config.agent_name || 'Aimee');
+      prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
+      prompt = prompt.replaceAll('{{CITY}}', tenant.city);
+      prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
       prompt += buildContextSummary(qualificationData);
       prompt += generateRegionKnowledge(regions);
       prompt += buildBehaviorInstructions(behaviorConfig);
@@ -178,6 +208,109 @@ export async function buildSystemPrompt(
     case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions;
     default: return buildDefaultPrompt(config, tenant, contactName) + behaviorInstructions;
   }
+}
+
+// ========== STRUCTURED PROMPT BUILDER (Consultora VIP) ==========
+
+function buildStructuredPrompt(
+  sc: StructuredConfig,
+  config: AIAgentConfig,
+  tenant: any,
+  regions: Region[],
+  contactName: string | null,
+  qualificationData: QualificationData | null,
+  behaviorConfig?: AIBehaviorConfig | null
+): string {
+  const vars: Record<string, string> = {
+    '{{AGENT_NAME}}': config.agent_name || 'Aimee',
+    '{{COMPANY_NAME}}': tenant.company_name || '',
+    '{{CITY}}': tenant.city || '',
+    '{{CONTACT_NAME}}': contactName || 'cliente',
+  };
+
+  const replaceVars = (text: string): string => {
+    let result = text;
+    for (const [k, v] of Object.entries(vars)) {
+      result = result.replaceAll(k, v);
+    }
+    return result;
+  };
+
+  const sections: string[] = [];
+
+  // === SECTION 1: ROLE & IDENTITY ===
+  sections.push(`# IDENTIDADE E PAPEL`);
+  sections.push(replaceVars(sc.role.identity));
+  sections.push(`\n**Essência:** ${replaceVars(sc.role.essence)}`);
+  sections.push(`**Proposta de valor:** ${replaceVars(sc.role.value_proposition)}`);
+  if (sc.role.not_allowed?.length > 0) {
+    sections.push(`\n**Você NÃO é:**`);
+    sc.role.not_allowed.forEach(item => sections.push(`- ${replaceVars(item)}`));
+  }
+
+  // === SECTION 2: CORE DIRECTIVES ===
+  if (sc.directives?.length > 0) {
+    sections.push(`\n# DIRETIVAS FUNDAMENTAIS`);
+    sc.directives.forEach(d => {
+      sections.push(`**${d.code} - ${d.title}:** ${replaceVars(d.instruction)}`);
+    });
+  }
+
+  // === SECTION 3: CONVERSATION PHASES ===
+  if (sc.phases?.length > 0) {
+    sections.push(`\n# FASES DA CONVERSA`);
+    sections.push(`(Fase 1 já foi concluída pelo sistema — o nome e departamento já foram coletados.)`);
+    sc.phases.forEach(phase => {
+      sections.push(`\n## Fase ${phase.phase_number}: ${phase.name}`);
+      sections.push(`**Objetivo:** ${phase.objective}`);
+      sections.push(replaceVars(phase.instructions));
+      sections.push(`**Transição:** ${replaceVars(phase.transition_criteria)}`);
+    });
+  }
+
+  // === SECTION 4: HANDOFF PROTOCOL ===
+  if (sc.handoff) {
+    sections.push(`\n# PROTOCOLO DE HANDOFF`);
+    sections.push(`- Máximo de ${sc.handoff.max_curation_rounds} rodadas de curadoria`);
+    sections.push(`- Máximo de ${sc.handoff.max_properties_per_round} imóveis por rodada`);
+    sections.push(`**Gatilho:** ${replaceVars(sc.handoff.handoff_trigger)}`);
+    sections.push(`**Mensagem de handoff:** ${replaceVars(sc.handoff.handoff_message)}`);
+    if (sc.handoff.dossier_fields?.length > 0) {
+      sections.push(`\nAo fazer handoff, inclua no campo motivo:`);
+      sc.handoff.dossier_fields.forEach(f => sections.push(`- ${f}`));
+    }
+  }
+
+  // === SECTION 5: SKILLS INSTRUCTIONS ===
+  if (sc.skills && sc.skills.length > 0) {
+    sections.push(`\n# SKILLS (FERRAMENTAS)`);
+    sc.skills.forEach(skill => {
+      sections.push(`\n**${skill.skill_name}** (ferramenta: ${skill.tool_name}):`);
+      sections.push(replaceVars(skill.usage_instructions));
+    });
+  }
+
+  // === SECTION 6: GUARDRAILS ===
+  if (sc.guardrails?.length > 0) {
+    sections.push(`\n# GUARDRAILS (RESTRIÇÕES OPERACIONAIS)`);
+    sc.guardrails.forEach(g => sections.push(`- ${replaceVars(g)}`));
+  }
+
+  // === DYNAMIC SECTIONS (always appended) ===
+  const contextSummary = buildContextSummary(qualificationData);
+  if (contextSummary) sections.push(contextSummary);
+
+  const regionKnowledge = generateRegionKnowledge(regions);
+  if (regionKnowledge) sections.push(regionKnowledge);
+
+  const behaviorInstr = buildBehaviorInstructions(behaviorConfig);
+  if (behaviorInstr) sections.push(behaviorInstr);
+
+  if (config.custom_instructions) {
+    sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+  }
+
+  return sections.join('\n');
 }
 
 // ========== DEPARTMENT-SPECIFIC PROMPTS ==========

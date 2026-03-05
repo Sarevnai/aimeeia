@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+docs/AIMEE-AUDIT-REPORT.md
+src/contexts/TenantContext.tsx
+src/pages/admin/AdminDashboardPage.tsx
+src/pages/admin/AdminTenantDetailPage.tsx
+src/pages/admin/AdminTenantsPage.tsx

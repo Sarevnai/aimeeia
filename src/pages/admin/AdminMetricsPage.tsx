@@ -8,6 +8,7 @@ import {
     Loader2,
     Ticket,
     Building2,
+    Activity,
 } from 'lucide-react';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
 import { supabase } from '@/integrations/supabase/client';

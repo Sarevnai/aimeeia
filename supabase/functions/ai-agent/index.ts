@@ -132,7 +132,7 @@ serve(async (req: Request) => {
     // Conversation
     const { data: conversation } = await supabase
       .from('conversations')
-      .select('*, qualification_data')
+      .select('*')
       .eq('id', conversation_id)
       .single();
 
@@ -214,7 +214,7 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     const effectiveDepartment = openAdminTicket ? 'administrativo' : department;
-    const qualData = conversation?.qualification_data || {};
+    const qualData = {};
 
     // Load AI directive (with structured_config) — single query, reused by buildSystemPrompt
     let directive: any = null;

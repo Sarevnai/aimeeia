@@ -294,6 +294,9 @@ async function processInboundMessage(
         contact_id: contact.id,
         raw_message: params.rawMessage,
       },
+      headers: {
+        Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
+      }
     });
 
     const data = aiResponse.data;

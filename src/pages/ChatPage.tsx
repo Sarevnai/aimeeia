@@ -270,7 +270,7 @@ const ChatPage: React.FC = () => {
       department_code: conversation.department_code ?? null,
       event_type: null,
       raw: null,
-    } as unknown as Message;
+    } as Message;
 
     setMessages((prev) => [...prev, optimisticMsg]);
     setInputValue('');
@@ -289,7 +289,7 @@ const ChatPage: React.FC = () => {
       });
     } catch (error) {
       // Reverter a mensagem otimista e restaurar o input em caso de falha
-      setMessages((prev) => prev.filter((m) => String(m.id) !== tempId));
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setInputValue(messageText);
       console.error('Error sending message:', error);
     } finally {

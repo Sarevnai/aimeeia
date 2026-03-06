@@ -79,7 +79,6 @@ export type Database = {
           max_tokens: number | null
           tenant_id: string
           tone: string | null
-          triage_config: Json | null
           updated_at: string | null
           vista_integration_enabled: boolean | null
         }
@@ -99,7 +98,6 @@ export type Database = {
           max_tokens?: number | null
           tenant_id: string
           tone?: string | null
-          triage_config?: Json | null
           updated_at?: string | null
           vista_integration_enabled?: boolean | null
         }
@@ -119,7 +117,6 @@ export type Database = {
           max_tokens?: number | null
           tenant_id?: string
           tone?: string | null
-          triage_config?: Json | null
           updated_at?: string | null
           vista_integration_enabled?: boolean | null
         }
@@ -235,7 +232,6 @@ export type Database = {
           directive_content: string
           id: string
           is_active: boolean | null
-          structured_config: Json | null
           tenant_id: string
           updated_at: string | null
           updated_by: string | null
@@ -248,7 +244,6 @@ export type Database = {
           directive_content: string
           id?: string
           is_active?: boolean | null
-          structured_config?: Json | null
           tenant_id: string
           updated_at?: string | null
           updated_by?: string | null
@@ -261,7 +256,6 @@ export type Database = {
           directive_content?: string
           id?: string
           is_active?: boolean | null
-          structured_config?: Json | null
           tenant_id?: string
           updated_at?: string | null
           updated_by?: string | null
@@ -1867,7 +1861,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      daily_xml_catalog_sync: { Args: never; Returns: number }
       get_my_department: { Args: never; Returns: string }
       get_user_department: { Args: { _user_id: string }; Returns: string }
       get_user_tenant_id: { Args: never; Returns: string }
@@ -1904,10 +1897,6 @@ export type Database = {
           type: string
           url: string
         }[]
-      }
-      reprocess_pending_xml_queue: {
-        Args: { batch_size?: number }
-        Returns: number
       }
     }
     Enums: {

@@ -159,7 +159,7 @@ export async function handleTriage(
       await completeTriage(supabase, tenant.id, phoneNumber, conversationId, buttonResult.department);
 
       const welcomeMsg = triageConfig?.department_welcome?.[buttonResult.department]
-        ? replaceTvars(triageConfig.department_welcome[buttonResult.department])
+        ? replaceTvars(triageConfig.department_welcome[buttonResult.department], state?.contact_name)
         : DEPARTMENT_WELCOME[buttonResult.department] || 'Como posso te ajudar?';
 
       return {
@@ -175,7 +175,7 @@ export async function handleTriage(
       await completeTriage(supabase, tenant.id, phoneNumber, conversationId, inferredDept);
 
       const welcomeMsg = triageConfig?.department_welcome?.[inferredDept]
-        ? replaceTvars(triageConfig.department_welcome[inferredDept])
+        ? replaceTvars(triageConfig.department_welcome[inferredDept], state?.contact_name)
         : DEPARTMENT_WELCOME[inferredDept] || 'Como posso te ajudar?';
 
       return {

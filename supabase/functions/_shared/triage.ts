@@ -2,7 +2,7 @@
 // Manages the initial conversation flow: greeting → name → department selection.
 // All config from DB (ai_agent_config), no hardcoded tenant references.
 
-import { DepartmentType, Tenant, AIAgentConfig, ConversationState, TriageConfig } from './types.ts';
+import { DepartmentType, Tenant, AIAgentConfig, ConversationState, TriageConfig, RemarketingTriageConfig } from './types.ts';
 
 // ========== TRIAGE BUTTON MAPPING ==========
 
@@ -189,6 +189,104 @@ export async function handleTriage(
     return {
       shouldContinue: true,
       responseMessages: [],  // Will be sent as interactive buttons by caller
+    };
+  }
+
+  // ========== STAGE: REMARKETING VIP PITCH ==========
+  if (stage === 'remarketing_vip_pitch') {
+    const rmkConfig = triageConfig?.remarketing;
+    const contactName = state?.contact_name || null;
+
+    // Build VIP pitch messages (configurable or default)
+    const pitchMessages = rmkConfig?.vip_pitch?.map(msg => replaceTvars(msg, contactName || undefined)) || [
+      replaceTvars(
+        `Olá, {{NAME}}! Eu sou a {{AGENT_NAME}}, consultora imobiliária da {{COMPANY_NAME}}.\n\n` +
+        `Meu trabalho é diferente dos corretores tradicionais. Trabalho com *consultoria imobiliária personalizada* — ` +
+        `atendo no máximo 2 a 3 clientes por vez, pra garantir que cada um tenha um atendimento exclusivo e dedicado.\n\n` +
+        `Vou buscar o imóvel ideal como se fosse pra mim ou pra minha família.`,
+        contactName || undefined
+      ),
+      replaceTvars(
+        `As vantagens pra você:\n` +
+        `✅ Custo zero — quem paga é o proprietário\n` +
+        `✅ A {{COMPANY_NAME}} tem uma das maiores pautas de {{CITY}}. Se não tiver na nossa pauta, fazemos parceria com outras imobiliárias\n` +
+        `✅ Centraliza tudo em uma consultora dedicada a você\n\n` +
+        `Se você enxerga valor nesse tipo de atendimento exclusivo, me sinaliza que eu vou te colocar como meu cliente! 🙌`,
+        contactName || undefined
+      ),
+    ];
+
+    await updateTriageStage(supabase, tenant.id, phoneNumber, 'remarketing_buyin');
+
+    return {
+      shouldContinue: true,
+      responseMessages: pitchMessages,
+    };
+  }
+
+  // ========== STAGE: REMARKETING BUY-IN ==========
+  if (stage === 'remarketing_buyin') {
+    const rmkConfig = triageConfig?.remarketing;
+    const contactName = state?.contact_name || null;
+    const lower = messageBody.toLowerCase().trim();
+
+    // Detect positive response
+    const positivePatterns = /\b(sim|quero|ok|pode ser|bora|vamos|aceito|faz sentido|top|com certeza|gostei|interessante|claro|massa|ótimo|show|beleza|perfeito|tô dentro|to dentro|fechou|valeu|legal|bacana|demais)\b/i;
+    // Detect negative response
+    const negativePatterns = /\b(não|nao|sem interesse|agora não|agora nao|depois|paro|obrigado mas|dispenso|sem tempo|ocupado)\b/i;
+
+    if (positivePatterns.test(lower)) {
+      // Buy-in confirmed! Send honesty contract + anamnese intro
+      const honestyMessages = rmkConfig?.honesty_contract?.map(msg => replaceTvars(msg, contactName || undefined)) || [
+        replaceTvars(
+          `Fico feliz, {{NAME}}! Vou te colocar como meu cliente. 🎉\n\n` +
+          `Peço apenas uma coisa em troca: *seja completamente honesto(a) comigo*.\n\n` +
+          `Não tenha nenhum receio de me dizer se não gostou de algo. Se a vaga é pequena, se precisa de churrasqueira a carvão, ` +
+          `se tem que bater sol o dia inteiro, se não pode ser face sul...\n\n` +
+          `Quanto mais sincero(a) você for sobre o que é imprescindível, melhor eu consigo trabalhar pra encontrar o imóvel perfeito.`,
+          contactName || undefined
+        ),
+        replaceTvars(
+          rmkConfig?.anamnese_intro || `Agora vou fazer algumas perguntas rápidas pra entender exatamente o que você procura. Vamos lá? 💪`,
+          contactName || undefined
+        ),
+      ];
+
+      // Complete triage with vendas department
+      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'vendas');
+
+      return {
+        shouldContinue: true,
+        responseMessages: honestyMessages,
+        department: 'vendas',
+      };
+    }
+
+    if (negativePatterns.test(lower) && !positivePatterns.test(lower)) {
+      // Declined — send cordial message, keep triage_stage at remarketing_buyin for re-engagement
+      const declineMsg = rmkConfig?.decline_message
+        ? replaceTvars(rmkConfig.decline_message, contactName || undefined)
+        : replaceTvars(
+            `Sem problemas, {{NAME}}! Fico à disposição caso mude de ideia. É só me chamar aqui que retomo seu atendimento. 😊`,
+            contactName || undefined
+          );
+
+      // Keep triage_stage at remarketing_buyin (don't advance) so if they message again, same treatment
+      return {
+        shouldContinue: true,
+        responseMessages: [declineMsg],
+      };
+    }
+
+    // Ambiguous response — ask for clarification
+    const clarificationMsg = replaceTvars(
+      `{{NAME}}, seria ótimo poder te ajudar! Posso seguir com seu atendimento VIP de consultoria imobiliária? 😊`,
+      contactName || undefined
+    );
+
+    return {
+      shouldContinue: true,
+      responseMessages: [clarificationMsg],
     };
   }
 

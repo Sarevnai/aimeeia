@@ -208,7 +208,82 @@ async function processInboundMessage(
   // 3. Find or create conversation
   const conversation = await findOrCreateConversation(supabase, tenant.id, phoneNumber, contact.id);
 
-  // 3.5 Update conversation department if provided via Make webhook
+  // 3.5 Detect remarketing campaign response (new conversations only)
+  const { data: convState } = await supabase
+    .from('conversation_states')
+    .select('triage_stage')
+    .eq('tenant_id', tenant.id)
+    .eq('phone_number', phoneNumber)
+    .maybeSingle();
+
+  if (convState?.triage_stage === 'greeting') {
+    // Check if this phone has a recent remarketing campaign_result
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: remarketingResult } = await supabase
+      .from('campaign_results')
+      .select('id, campaign_id, campaigns!inner(id, campaign_type)')
+      .eq('tenant_id', tenant.id)
+      .eq('phone', phoneNumber)
+      .gte('sent_at', sevenDaysAgo)
+      .eq('campaigns.campaign_type', 'remarketing')
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (remarketingResult) {
+      console.log(`🎯 Remarketing response detected for ${phoneNumber}, campaign: ${remarketingResult.campaign_id}`);
+
+      // Update conversation: source, campaign_id, department
+      await supabase
+        .from('conversations')
+        .update({
+          source: 'remarketing',
+          campaign_id: remarketingResult.campaign_id,
+          department_code: 'vendas',
+        })
+        .eq('id', conversation.id);
+      conversation.department_code = 'vendas';
+
+      // Update campaign_result as replied
+      await supabase
+        .from('campaign_results')
+        .update({
+          status: 'replied',
+          replied_at: new Date().toISOString(),
+        })
+        .eq('id', remarketingResult.id);
+
+      // Set triage to remarketing VIP pitch
+      await supabase
+        .from('conversation_states')
+        .upsert({
+          tenant_id: tenant.id,
+          phone_number: phoneNumber,
+          triage_stage: 'remarketing_vip_pitch',
+          is_ai_active: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'tenant_id,phone_number' });
+
+      // Assign first vendas pipeline stage
+      const { data: firstStage } = await supabase
+        .from('conversation_stages')
+        .select('id')
+        .eq('tenant_id', tenant.id)
+        .eq('department_code', 'vendas')
+        .order('order_index', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (firstStage) {
+        await supabase
+          .from('conversations')
+          .update({ stage_id: firstStage.id })
+          .eq('id', conversation.id);
+      }
+    }
+  }
+
+  // 3.6 Update conversation department if provided via Make webhook
   if (params.department && conversation.department_code !== params.department) {
     await supabase.from('conversations').update({ department_code: params.department }).eq('id', conversation.id);
     conversation.department_code = params.department;

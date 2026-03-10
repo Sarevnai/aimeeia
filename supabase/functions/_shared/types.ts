@@ -2,7 +2,7 @@
 // Clean types, no hardcoded defaults (defaults come from DB)
 
 export type DepartmentType = 'locacao' | 'vendas' | 'administrativo' | 'marketing' | null;
-export type TriageStage = 'greeting' | 'awaiting_name' | 'awaiting_triage' | 'completed' | null;
+export type TriageStage = 'greeting' | 'awaiting_name' | 'awaiting_triage' | 'completed' | 'remarketing_vip_pitch' | 'remarketing_buyin' | null;
 export type ConversationStatus = 'active' | 'closed' | 'archived';
 export type MessageDirection = 'inbound' | 'outbound';
 
@@ -285,6 +285,13 @@ export interface SkillConfig {
 
 // ========== TRIAGE CONFIG (Fase 1 Configurável) ==========
 
+export interface RemarketingTriageConfig {
+  vip_pitch?: string[];                        // Mensagens do pitch VIP (array para fragmentar)
+  honesty_contract?: string[];                 // Mensagens do contrato de honestidade
+  anamnese_intro?: string;                     // "Vou fazer algumas perguntas rápidas..."
+  decline_message?: string;                    // "Sem problemas, fico à disposição"
+}
+
 export interface TriageConfig {
   greeting_message?: string;
   vip_intro?: string;                          // Texto VIP após coleta do nome
@@ -292,6 +299,7 @@ export interface TriageConfig {
   department_prompt?: string;
   department_buttons?: TriageDepartmentButton[];
   department_welcome?: Record<string, string>;
+  remarketing?: RemarketingTriageConfig;       // Config do fluxo VIP remarketing
 }
 
 export interface TriageDepartmentButton {

@@ -168,7 +168,9 @@ export async function buildSystemPrompt(
   qualificationData: QualificationData | null,
   conversationHistory: ConversationMessage[],
   behaviorConfig?: AIBehaviorConfig | null,
-  preloadedDirective?: any | null
+  preloadedDirective?: any | null,
+  conversationSource?: string | null,
+  remarketingContext?: string | null
 ): Promise<string> {
   // Priority 1: Check ai_directives table for custom prompt
   try {
@@ -182,10 +184,14 @@ export async function buildSystemPrompt(
 
     // Priority 1A: Structured config (Consultora VIP pattern)
     if (directive?.structured_config) {
-      return buildStructuredPrompt(
+      let prompt = buildStructuredPrompt(
         directive.structured_config as StructuredConfig,
         config, tenant, regions, contactName, qualificationData, behaviorConfig
       );
+      if (conversationSource === 'remarketing') {
+        prompt += buildRemarketingAnamnese(remarketingContext);
+      }
+      return prompt;
     }
 
     // Priority 1B: Flat text directive (legacy)
@@ -201,6 +207,9 @@ export async function buildSystemPrompt(
       if (config.custom_instructions) {
         prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
       }
+      if (conversationSource === 'remarketing') {
+        prompt += buildRemarketingAnamnese(remarketingContext);
+      }
       return prompt;
     }
   } catch (e) {
@@ -210,11 +219,12 @@ export async function buildSystemPrompt(
   // Priority 2: Built-in prompt builders
   console.log(`🔧 Using built-in prompt for: ${department}`);
   const behaviorInstructions = buildBehaviorInstructions(behaviorConfig);
+  const remarketingInstructions = conversationSource === 'remarketing' ? buildRemarketingAnamnese(remarketingContext) : '';
   switch (department) {
-    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions;
-    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions;
-    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions;
-    default: return buildDefaultPrompt(config, tenant, contactName) + behaviorInstructions;
+    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions + remarketingInstructions;
+    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions + remarketingInstructions;
+    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions;
+    default: return buildDefaultPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions;
   }
 }
 
@@ -475,4 +485,57 @@ function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null): st
   }
 
   return instructions;
+}
+
+// ========== REMARKETING VIP ANAMNESE ==========
+
+function buildRemarketingAnamnese(remarketingContext?: string | null): string {
+  let prompt = `
+
+# 🎯 MODO REMARKETING — ATENDIMENTO VIP
+
+Você está atendendo um lead re-engajado via campanha de remarketing.
+O cliente acabou de aceitar seu atendimento VIP de consultoria imobiliária e firmou um contrato de honestidade.
+
+## SUA PERSONA NESTA CONVERSA
+- Você é uma *consultora imobiliária*, NÃO uma corretora tradicional
+- Atende poucos clientes por vez com dedicação total
+- Vai buscar o imóvel como se fosse pra você ou pra sua família
+- Transmita exclusividade, segurança e foco no cliente
+
+## FLUXO DE ANAMNESE
+Conduza uma anamnese estruturada para entender EXATAMENTE o que o cliente busca.
+Pergunte UMA coisa por vez, de forma natural e consultiva:
+
+1. **Tempo de compra**: "Qual seu prazo ideal? Nos próximos 3 meses, entre 3 e 6, ou sem pressa?"
+2. **Finalidade**: "É pra moradia ou investimento?"
+3. **Tipo**: "Procura algo residencial ou comercial?"
+4. **Características do imóvel**: "Me conta mais: quantos dormitórios precisa? Vagas de garagem? A insolação é importante pra você? E a vista?"
+5. **Localização**: "Tem preferência de bairro ou região em mente?"
+
+## REGRAS ESPECIAIS REMARKETING
+- ADAPTE as perguntas baseado no contexto anterior do lead (se disponível abaixo)
+- Se já sabe alguma informação do histórico, CONFIRME ao invés de perguntar de novo
+  (ex: "Vi que antes você buscava algo no Campeche. Ainda é essa a região ideal?")
+- Após coletar os dados essenciais (mínimo 3 itens), use buscar_imoveis
+- Se a busca NÃO retornar resultados adequados, use encaminhar_humano com motivo:
+  "Lead VIP remarketing — perfil não encontrado na pauta atual. Verificar parcerias."
+- NÃO diga "não encontrei". Diga: "Vou acionar minha rede de parceiros pra encontrar algo ideal pra você"
+- Persona: Consultora VIP dedicada. Seja calorosa, atenciosa e proativa
+
+## DOSSIÊ DE HANDOFF
+Ao transferir para corretor (enviar_lead_c2s), inclua no campo motivo TODOS os dados:
+- Prazo de compra (imediato / 3-6m / +6m)
+- Finalidade (moradia / investimento)
+- Tipo (residencial / comercial)
+- Características coletadas (dormitórios, vagas, insolação, vista, etc.)
+- Localização desejada
+- Contexto: "Lead re-engajado via remarketing. Atendimento VIP. [dados do histórico se houver]"
+`;
+
+  if (remarketingContext) {
+    prompt += `\n${remarketingContext}\n`;
+  }
+
+  return prompt;
 }

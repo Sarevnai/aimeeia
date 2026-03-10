@@ -4,7 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
-import { logActivity, logError } from '../_shared/utils.ts';
+import { logActivity } from '../_shared/utils.ts';
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -20,6 +20,7 @@ serve(async (req: Request) => {
       reason,
       qualification_data,
       development_id,
+      shown_properties,
     } = await req.json();
 
     if (!tenant_id || !phone_number) {
@@ -43,26 +44,29 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     // Check if C2S integration is configured
+    // Table columns: setting_key, setting_value (not key/value)
     const { data: c2sConfig } = await supabase
       .from('system_settings')
-      .select('value')
+      .select('setting_value')
       .eq('tenant_id', tenant_id)
-      .eq('key', 'c2s_config')
+      .eq('setting_key', 'c2s_config')
       .maybeSingle();
 
     let c2sResult = null;
 
-    if (c2sConfig?.value?.api_url && c2sConfig?.value?.api_key) {
+    if (c2sConfig?.setting_value?.api_url && c2sConfig?.setting_value?.api_key) {
       // Send to C2S
-      c2sResult = await sendToC2S(c2sConfig.value, {
+      c2sResult = await sendToC2S(c2sConfig.setting_value, {
         name: contact?.name || 'Lead WhatsApp',
         phone: phone_number,
         email: contact?.email || null,
-        origin: 'whatsapp_ai',
-        notes: reason || 'Lead qualificado via Aimee.iA',
+        reason: reason || 'Lead qualificado via Aimee.iA',
         qualification: qualification_data || {},
         development_id: development_id || null,
+        shown_properties: shown_properties || [],
       });
+    } else {
+      console.log('⚠️ C2S not configured for tenant, logging lead only');
     }
 
     // Log the lead
@@ -95,7 +99,7 @@ serve(async (req: Request) => {
       qualification_score: qualification_data?.qualification_score,
     });
 
-    console.log(`✅ Lead handoff complete: ${phone_number} → ${c2sResult ? 'C2S' : 'operator'}`);
+    console.log(`✅ Lead handoff complete: ${phone_number} → ${c2sResult ? 'C2S' : 'operator only'}`);
 
     return jsonResponse({
       success: true,
@@ -110,27 +114,102 @@ serve(async (req: Request) => {
 });
 
 // ========== C2S API ==========
+// Docs: https://api.contact2sale.com/docs/api#leads-item-post-2
+// Payload format: { data: { type: "lead", attributes: { ... } } }
+
+function getTemperature(score: number): string {
+  if (score >= 70) return '🔥 QUENTE';
+  if (score >= 40) return '🌡️ MORNO';
+  return '❄️ FRIO';
+}
+
+function formatPhone(phone: string): string {
+  // Remove + prefix, keep digits only
+  return phone.replace(/\D/g, '');
+}
 
 async function sendToC2S(config: any, leadData: any): Promise<any> {
   try {
+    const qual = leadData.qualification || {};
+    const typeNegotiation = qual.detected_interest === 'locacao' ? 'Locação' : 'Compra';
+    const score = qual.qualification_score || 0;
+    const temperature = getTemperature(score);
+
+    // ========== PERFIL DO LEAD ==========
+    const profileLines: string[] = [];
+    profileLines.push(`• Interesse: ${typeNegotiation}`);
+    if (qual.detected_property_type) profileLines.push(`• Tipo: ${qual.detected_property_type}`);
+    if (qual.detected_neighborhood) profileLines.push(`• Bairro/Região: ${qual.detected_neighborhood}`);
+    if (qual.detected_bedrooms) profileLines.push(`• Quartos: ${qual.detected_bedrooms}`);
+    if (qual.detected_budget_max) profileLines.push(`• Orçamento: até R$ ${qual.detected_budget_max.toLocaleString('pt-BR')}`);
+    profileLines.push(`• Temperatura: ${temperature} (${score}/100)`);
+
+    // ========== IMÓVEIS APRESENTADOS ==========
+    const shownProps: any[] = leadData.shown_properties || [];
+    let propertiesSection = '';
+    if (shownProps.length > 0) {
+      const propLines = shownProps.map((p: any) => {
+        const parts: string[] = [];
+        if (p.codigo) parts.push(`Cód. ${p.codigo}`);
+        if (p.tipo) parts.push(p.tipo);
+        if (p.quartos) parts.push(`${p.quartos} dorms`);
+        if (p.area_util) parts.push(`${p.area_util}m²`);
+        if (p.preco) parts.push(`R$ ${Number(p.preco).toLocaleString('pt-BR')}`);
+        if (p.bairro) parts.push(p.bairro);
+        const line = `• ${parts.join(' | ')}`;
+        const linkLine = p.link ? `  ${p.link}` : '';
+        return linkLine ? `${line}\n${linkLine}` : line;
+      });
+      propertiesSection = `\n\n🏠 IMÓVEIS APRESENTADOS\n${propLines.join('\n')}`;
+    }
+
+    // ========== BODY FINAL ==========
+    const waLink = `https://wa.me/${formatPhone(leadData.phone)}`;
+    const body = [
+      `📋 LEAD QUALIFICADO - AIMEE.IA`,
+      ``,
+      `👤 Cliente: ${leadData.name}`,
+      `📱 WhatsApp: ${waLink}`,
+      ``,
+      `🎯 PERFIL`,
+      profileLines.join('\n'),
+      propertiesSection,
+      ``,
+      `💬 MOTIVO: ${leadData.reason}`,
+    ].join('\n').trim();
+
+    const payload = {
+      data: {
+        type: 'lead',
+        attributes: {
+          name: leadData.name,
+          phone: leadData.phone,
+          email: leadData.email || undefined,
+          source: 'Aimee.iA WhatsApp',
+          body,
+          type_negotiation: typeNegotiation,
+          neighbourhood: qual.detected_neighborhood || undefined,
+          prop_ref: leadData.development_id || undefined,
+        },
+      },
+    };
+
     const response = await fetch(config.api_url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${config.api_key}`,
       },
-      body: JSON.stringify({
-        nome: leadData.name,
-        telefone: leadData.phone,
-        email: leadData.email,
-        origem: leadData.origin,
-        observacao: leadData.notes,
-        empreendimento_id: leadData.development_id,
-        dados_qualificacao: leadData.qualification,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
+
+    if (!response.ok) {
+      console.error('❌ C2S API error:', response.status, JSON.stringify(data).slice(0, 300));
+      return { error: data, status: response.status };
+    }
+
     console.log('✅ C2S response:', JSON.stringify(data).slice(0, 300));
     return data;
 

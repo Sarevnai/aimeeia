@@ -9,18 +9,19 @@ import { formatCurrency } from './utils.ts';
 
 // ========== CONTEXT SUMMARY (anti-loop) ==========
 
-export function buildContextSummary(qualificationData: QualificationData | null): string {
+export function buildContextSummary(qualificationData: QualificationData | null, noEmojis = false): string {
   if (!qualificationData) return '';
 
   const collected: string[] = [];
-  if (qualificationData.detected_neighborhood) collected.push(`📍 Região: ${qualificationData.detected_neighborhood}`);
-  if (qualificationData.detected_property_type) collected.push(`🏠 Tipo: ${qualificationData.detected_property_type}`);
-  if (qualificationData.detected_bedrooms) collected.push(`🛏️ Quartos: ${qualificationData.detected_bedrooms}`);
-  if (qualificationData.detected_budget_max) collected.push(`💰 Orçamento: até ${formatCurrency(qualificationData.detected_budget_max)}`);
-  if (qualificationData.detected_interest) collected.push(`🎯 Objetivo: ${qualificationData.detected_interest}`);
+  if (qualificationData.detected_neighborhood) collected.push(`${noEmojis ? '' : '📍 '}Região: ${qualificationData.detected_neighborhood}`);
+  if (qualificationData.detected_property_type) collected.push(`${noEmojis ? '' : '🏠 '}Tipo: ${qualificationData.detected_property_type}`);
+  if (qualificationData.detected_bedrooms) collected.push(`${noEmojis ? '' : '🛏️ '}Quartos: ${qualificationData.detected_bedrooms}`);
+  if (qualificationData.detected_budget_max) collected.push(`${noEmojis ? '' : '💰 '}Orçamento: até ${formatCurrency(qualificationData.detected_budget_max)}`);
+  if (qualificationData.detected_interest) collected.push(`${noEmojis ? '' : '🎯 '}Objetivo: ${qualificationData.detected_interest}`);
 
   if (collected.length === 0) return '';
-  return `\n📋 DADOS JÁ COLETADOS (NÃO PERGUNTE DE NOVO):\n${collected.join('\n')}\n`;
+  const header = noEmojis ? 'DADOS JÁ COLETADOS (NÃO PERGUNTE DE NOVO):' : '📋 DADOS JÁ COLETADOS (NÃO PERGUNTE DE NOVO):';
+  return `\n${header}\n${collected.join('\n')}\n`;
 }
 
 // ========== OPENAI TOOLS ==========
@@ -61,9 +62,17 @@ function getBaseToolsForDepartment(department: DepartmentType): any[] {
                 type: "string",
                 description: "Uma frase descritiva, rica e natural contendo TUDO o que o lead pediu. Ex: 'apartamento de 2 quartos no centro ou cambuí com varanda gourmet que aceite animais'"
               },
+              preco_min: {
+                type: "number",
+                description: "Valor mínimo do imóvel em reais, se o cliente informou"
+              },
               preco_max: {
                 type: "number",
                 description: "Valor máximo do imóvel em reais, se o cliente informou"
+              },
+              quartos: {
+                type: "integer",
+                description: "Número mínimo de quartos desejados, se o cliente informou"
               },
               finalidade: {
                 type: "string",
@@ -72,6 +81,23 @@ function getBaseToolsForDepartment(department: DepartmentType): any[] {
               },
             },
             required: ["query_semantica", "finalidade"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "buscar_imovel_por_link",
+          description: "Busca um imóvel específico pelo link/URL de um portal imobiliário ou do site próprio. Use IMEDIATAMENTE quando o lead enviar uma URL de portal (ZAP Imóveis, VivaReal, OLX, Imovelweb, site próprio da imobiliária). A função acessa o link, extrai o código do anunciante e retorna os dados do imóvel do nosso catálogo.",
+          parameters: {
+            type: "object",
+            properties: {
+              url: {
+                type: "string",
+                description: "URL completa do anúncio do imóvel no portal imobiliário"
+              }
+            },
+            required: ["url"],
           },
         },
       },
@@ -176,22 +202,26 @@ export async function buildSystemPrompt(
     if (directive?.structured_config) {
       return buildStructuredPrompt(
         directive.structured_config as StructuredConfig,
-        config, tenant, regions, contactName, qualificationData, behaviorConfig
+        config, tenant, regions, contactName, qualificationData, behaviorConfig,
+        config.emoji_intensity === 'none'
       );
     }
 
     // Priority 1B: Flat text directive (legacy)
     if (directive?.directive_content) {
+      const noEmojis = config.emoji_intensity === 'none';
       let prompt = directive.directive_content;
       prompt = prompt.replaceAll('{{AGENT_NAME}}', config.agent_name || 'Aimee');
       prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
       prompt = prompt.replaceAll('{{CITY}}', tenant.city);
       prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
-      prompt += buildContextSummary(qualificationData);
+      if (noEmojis) prompt += '\n\nIMPORTANTE: Não use emojis em nenhuma resposta. Escreva de forma humana e natural, sem ícones ou símbolos.';
+      prompt += buildContextSummary(qualificationData, noEmojis);
       prompt += generateRegionKnowledge(regions);
-      prompt += buildBehaviorInstructions(behaviorConfig);
+      prompt += buildBehaviorInstructions(behaviorConfig, noEmojis);
       if (config.custom_instructions) {
-        prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
+        const instrHeader = noEmojis ? 'INSTRUÇÕES ESPECIAIS:' : '📌 INSTRUÇÕES ESPECIAIS:';
+        prompt += `\n${instrHeader}\n${config.custom_instructions}`;
       }
       return prompt;
     }
@@ -201,10 +231,11 @@ export async function buildSystemPrompt(
 
   // Priority 2: Built-in prompt builders
   console.log(`🔧 Using built-in prompt for: ${department}`);
-  const behaviorInstructions = buildBehaviorInstructions(behaviorConfig);
+  const noEmojis = config.emoji_intensity === 'none';
+  const behaviorInstructions = buildBehaviorInstructions(behaviorConfig, noEmojis);
   switch (department) {
-    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions;
-    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions;
+    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData, noEmojis) + behaviorInstructions;
+    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData, noEmojis) + behaviorInstructions;
     case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions;
     default: return buildDefaultPrompt(config, tenant, contactName) + behaviorInstructions;
   }
@@ -219,7 +250,8 @@ function buildStructuredPrompt(
   regions: Region[],
   contactName: string | null,
   qualificationData: QualificationData | null,
-  behaviorConfig?: AIBehaviorConfig | null
+  behaviorConfig?: AIBehaviorConfig | null,
+  noEmojis = false
 ): string {
   const vars: Record<string, string> = {
     '{{AGENT_NAME}}': config.agent_name || 'Aimee',
@@ -297,17 +329,22 @@ function buildStructuredPrompt(
   }
 
   // === DYNAMIC SECTIONS (always appended) ===
-  const contextSummary = buildContextSummary(qualificationData);
+  if (noEmojis) {
+    sections.push(`\nIMPORTANTE: Não use emojis em nenhuma resposta. Escreva de forma humana e natural, sem ícones ou símbolos.`);
+  }
+
+  const contextSummary = buildContextSummary(qualificationData, noEmojis);
   if (contextSummary) sections.push(contextSummary);
 
   const regionKnowledge = generateRegionKnowledge(regions);
   if (regionKnowledge) sections.push(regionKnowledge);
 
-  const behaviorInstr = buildBehaviorInstructions(behaviorConfig);
+  const behaviorInstr = buildBehaviorInstructions(behaviorConfig, noEmojis);
   if (behaviorInstr) sections.push(behaviorInstr);
 
   if (config.custom_instructions) {
-    sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+    const instrHeader = noEmojis ? 'INSTRUÇÕES ESPECIAIS:' : '📌 INSTRUÇÕES ESPECIAIS:';
+    sections.push(`\n${instrHeader}\n${config.custom_instructions}`);
   }
 
   return sections.join('\n');
@@ -320,18 +357,23 @@ function buildLocacaoPrompt(
   tenant: any,
   regions: Region[],
   contactName: string | null,
-  qualData: QualificationData | null
+  qualData: QualificationData | null,
+  noEmojis = false
 ): string {
+  const emojiInstruction = noEmojis
+    ? 'Não use emojis nem símbolos. Escreva de forma humana e natural.'
+    : config.emoji_intensity === 'low' ? 'Use emojis com moderação' : 'Use emojis de forma amigável';
+  const instrHeader = noEmojis ? 'INSTRUÇÕES ESPECIAIS:' : '📌 INSTRUÇÕES ESPECIAIS:';
   return `Você é ${config.agent_name || 'Aimee'}, assistente virtual de locação da ${tenant.company_name}, em ${tenant.city}/${tenant.state}.
 
 PERSONALIDADE:
 - Tom: ${config.tone || 'friendly'}
-- ${config.emoji_intensity === 'none' ? 'Não use emojis' : config.emoji_intensity === 'low' ? 'Use emojis com moderação' : 'Use emojis de forma amigável'}
+- ${emojiInstruction}
 - Seja objetiva e eficiente, sem ser fria
 - ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
-
+${noEmojis ? '\nIMPORTANTE: Não use emojis em nenhuma resposta. Escreva de forma humana e natural, sem ícones ou símbolos.\n' : ''}
 OBJETIVO:
-Qualificar o lead conversando de forma natural. 
+Qualificar o lead conversando de forma natural.
 Não seja uma máquina de perguntas. Use a ferramenta buscar_imoveis ASSIM QUE POSSÍVEL, mesmo com poucas informações (ex: apenas bairro ou tipo), para manter o lead interessado. Use a ferramenta IMEDIATAMENTE se o usuário pedir para ver imóveis.
 
 REGRAS:
@@ -339,7 +381,14 @@ REGRAS:
 - Pergunte UMA informação por vez
 - Se o cliente pedir atendimento humano, use enviar_lead_c2s
 - Responda em português BR, max 3 parágrafos
-${buildContextSummary(qualData)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
+- Se o lead enviar uma URL (link de portal imobiliário, site de imobiliária, etc.), use IMEDIATAMENTE a ferramenta buscar_imovel_por_link com essa URL
+
+APRESENTAÇÃO DE IMÓVEIS:
+- A ferramenta buscar_imoveis apresenta 1 imóvel por vez automaticamente. NUNCA liste múltiplas opções em texto.
+- Após apresentar todas as opções disponíveis, pergunte qual chamou mais atenção e use encaminhar_humano para conectar com um corretor.
+- Se o lead demonstrar interesse em algum imóvel específico, use encaminhar_humano imediatamente.
+- Use o perfil conhecido do lead para destacar amenidades relevantes. Se não souber o que é prioritário (lazer, localização, espaço, etc.), pergunte durante a conversa.
+${buildContextSummary(qualData, noEmojis)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n${instrHeader}\n${config.custom_instructions}` : ''}`;
 }
 
 function buildVendasPrompt(
@@ -347,15 +396,20 @@ function buildVendasPrompt(
   tenant: any,
   regions: Region[],
   contactName: string | null,
-  qualData: QualificationData | null
+  qualData: QualificationData | null,
+  noEmojis = false
 ): string {
+  const emojiInstruction = noEmojis
+    ? 'Não use emojis nem símbolos. Escreva de forma humana e natural.'
+    : 'Use emojis de forma moderada';
+  const instrHeader = noEmojis ? 'INSTRUÇÕES ESPECIAIS:' : '📌 INSTRUÇÕES ESPECIAIS:';
   return `Você é ${config.agent_name || 'Aimee'}, assistente virtual de vendas da ${tenant.company_name}, em ${tenant.city}/${tenant.state}.
 
 PERSONALIDADE:
 - Tom: ${config.tone || 'friendly'}
-- ${config.emoji_intensity === 'none' ? 'Não use emojis' : 'Use emojis de forma moderada'}
+- ${emojiInstruction}
 - ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
-
+${noEmojis ? '\nIMPORTANTE: Não use emojis em nenhuma resposta. Escreva de forma humana e natural, sem ícones ou símbolos.\n' : ''}
 OBJETIVO:
 Qualificar o lead de forma natural e rápida. Não seja uma máquina de perguntas!
 Assim que tiver 1 ou 2 dados (ex: Campeche e até 3M), USE A FERRAMENTA buscar_imoveis para enviar opções. Se o lead pedir para ver imóveis AGORA, chame a ferramenta AGORA MESMO.
@@ -366,7 +420,14 @@ REGRAS:
 - Se o cliente mencionar empreendimentos específicos, destaque diferenciais
 - Se pedir atendimento humano, use enviar_lead_c2s
 - Responda em português BR, max 3 parágrafos
-${buildContextSummary(qualData)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
+- Se o lead enviar uma URL (link de portal imobiliário, site de imobiliária, etc.), use IMEDIATAMENTE a ferramenta buscar_imovel_por_link com essa URL
+
+APRESENTAÇÃO DE IMÓVEIS:
+- A ferramenta buscar_imoveis apresenta 1 imóvel por vez automaticamente. NUNCA liste múltiplas opções em texto.
+- Após apresentar todas as opções disponíveis, pergunte qual chamou mais atenção e use encaminhar_humano para conectar com um corretor.
+- Se o lead demonstrar interesse em algum imóvel específico, use encaminhar_humano imediatamente.
+- Use o perfil conhecido do lead para destacar amenidades relevantes. Se não souber o que é prioritário (lazer, localização, espaço, etc.), pergunte durante a conversa.
+${buildContextSummary(qualData, noEmojis)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n${instrHeader}\n${config.custom_instructions}` : ''}`;
 }
 
 function buildAdminPrompt(
@@ -399,7 +460,7 @@ CLASSIFICAÇÃO DE INTENÇÃO:
 FLUXO DE ATENDIMENTO:
 1. Identifique a categoria da demanda pela mensagem do cliente
 2. Colete as informações ESSENCIAIS (não exija tudo de uma vez):
-   - FINANCEIRO: CPF/CNPJ, unidade/imóvel
+   - FINANCEIRO: unidade/imóvel
    - MANUTENÇÃO: descrição do problema, endereço/unidade, URGÊNCIA (vazamento = urgente)
    - CONTRATO: tipo de solicitação, unidade
    - RESCISÃO: unidade, motivo, data pretendida
@@ -439,7 +500,7 @@ ${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_
 
 // ========== BEHAVIOR CONFIG INJECTION ==========
 
-function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null): string {
+function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null, noEmojis = false): string {
   if (!behaviorConfig) return '';
 
   let instructions = '';
@@ -448,7 +509,8 @@ function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null): st
   const questions = (behaviorConfig.essential_questions || []) as EssentialQuestion[];
   const activeQuestions = questions.filter((q) => q.isActive !== false);
   if (activeQuestions.length > 0) {
-    instructions += '\n\n📋 PERGUNTAS DE QUALIFICAÇÃO - São dados desejáveis que você pode tentar descobrir naturalmente na conversa:\n';
+    const qHeader = noEmojis ? 'PERGUNTAS DE QUALIFICAÇÃO' : '📋 PERGUNTAS DE QUALIFICAÇÃO';
+    instructions += `\n\n${qHeader} - São dados desejáveis que você pode tentar descobrir naturalmente na conversa:\n`;
     activeQuestions.forEach((q, i) => {
       instructions += `${i + 1}. ${q.name}${q.isQualifying ? ' (QUALIFICATÓRIA)' : ''}\n`;
     });
@@ -457,13 +519,12 @@ function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null): st
 
   // Behavior flags
   if (behaviorConfig.send_cold_leads === false) {
-    instructions += '\n⚠️ NÃO envie leads com score de qualificação abaixo de 4 para o CRM. Continue a conversa tentando qualificar melhor.\n';
-  }
-  if (behaviorConfig.require_cpf_for_visit) {
-    instructions += '\n🆔 Antes de agendar visita, EXIJA o CPF do cliente. Não prossiga sem o CPF.\n';
+    const prefix = noEmojis ? 'ATENÇÃO:' : '⚠️';
+    instructions += `\n${prefix} NÃO envie leads com score de qualificação abaixo de 4 para o CRM. Continue a conversa tentando qualificar melhor.\n`;
   }
   if (behaviorConfig.reengagement_hours && behaviorConfig.reengagement_hours > 0) {
-    instructions += `\n🔔 Se o cliente não responder, tente reengajar após ${behaviorConfig.reengagement_hours} horas com uma mensagem amigável.\n`;
+    const prefix = noEmojis ? 'REENGAJAMENTO:' : '🔔';
+    instructions += `\n${prefix} Se o cliente não responder, tente reengajar após ${behaviorConfig.reengagement_hours} horas com uma mensagem amigável.\n`;
   }
 
   return instructions;

@@ -281,9 +281,54 @@ async function processInboundMessage(
     return { action: 'operator_active' };
   }
 
-  // 7. Invoke ai-agent
+  // 6.1 Ensure conversation_states record exists (defensive — handles edge cases
+  // where the record was deleted or never created for an existing conversation).
+  if (!state) {
+    console.log('⚠️ conversation_states missing, creating default record');
+    await supabase.from('conversation_states').upsert({
+      tenant_id: tenant.id,
+      phone_number: phoneNumber,
+      triage_stage: 'greeting',
+      is_ai_active: true,
+      is_processing: false,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'tenant_id,phone_number' });
+  }
+
+  // 6.5 Anomalia 1 fix: acquire processing lock to prevent concurrent AI invocations.
+  // Uses conditional update: only succeeds if is_processing is false/null.
+  // If another webhook invocation already acquired the lock, skip this one.
+  const { data: lockRows } = await supabase
+    .from('conversation_states')
+    .update({ is_processing: true, updated_at: new Date().toISOString() })
+    .eq('tenant_id', tenant.id)
+    .eq('phone_number', phoneNumber)
+    .not('is_processing', 'eq', true)
+    .select('phone_number');
+
+  if (!lockRows || lockRows.length === 0) {
+    console.log('⏳ [CONCURRENCY] Another invocation is processing this conversation, skipping');
+    return { action: 'concurrent_skip' };
+  }
+
+  // 7. Invoke ai-agent — lock is ALWAYS released here after invoke completes,
+  // regardless of success, error response, or exception. The ai-agent has multiple
+  // early-return paths (triage, next_property, catch) and cannot reliably release
+  // the lock itself. The webhook owns the lock lifecycle.
+  const releaseLock = () =>
+    supabase
+      .from('conversation_states')
+      .update({ is_processing: false, updated_at: new Date().toISOString() })
+      .eq('tenant_id', tenant.id)
+      .eq('phone_number', phoneNumber);
+
   try {
+    console.log(`🤖 [INVOKE] Calling ai-agent for ${phoneNumber}, conversation: ${conversation.id}`);
+
     const aiResponse = await supabase.functions.invoke('ai-agent', {
+      headers: {
+        Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+      },
       body: {
         tenant_id: tenant.id,
         phone_number: phoneNumber,
@@ -296,7 +341,23 @@ async function processInboundMessage(
       },
     });
 
+    await releaseLock();
+
+    // Check for invoke-level errors (FunctionsHttpError, FunctionsRelayError, FunctionsFetchError)
+    if (aiResponse.error) {
+      const errMsg = aiResponse.error?.message || String(aiResponse.error);
+      const errContext = aiResponse.error?.context || {};
+      console.error(`❌ [INVOKE] ai-agent returned error:`, errMsg, JSON.stringify(errContext));
+      await logError(supabase, tenant.id, 'whatsapp-webhook', aiResponse.error, {
+        phone_number: phoneNumber,
+        error_type: 'ai_agent_response_error',
+        conversation_id: conversation.id,
+      });
+      return { action: 'error' };
+    }
+
     const data = aiResponse.data;
+    console.log(`✅ [INVOKE] ai-agent responded: action=${data?.action}, has_response=${!!data?.ai_response}`);
     return {
       aiResponse: data?.ai_response,
       department: data?.department,
@@ -304,8 +365,9 @@ async function processInboundMessage(
     };
 
   } catch (error) {
-    console.error('❌ Error invoking ai-agent:', error);
-    await logError(supabase, tenant.id, 'whatsapp-webhook', error, { phoneNumber });
+    console.error('❌ [INVOKE] Exception invoking ai-agent:', error);
+    await releaseLock();
+    await logError(supabase, tenant.id, 'whatsapp-webhook', error, { phone_number: phoneNumber, error_type: 'ai_agent_invocation_exception', conversation_id: conversation.id });
     return { action: 'error' };
   }
 }

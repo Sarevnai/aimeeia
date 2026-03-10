@@ -66,6 +66,8 @@ export type Database = {
         Row: {
           agent_name: string | null
           ai_model: string | null
+          ai_provider: string | null
+          api_key_encrypted: string | null
           audio_enabled: boolean | null
           audio_mode: string | null
           audio_voice_id: string | null
@@ -79,12 +81,14 @@ export type Database = {
           max_tokens: number | null
           tenant_id: string
           tone: string | null
+          triage_config: Json | null
           updated_at: string | null
-          vista_integration_enabled: boolean | null
         }
         Insert: {
           agent_name?: string | null
           ai_model?: string | null
+          ai_provider?: string | null
+          api_key_encrypted?: string | null
           audio_enabled?: boolean | null
           audio_mode?: string | null
           audio_voice_id?: string | null
@@ -98,12 +102,14 @@ export type Database = {
           max_tokens?: number | null
           tenant_id: string
           tone?: string | null
+          triage_config?: Json | null
           updated_at?: string | null
-          vista_integration_enabled?: boolean | null
         }
         Update: {
           agent_name?: string | null
           ai_model?: string | null
+          ai_provider?: string | null
+          api_key_encrypted?: string | null
           audio_enabled?: boolean | null
           audio_mode?: string | null
           audio_voice_id?: string | null
@@ -117,8 +123,8 @@ export type Database = {
           max_tokens?: number | null
           tenant_id?: string
           tone?: string | null
+          triage_config?: Json | null
           updated_at?: string | null
-          vista_integration_enabled?: boolean | null
         }
         Relationships: [
           {
@@ -232,6 +238,7 @@ export type Database = {
           directive_content: string
           id: string
           is_active: boolean | null
+          structured_config: Json | null
           tenant_id: string
           updated_at: string | null
           updated_by: string | null
@@ -244,6 +251,7 @@ export type Database = {
           directive_content: string
           id?: string
           is_active?: boolean | null
+          structured_config?: Json | null
           tenant_id: string
           updated_at?: string | null
           updated_by?: string | null
@@ -256,6 +264,7 @@ export type Database = {
           directive_content?: string
           id?: string
           is_active?: boolean | null
+          structured_config?: Json | null
           tenant_id?: string
           updated_at?: string | null
           updated_by?: string | null
@@ -398,6 +407,7 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          campaign_type: string | null
           created_at: string | null
           delivered_count: number | null
           department_code: Database["public"]["Enums"]["department_type"] | null
@@ -410,6 +420,7 @@ export type Database = {
           tenant_id: string
         }
         Insert: {
+          campaign_type?: string | null
           created_at?: string | null
           delivered_count?: number | null
           department_code?:
@@ -424,6 +435,7 @@ export type Database = {
           tenant_id: string
         }
         Update: {
+          campaign_type?: string | null
           created_at?: string | null
           delivered_count?: number | null
           department_code?:
@@ -450,15 +462,20 @@ export type Database = {
       contacts: {
         Row: {
           channel_source: string | null
+          city: string | null
           communication_preference: string | null
           contact_type: string | null
           cpf_cnpj: string | null
           created_at: string | null
+          crm_archive_reason: string | null
+          crm_id: string | null
+          crm_natureza: string | null
           department_code: Database["public"]["Enums"]["department_type"] | null
           email: string | null
           id: string
           lease_contract_id: string | null
           name: string | null
+          neighborhood: string | null
           notes: string | null
           onboarding_status: string | null
           phone: string
@@ -470,10 +487,14 @@ export type Database = {
         }
         Insert: {
           channel_source?: string | null
+          city?: string | null
           communication_preference?: string | null
           contact_type?: string | null
           cpf_cnpj?: string | null
           created_at?: string | null
+          crm_archive_reason?: string | null
+          crm_id?: string | null
+          crm_natureza?: string | null
           department_code?:
             | Database["public"]["Enums"]["department_type"]
             | null
@@ -481,6 +502,7 @@ export type Database = {
           id?: string
           lease_contract_id?: string | null
           name?: string | null
+          neighborhood?: string | null
           notes?: string | null
           onboarding_status?: string | null
           phone: string
@@ -492,10 +514,14 @@ export type Database = {
         }
         Update: {
           channel_source?: string | null
+          city?: string | null
           communication_preference?: string | null
           contact_type?: string | null
           cpf_cnpj?: string | null
           created_at?: string | null
+          crm_archive_reason?: string | null
+          crm_id?: string | null
+          crm_natureza?: string | null
           department_code?:
             | Database["public"]["Enums"]["department_type"]
             | null
@@ -503,6 +529,7 @@ export type Database = {
           id?: string
           lease_contract_id?: string | null
           name?: string | null
+          neighborhood?: string | null
           notes?: string | null
           onboarding_status?: string | null
           phone?: string
@@ -628,6 +655,7 @@ export type Database = {
           current_property_index: number | null
           is_ai_active: boolean | null
           last_ai_messages: string[] | null
+          last_property_shown_at: string | null
           last_search_params: Json | null
           operator_id: string | null
           operator_takeover_at: string | null
@@ -642,6 +670,7 @@ export type Database = {
           current_property_index?: number | null
           is_ai_active?: boolean | null
           last_ai_messages?: string[] | null
+          last_property_shown_at?: string | null
           last_search_params?: Json | null
           operator_id?: string | null
           operator_takeover_at?: string | null
@@ -656,6 +685,7 @@ export type Database = {
           current_property_index?: number | null
           is_ai_active?: boolean | null
           last_ai_messages?: string[] | null
+          last_property_shown_at?: string | null
           last_search_params?: Json | null
           operator_id?: string | null
           operator_takeover_at?: string | null
@@ -1314,18 +1344,16 @@ export type Database = {
           created_at: string
           description: string | null
           embedding: string | null
-          external_id: string | null
+          external_id: string
           id: string
-          images: Json | null
+          is_active: boolean | null
           neighborhood: string | null
-          parking: number | null
+          parking_spaces: number | null
           price: number | null
-          status: string | null
+          raw_data: Json | null
           tenant_id: string
-          title: string
-          type: string | null
+          title: string | null
           updated_at: string
-          url: string | null
         }
         Insert: {
           area?: number | null
@@ -1335,18 +1363,16 @@ export type Database = {
           created_at?: string
           description?: string | null
           embedding?: string | null
-          external_id?: string | null
+          external_id: string
           id?: string
-          images?: Json | null
+          is_active?: boolean | null
           neighborhood?: string | null
-          parking?: number | null
+          parking_spaces?: number | null
           price?: number | null
-          status?: string | null
+          raw_data?: Json | null
           tenant_id: string
-          title: string
-          type?: string | null
+          title?: string | null
           updated_at?: string
-          url?: string | null
         }
         Update: {
           area?: number | null
@@ -1356,18 +1382,16 @@ export type Database = {
           created_at?: string
           description?: string | null
           embedding?: string | null
-          external_id?: string | null
+          external_id?: string
           id?: string
-          images?: Json | null
+          is_active?: boolean | null
           neighborhood?: string | null
-          parking?: number | null
+          parking_spaces?: number | null
           price?: number | null
-          status?: string | null
+          raw_data?: Json | null
           tenant_id?: string
-          title?: string
-          type?: string | null
+          title?: string | null
           updated_at?: string
-          url?: string | null
         }
         Relationships: [
           {
@@ -1462,8 +1486,6 @@ export type Database = {
           wa_phone_number_id: string | null
           wa_verify_token: string | null
           waba_id: string | null
-          xml_catalog_url: string | null
-          xml_parser_type: string | null
         }
         Insert: {
           access_code?: string
@@ -1483,8 +1505,6 @@ export type Database = {
           wa_phone_number_id?: string | null
           wa_verify_token?: string | null
           waba_id?: string | null
-          xml_catalog_url?: string | null
-          xml_parser_type?: string | null
         }
         Update: {
           access_code?: string
@@ -1504,8 +1524,6 @@ export type Database = {
           wa_phone_number_id?: string | null
           wa_verify_token?: string | null
           waba_id?: string | null
-          xml_catalog_url?: string | null
-          xml_parser_type?: string | null
         }
         Relationships: []
       }
@@ -1815,52 +1833,12 @@ export type Database = {
           },
         ]
       }
-      xml_sync_queue: {
-        Row: {
-          created_at: string | null
-          error_message: string | null
-          external_id: string
-          id: string
-          raw_data: Json
-          status: string
-          tenant_id: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          error_message?: string | null
-          external_id: string
-          id?: string
-          raw_data: Json
-          status?: string
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          error_message?: string | null
-          external_id?: string
-          id?: string
-          raw_data?: Json
-          status?: string
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "xml_sync_queue_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      daily_xml_catalog_sync: { Args: never; Returns: number }
       get_my_department: { Args: never; Returns: string }
       get_user_department: { Args: { _user_id: string }; Returns: string }
       get_user_tenant_id: { Args: never; Returns: string }
@@ -1898,6 +1876,35 @@ export type Database = {
           url: string
         }[]
       }
+      reprocess_pending_xml_queue: {
+        Args: { batch_size?: number }
+        Returns: number
+      }
+      search_properties_semantic: {
+        Args: {
+          bedrooms_min?: number
+          match_count?: number
+          price_max?: number
+          price_min?: number
+          query_embedding: string
+          tenant_id_param: string
+        }
+        Returns: {
+          area: number
+          bedrooms: number
+          city: string
+          description: string
+          external_id: string
+          id: string
+          neighborhood: string
+          parking_spaces: number
+          price: number
+          raw_data: Json
+          similarity: number
+        }[]
+      }
+      trigger_crm_sync_for_all_tenants: { Args: never; Returns: undefined }
+      trigger_property_followups: { Args: never; Returns: undefined }
     }
     Enums: {
       conversation_status: "active" | "closed" | "archived"
@@ -2049,3 +2056,4 @@ export const Constants = {
     },
   },
 } as const
+

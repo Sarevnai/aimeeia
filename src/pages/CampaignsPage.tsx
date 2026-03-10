@@ -5,11 +5,13 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Plus, Eye, MessageSquare } from 'lucide-react';
+import { Loader2, Plus, Eye, MessageSquare, Upload, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
 import NewCampaignDialog from '@/components/campaigns/NewCampaignDialog';
+import LeadImportSheet from '@/components/campaigns/LeadImportSheet';
+import RemarketingCampaignSheet from '@/components/campaigns/RemarketingCampaignSheet';
 
 const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
   draft: { label: 'Rascunho', variant: 'secondary' },
@@ -31,6 +33,7 @@ interface Campaign {
   sent_count: number | null;
   delivered_count: number | null;
   template_name: string | null;
+  campaign_type: string | null;
   created_at: string | null;
 }
 
@@ -41,13 +44,15 @@ const CampaignsPage: React.FC = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [remarketingOpen, setRemarketingOpen] = useState(false);
 
   const fetchCampaigns = async () => {
     if (!tenantId) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('campaigns')
-      .select('id, name, department_code, status, sent_count, delivered_count, template_name, created_at')
+      .select('id, name, department_code, status, sent_count, delivered_count, template_name, campaign_type, created_at')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
 
@@ -70,9 +75,17 @@ const CampaignsPage: React.FC = () => {
           <h2 className="font-display text-2xl font-bold text-foreground">Campanhas</h2>
           <p className="text-sm text-muted-foreground">Envio em massa via WhatsApp</p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" /> Nova Campanha
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-1.5" /> Importar Lista CRM
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setRemarketingOpen(true)}>
+            <RefreshCw className="h-4 w-4 mr-1.5" /> Remarketing
+          </Button>
+          <Button size="sm" onClick={() => setDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Nova Campanha
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-4">
@@ -109,7 +122,16 @@ const CampaignsPage: React.FC = () => {
                 const st = statusMap[c.status || 'draft'] || statusMap.draft;
                 return (
                   <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/campanhas/${c.id}`)}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {c.name}
+                        {c.campaign_type === 'remarketing' && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                            <RefreshCw className="h-2.5 w-2.5" /> Remarketing
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       {c.department_code && (
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${deptColors[c.department_code] || ''}`}>
@@ -139,6 +161,18 @@ const CampaignsPage: React.FC = () => {
       <NewCampaignDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+        onCreated={fetchCampaigns}
+      />
+
+      <LeadImportSheet
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={() => {}}
+      />
+
+      <RemarketingCampaignSheet
+        open={remarketingOpen}
+        onOpenChange={setRemarketingOpen}
         onCreated={fetchCampaigns}
       />
     </div>

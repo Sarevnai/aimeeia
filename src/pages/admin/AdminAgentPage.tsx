@@ -88,9 +88,10 @@ const PROVIDERS = [
     },
     {
         value: 'anthropic', label: 'Anthropic Claude', models: [
-            { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku — Rápido' },
-            { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet — Balanceado' },
-            { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus — Alta capacidade' },
+            { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 — Rápido e econômico' },
+            { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5 — Balanceado' },
+            { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 — Recomendado' },
+            { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 — Máxima capacidade' },
         ]
     },
     {

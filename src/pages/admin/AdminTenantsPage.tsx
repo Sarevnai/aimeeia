@@ -10,6 +10,7 @@ import {
     UserCog,
     Calendar,
     Filter,
+    ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -162,7 +163,7 @@ const AdminTenantsPage: React.FC = () => {
                             {tenants.length} cliente{tenants.length !== 1 ? 's' : ''} na plataforma
                         </p>
                     </div>
-                    <Button size="sm" className="gap-1.5" style={{ background: 'hsl(250 70% 60%)' }}>
+                    <Button size="sm" className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90">
                         <Plus className="h-4 w-4" />
                         Novo Tenant
                     </Button>
@@ -238,7 +239,7 @@ const AdminTenantsPage: React.FC = () => {
                                         </div>
                                         <div className="min-w-0">
                                             <p className="text-sm font-medium text-foreground truncate">{tenant.company_name}</p>
-                                            <p className="text-xs text-muted-foreground lg:hidden">{tenant.city}, {tenant.state}</p>
+                                            <p className="text-xs text-muted-foreground lg:hidden mt-1">{tenant.city}, {tenant.state}</p>
                                         </div>
                                     </div>
                                 </td>
@@ -263,8 +264,8 @@ const AdminTenantsPage: React.FC = () => {
                                     </span>
                                 </td>
                                 <td className="py-3 px-4 text-right">
-                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 pointer-events-none">
+                                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
                                     </Button>
                                 </td>
                             </tr>
@@ -278,7 +279,12 @@ const AdminTenantsPage: React.FC = () => {
                             <Building2 className="h-6 w-6 text-muted-foreground" />
                         </div>
                         <p className="text-sm font-medium text-foreground">Nenhum tenant encontrado</p>
-                        <p className="text-xs text-muted-foreground mt-1">Tente ajustar os filtros de busca</p>
+                        <p className="text-xs text-muted-foreground mt-1 mb-4">Tente ajustar os filtros de busca ou crie um novo tenant</p>
+
+                        <Button size="sm" className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90">
+                            <Plus className="h-4 w-4" />
+                            Novo Tenant
+                        </Button>
                     </div>
                 )}
             </div>

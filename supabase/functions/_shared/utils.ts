@@ -94,20 +94,23 @@ export function fragmentMessage(message: string, maxChars = 800): string[] {
 
 /**
  * Log error to ai_error_log table
+ * Columns: tenant_id, agent_name, error_type, error_message, phone_number, conversation_id, context
  */
 export async function logError(
   supabase: any,
   tenantId: string,
-  functionName: string,
+  agentName: string,
   error: any,
-  context?: Record<string, any>
+  context?: Record<string, any> & { phone_number?: string; conversation_id?: string; error_type?: string }
 ) {
   try {
     await supabase.from('ai_error_log').insert({
       tenant_id: tenantId,
-      function_name: functionName,
+      agent_name: agentName,
+      error_type: context?.error_type || 'runtime_error',
       error_message: error?.message || String(error),
-      error_stack: error?.stack || null,
+      phone_number: context?.phone_number || null,
+      conversation_id: context?.conversation_id || null,
       context: context || null,
     });
   } catch (e) {

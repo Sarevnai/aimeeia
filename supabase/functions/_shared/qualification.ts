@@ -150,29 +150,31 @@ export async function saveQualificationData(
   tenantId: string,
   conversationId: string,
   contactId: string | null,
-  data: QualificationData
+  data: QualificationData,
+  phoneNumber?: string
 ) {
   // Save to lead_qualification
-  await supabase.from('lead_qualification').upsert({
-    tenant_id: tenantId,
-    conversation_id: conversationId,
-    contact_id: contactId,
-    detected_neighborhood: data.detected_neighborhood || null,
-    detected_property_type: data.detected_property_type || null,
-    detected_bedrooms: data.detected_bedrooms || null,
-    detected_budget_min: data.detected_budget_min || null,
-    detected_budget_max: data.detected_budget_max || null,
-    detected_interest: data.detected_interest || null,
-    qualification_score: data.qualification_score || 0,
-    questions_answered: data.questions_answered || 0,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'conversation_id' });
+  // Unique constraint: (tenant_id, phone_number)
+  if (phoneNumber) {
+    const { error } = await supabase.from('lead_qualification').upsert({
+      tenant_id: tenantId,
+      phone_number: phoneNumber,
+      detected_neighborhood: data.detected_neighborhood || null,
+      detected_property_type: data.detected_property_type || null,
+      detected_bedrooms: data.detected_bedrooms || null,
+      detected_budget_max: data.detected_budget_max || null,
+      detected_interest: data.detected_interest || null,
+      qualification_score: data.qualification_score || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'tenant_id,phone_number' });
 
-  // Also update conversation
-  await supabase
-    .from('conversations')
-    .update({ qualification_data: data })
-    .eq('id', conversationId);
+    if (error) {
+      console.error('❌ saveQualificationData error:', JSON.stringify(error));
+    }
+  }
+
+  // Note: conversations table does not have a qualification_data column.
+  // Qualification is persisted exclusively in lead_qualification table.
 }
 
 // ========== PRIVATE HELPERS ==========
@@ -222,13 +224,16 @@ function detectBedrooms(lower: string): number | null {
 }
 
 function detectBudget(lower: string): number | null {
-  // R$ patterns
+  // R$ patterns (ordered from most specific to least specific)
   const patterns = [
     /r\$\s*([\d.,]+)\s*(?:mil|k)/i,
     /r\$\s*([\d.,]+)/i,
     /([\d.,]+)\s*(?:mil|k)\s*(?:reais)?/i,
     /at[eé]\s*r?\$?\s*([\d.,]+)/i,
     /([\d.,]+)\s*reais/i,
+    // Plain formatted Brazilian number (30.000, 4.800, 1.500.000)
+    // Catches values like "30.000" or "Ainda 30.000 como te falei"
+    /\b(\d{1,3}(?:\.\d{3})+)\b/,
   ];
 
   for (const pattern of patterns) {

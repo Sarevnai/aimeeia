@@ -281,6 +281,14 @@ async function processInboundMessage(
     return { action: 'operator_active' };
   }
 
+  // 6.5 MC-4: Debounce — if AI is already processing a message for this conversation,
+  // skip invoking the agent. The current message is already saved (step 4) and will
+  // be included in the conversation history when the agent reads it.
+  if (state?.is_processing === true) {
+    console.log('⏳ MC-4: AI already processing for this conversation. Message saved, skipping agent invocation (debounce).');
+    return { action: 'debounced' };
+  }
+
   // 7. Invoke ai-agent
   try {
     const aiResponse = await supabase.functions.invoke('ai-agent', {

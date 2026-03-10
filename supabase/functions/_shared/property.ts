@@ -13,14 +13,23 @@ export function formatPropertyMessage(property: PropertyResult, index?: number):
     prefix,
     `*${property.tipo}* em *${property.bairro}*`,
     `📍 ${property.cidade}`,
-    `💰 ${property.preco_formatado || formatCurrency(property.preco)}`,
   ];
+
+  // MC-5: Filter invalid prices — show "sob consulta" for R$ 0 or null
+  if (property.preco && property.preco > 1) {
+    lines.push(`💰 ${property.preco_formatado || formatCurrency(property.preco)}`);
+  } else {
+    lines.push(`💰 Valor sob consulta`);
+  }
 
   if (property.quartos) lines.push(`🛏️ ${property.quartos} quarto${property.quartos > 1 ? 's' : ''}`);
   if (property.suites) lines.push(`🛁 ${property.suites} suíte${property.suites > 1 ? 's' : ''}`);
   if (property.vagas) lines.push(`🚗 ${property.vagas} vaga${property.vagas > 1 ? 's' : ''}`);
   if (property.area_util) lines.push(`📐 ${property.area_util}m²`);
-  if (property.valor_condominio) lines.push(`🏢 Cond: ${formatCurrency(property.valor_condominio)}`);
+  // MC-5: Filter invalid condo values — hide if <= R$ 1
+  if (property.valor_condominio && property.valor_condominio > 1) {
+    lines.push(`🏢 Cond: ${formatCurrency(property.valor_condominio)}`);
+  }
 
   if (property.descricao) {
     const desc = property.descricao.length > 150
@@ -57,9 +66,11 @@ export function formatConsultativeProperty(
 export function formatPropertySummary(properties: PropertyResult[]): string {
   if (properties.length === 0) return 'Nenhum imóvel encontrado.';
 
-  const summary = properties.map((p, i) =>
-    `${i + 1}. ${p.tipo} em ${p.bairro} - ${p.preco_formatado || formatCurrency(p.preco)} (${p.quartos || '?'}q, ${p.area_util || '?'}m²)`
-  ).join('\n');
+  const summary = properties.map((p, i) => {
+    // MC-5: Filter invalid prices in summary too
+    const priceStr = (p.preco && p.preco > 1) ? (p.preco_formatado || formatCurrency(p.preco)) : 'Sob consulta';
+    return `${i + 1}. ${p.tipo} em ${p.bairro} - ${priceStr} (${p.quartos || '?'}q, ${p.area_util || '?'}m²)`;
+  }).join('\n');
 
   return `Encontrei ${properties.length} imóveis:\n${summary}`;
 }

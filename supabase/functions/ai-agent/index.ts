@@ -63,6 +63,9 @@ serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
 
   const supabase = getSupabaseClient();
+  // MC-4: Track these outside try for cleanup in catch
+  let _tenantId: string | undefined;
+  let _phoneNumber: string | undefined;
 
   try {
     const body = await req.json();
@@ -76,6 +79,8 @@ serve(async (req: Request) => {
       contact_id,
       raw_message,
     } = body;
+    _tenantId = tenant_id;
+    _phoneNumber = phone_number;
 
     if (!tenant_id || !phone_number) {
       return errorResponse('Missing tenant_id or phone_number', 400);
@@ -91,6 +96,16 @@ serve(async (req: Request) => {
       .single();
 
     if (!tenant) return errorResponse('Tenant not found', 404);
+
+    // MC-4: Set processing lock to prevent concurrent agent invocations for same conversation
+    await supabase
+      .from('conversation_states')
+      .upsert({
+        tenant_id: tenant_id,
+        phone_number: phone_number,
+        is_processing: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,phone_number' });
 
     // AI Config
     const { data: config } = await supabase
@@ -192,6 +207,53 @@ serve(async (req: Request) => {
         action: 'triage',
         department: triageResult.department,
         ai_response: triageResult.responseMessages.join('\n'),
+      });
+    }
+
+    // ========== HANDOFF INTENT DETECTION (hard guardrail — MC-1) ==========
+    // Intercepts explicit handoff intent BEFORE calling the LLM.
+    // If the lead explicitly asks for a human/broker/visit, skip AI and trigger C2S directly.
+
+    const handoffIntentRegex = /\b(quero|preciso|pode|gostaria|solicito)\s+(d[oae]\s+)?(atendimento|corretor|corretora|humano|atendente|falar\s+com|agendar\s+visita|visitar)/i;
+    const directHandoffRegex = /\b(falar?\s+com\s+(um\s+)?(corretor|humano|atendente|pessoa))\b/i;
+
+    const qualScore = conversation?.qualification_data?.qualification_score || 0;
+    const isHandoffIntent = handoffIntentRegex.test(message_body) || directHandoffRegex.test(message_body);
+
+    if (isHandoffIntent && qualScore >= 65) {
+      console.log(`🚀 MC-1: Handoff intent detected ("${message_body.slice(0, 60)}"), score=${qualScore}. Bypassing LLM.`);
+
+      const qualData = conversation?.qualification_data || {};
+      const contactForHandoff = contact_name || 'Cliente';
+      const dossierLines = [
+        `Nome: ${contactForHandoff}`,
+        `Telefone: ${phone_number}`,
+        qualData.detected_interest ? `Finalidade: ${qualData.detected_interest === 'locacao' ? 'Locação' : 'Venda'}` : null,
+        qualData.detected_property_type ? `Tipo: ${qualData.detected_property_type}` : null,
+        qualData.detected_neighborhood ? `Região: ${qualData.detected_neighborhood}` : null,
+        qualData.detected_bedrooms ? `Quartos: ${qualData.detected_bedrooms}` : null,
+        qualData.detected_budget_max ? `Orçamento: até R$ ${Number(qualData.detected_budget_max).toLocaleString('pt-BR')}` : null,
+      ].filter(Boolean).join('\n');
+
+      // Execute handoff directly
+      await executeToolCall(supabase, tenant as Tenant, tenant_id, phone_number, conversation_id, contact_id, 'enviar_lead_c2s', { motivo: dossierLines }, qualData, conversation?.department_code);
+
+      // Send confirmation message
+      const handoffMsg = `Perfeito, ${contactForHandoff}! Já encaminhei suas informações para um dos nossos corretores especialistas. Em breve você receberá contato para alinhar os detalhes. Qualquer dúvida, estou por aqui!`;
+      await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, handoffMsg, conversation?.department_code || null);
+
+      // MC-4: Release processing lock
+      await supabase
+        .from('conversation_states')
+        .update({ is_processing: false, updated_at: new Date().toISOString() })
+        .eq('tenant_id', tenant_id)
+        .eq('phone_number', phone_number);
+
+      return jsonResponse({
+        action: 'handoff_direct',
+        department: conversation?.department_code,
+        ai_response: handoffMsg,
+        qualification_score: qualScore,
       });
     }
 
@@ -313,6 +375,13 @@ serve(async (req: Request) => {
       qualification_score: mergedQual.qualification_score,
     });
 
+    // MC-4: Release processing lock
+    await supabase
+      .from('conversation_states')
+      .update({ is_processing: false, updated_at: new Date().toISOString() })
+      .eq('tenant_id', tenant_id)
+      .eq('phone_number', phone_number);
+
     return jsonResponse({
       action: 'responded',
       department: effectiveDepartment,
@@ -322,6 +391,18 @@ serve(async (req: Request) => {
 
   } catch (error) {
     console.error('❌ AI Agent error:', error);
+
+    // MC-4: Release processing lock on error (best effort)
+    try {
+      if (_tenantId && _phoneNumber) {
+        await supabase
+          .from('conversation_states')
+          .update({ is_processing: false, updated_at: new Date().toISOString() })
+          .eq('tenant_id', _tenantId)
+          .eq('phone_number', _phoneNumber);
+      }
+    } catch (_) { /* best effort */ }
+
     return errorResponse((error as Error).message);
   }
 });
@@ -387,7 +468,7 @@ async function executePropertySearch(
       match_threshold: 0.2, // Very low threshold to ensure we return *something* similar
       match_count: 5,
       filter_max_price: args.preco_max || null,
-      filter_tipo: null // Assuming type is usually captured semantically anyway
+      filter_tipo: args.tipo_imovel || null // MC-2: hard filter by property type when client specified
     });
 
     if (error) {

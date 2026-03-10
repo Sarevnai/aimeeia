@@ -9,10 +9,13 @@ import { formatCurrency } from './utils.ts';
 
 // ========== CONTEXT SUMMARY (anti-loop) ==========
 
-export function buildContextSummary(qualificationData: QualificationData | null): string {
+export function buildContextSummary(qualificationData: QualificationData | null, contactName?: string | null, phoneNumber?: string | null): string {
   if (!qualificationData) return '';
 
   const collected: string[] = [];
+  // MC-3: Include contact info so the LLM knows it already has name/phone
+  if (contactName) collected.push(`👤 Nome: ${contactName}`);
+  if (phoneNumber) collected.push(`📱 Telefone: ${phoneNumber}`);
   if (qualificationData.detected_neighborhood) collected.push(`📍 Região: ${qualificationData.detected_neighborhood}`);
   if (qualificationData.detected_property_type) collected.push(`🏠 Tipo: ${qualificationData.detected_property_type}`);
   if (qualificationData.detected_bedrooms) collected.push(`🛏️ Quartos: ${qualificationData.detected_bedrooms}`);
@@ -20,7 +23,7 @@ export function buildContextSummary(qualificationData: QualificationData | null)
   if (qualificationData.detected_interest) collected.push(`🎯 Objetivo: ${qualificationData.detected_interest}`);
 
   if (collected.length === 0) return '';
-  return `\n📋 DADOS JÁ COLETADOS (NÃO PERGUNTE DE NOVO):\n${collected.join('\n')}\n`;
+  return `\n📋 DADOS JÁ COLETADOS (NÃO PERGUNTE DE NOVO — use esses dados no handoff):\n${collected.join('\n')}\n`;
 }
 
 // ========== OPENAI TOOLS ==========
@@ -60,6 +63,11 @@ function getBaseToolsForDepartment(department: DepartmentType): any[] {
               query_semantica: {
                 type: "string",
                 description: "Uma frase descritiva, rica e natural contendo TUDO o que o lead pediu. Ex: 'apartamento de 2 quartos no centro ou cambuí com varanda gourmet que aceite animais'"
+              },
+              tipo_imovel: {
+                type: "string",
+                description: "Tipo de imóvel desejado pelo cliente. Use EXATAMENTE o tipo que o cliente pediu. Se o cliente pediu 'casa', use 'casa'. Se pediu 'apartamento', use 'apartamento'. Este filtro é OBRIGATÓRIO quando o cliente especificou o tipo.",
+                enum: ["casa", "apartamento", "cobertura", "terreno", "kitnet", "sobrado", "comercial"]
               },
               preco_max: {
                 type: "number",
@@ -187,7 +195,7 @@ export async function buildSystemPrompt(
       prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
       prompt = prompt.replaceAll('{{CITY}}', tenant.city);
       prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
-      prompt += buildContextSummary(qualificationData);
+      prompt += buildContextSummary(qualificationData, contactName);
       prompt += generateRegionKnowledge(regions);
       prompt += buildBehaviorInstructions(behaviorConfig);
       if (config.custom_instructions) {
@@ -297,7 +305,7 @@ function buildStructuredPrompt(
   }
 
   // === DYNAMIC SECTIONS (always appended) ===
-  const contextSummary = buildContextSummary(qualificationData);
+  const contextSummary = buildContextSummary(qualificationData, contactName);
   if (contextSummary) sections.push(contextSummary);
 
   const regionKnowledge = generateRegionKnowledge(regions);
@@ -339,7 +347,7 @@ REGRAS:
 - Pergunte UMA informação por vez
 - Se o cliente pedir atendimento humano, use enviar_lead_c2s
 - Responda em português BR, max 3 parágrafos
-${buildContextSummary(qualData)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
+${buildContextSummary(qualData, contactName)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
 
 function buildVendasPrompt(
@@ -366,7 +374,7 @@ REGRAS:
 - Se o cliente mencionar empreendimentos específicos, destaque diferenciais
 - Se pedir atendimento humano, use enviar_lead_c2s
 - Responda em português BR, max 3 parágrafos
-${buildContextSummary(qualData)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
+${buildContextSummary(qualData, contactName)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
 
 function buildAdminPrompt(

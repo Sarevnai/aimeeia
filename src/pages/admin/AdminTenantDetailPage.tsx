@@ -17,11 +17,6 @@ import {
     Trash2,
     Pencil,
     KeyRound,
-    Database,
-    Link as LinkIcon,
-    RefreshCw,
-    AlertCircle,
-    Save,
     Megaphone,
     Send,
     Home,
@@ -30,7 +25,6 @@ import {
     Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -56,8 +50,6 @@ interface TenantData {
     crm_type: string | null;
     crm_api_key: string | null;
     crm_api_url: string | null;
-    xml_catalog_url: string | null;
-    xml_parser_type: string | null;
 }
 
 interface TenantMetrics {
@@ -116,13 +108,6 @@ const AdminTenantDetailPage: React.FC = () => {
     const [loadingCampaigns, setLoadingCampaigns] = useState(false);
     const [campaignSheetOpen, setCampaignSheetOpen] = useState(false);
 
-    // ── Catalog State ──────────────────────────────────────────────────
-    const [xmlUrl, setXmlUrl] = useState('');
-    const [xmlParser, setXmlParser] = useState('auto');
-    const [savingXml, setSavingXml] = useState(false);
-    const [syncingXml, setSyncingXml] = useState(false);
-    const [catalogStats, setCatalogStats] = useState({ total: 0, pending: 0, lastSync: null as string | null });
-
     // ── Invite user state ──────────────────────────────────────────────
     const [inviteOpen, setInviteOpen] = useState(false);
     const [inviteLoading, setInviteLoading] = useState(false);
@@ -153,7 +138,7 @@ const AdminTenantDetailPage: React.FC = () => {
             // Load tenant basic data
             const { data: tenantData, error: tenantErr } = await supabase
                 .from('tenants')
-                .select('id, company_name, city, state, is_active, created_at, wa_phone_number_id, crm_type, crm_api_key, crm_api_url, xml_catalog_url, xml_parser_type')
+                .select('id, company_name, city, state, is_active, created_at, wa_phone_number_id, crm_type, crm_api_key, crm_api_url')
                 .eq('id', tenantId)
                 .single();
 
@@ -164,28 +149,6 @@ const AdminTenantDetailPage: React.FC = () => {
             }
 
             setTenant(tenantData);
-            setXmlUrl(tenantData.xml_catalog_url || '');
-            setXmlParser(tenantData.xml_parser_type || 'auto');
-
-            // Load properties stats for this specific tenant
-            try {
-                const { count, error: countErr } = await supabase.from('properties').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId);
-                if (countErr) console.error("Properties count error:", countErr);
-
-                const { count: pendingCount, error: queueErr } = await supabase.from('xml_sync_queue').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('status', 'pending');
-                if (queueErr) console.error("Queue count error:", queueErr);
-
-                const { data: props, error: propsErr } = await supabase.from('properties').select('updated_at').eq('tenant_id', tenantId).order('updated_at', { ascending: false }).limit(1);
-                if (propsErr) console.error("Properties latest date error:", propsErr);
-
-                setCatalogStats({
-                    total: count || 0,
-                    pending: pendingCount || 0,
-                    lastSync: props && props.length > 0 ? props[0].updated_at : null
-                });
-            } catch (err) {
-                console.error("Catch block Error loading property stats", err);
-            }
 
             // Load metrics
             const monthStart = new Date();
@@ -267,7 +230,7 @@ const AdminTenantDetailPage: React.FC = () => {
                     name: 'WhatsApp Business',
                     status: 'disconnected',
                     icon: '\uD83D\uDCAC',
-                    detail: 'N\u00e3o configurado',
+                    detail: 'Não configurado',
                 });
             }
 
@@ -284,7 +247,7 @@ const AdminTenantDetailPage: React.FC = () => {
                     name: `CRM ${tenantData.crm_type}`,
                     status: 'pending',
                     icon: '\uD83C\uDFE2',
-                    detail: 'API key n\u00e3o configurada',
+                    detail: 'API key não configurada',
                 });
             } else {
                 intgs.push({
@@ -298,7 +261,7 @@ const AdminTenantDetailPage: React.FC = () => {
             // Vista integration
             if (agentData?.vista_integration_enabled) {
                 intgs.push({
-                    name: 'Busca de Im\u00f3veis (Vista)',
+                    name: 'Busca de Imóveis (Vista)',
                     status: 'connected',
                     icon: '\uD83C\uDFE0',
                     detail: 'Busca ativa via IA',
@@ -310,60 +273,6 @@ const AdminTenantDetailPage: React.FC = () => {
             console.error('Error loading tenant detail:', error);
         } finally {
             setLoading(false);
-        }
-    };
-
-    // ── Catalog config & sync ──────────────────────────────────────────
-    const handleSaveXmlConfig = async () => {
-        if (!id) return;
-        setSavingXml(true);
-        try {
-            const { error } = await supabase
-                .from('tenants')
-                .update({ xml_catalog_url: xmlUrl, xml_parser_type: xmlParser })
-                .eq('id', id);
-
-            if (error) throw error;
-            toast({ title: 'Sucesso', description: 'Configurações de catálogo XML salvas.' });
-            loadTenantData(id); // Reload
-        } catch (error: any) {
-            console.error(error);
-            toast({ title: 'Erro', description: 'Falha ao salvar configurações do catálogo.', variant: 'destructive' });
-        } finally {
-            setSavingXml(false);
-        }
-    };
-
-    const handleSyncCatalog = async () => {
-        if (!xmlUrl || !id) {
-            toast({ title: 'Aviso', description: 'Salve a URL do XML primeiro.', variant: 'destructive' });
-            return;
-        }
-
-        setSyncingXml(true);
-        toast({ title: 'Sincronização Iniciada', description: 'Baixando seu XML e adicionando na fila de IA. Isso deve demorar apenas alguns segundos...' });
-
-        try {
-            const { data, error } = await supabase.functions.invoke('sync-catalog-xml', {
-                body: { tenant_id: id, xml_url: xmlUrl, parser_type: xmlParser }
-            });
-
-            if (error) throw error;
-            if (data?.error) throw new Error(data.error);
-
-            toast({
-                title: 'Imóveis na Fila!',
-                description: data?.message || `Sua base de imóveis está sendo lida pela IA e processada em pano de fundo.`,
-            });
-
-            // Re-fetch stats slightly later to show pending items if possible
-            setTimeout(() => { if (id) loadTenantData(id) }, 5000);
-
-        } catch (error: any) {
-            console.error(error);
-            toast({ title: 'Erro na Sincronização', description: error.message || 'Falha ao processar o XML.', variant: 'destructive' });
-        } finally {
-            setSyncingXml(false);
         }
     };
 
@@ -498,7 +407,7 @@ const AdminTenantDetailPage: React.FC = () => {
         return (
             <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] gap-4">
                 <Building2 className="h-12 w-12 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">Tenant n\u00e3o encontrado</p>
+                <p className="text-sm text-muted-foreground">Tenant não encontrado</p>
                 <Button variant="outline" size="sm" onClick={() => navigate('/admin/tenants')}>
                     <ArrowLeft className="h-4 w-4 mr-1.5" />
                     Voltar
@@ -543,12 +452,11 @@ const AdminTenantDetailPage: React.FC = () => {
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
                     <TabsList className="bg-transparent h-auto p-0 gap-0">
                         {[
-                            { value: 'overview', label: 'Vis\u00e3o Geral', icon: Building2 },
+                            { value: 'overview', label: 'Visão Geral', icon: Building2 },
                             { value: 'agent', label: 'Config IA', icon: Bot },
-                            { value: 'catalog', label: 'Catálogo XML', icon: Database },
                             { value: 'billing', label: 'Billing', icon: CreditCard },
-                            { value: 'users', label: 'Usu\u00e1rios', icon: Users },
-                            { value: 'integrations', label: 'Integra\u00e7\u00f5es', icon: Plug },
+                            { value: 'users', label: 'Usuários', icon: Users },
+                            { value: 'integrations', label: 'Integrações', icon: Plug },
                             { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
                         ].map((tab) => (
                             <TabsTrigger
@@ -572,7 +480,7 @@ const AdminTenantDetailPage: React.FC = () => {
                         {/* Metrics */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             <AdminMetricCard
-                                title="Conversas (m\u00eas)"
+                                title="Conversas (mês)"
                                 value={metrics.conversations_month}
                                 icon={MessageSquare}
                                 accentColor="hsl(207 65% 44%)"
@@ -585,7 +493,7 @@ const AdminTenantDetailPage: React.FC = () => {
                                 accentColor="hsl(142 71% 45%)"
                             />
                             <AdminMetricCard
-                                title="Taxa de Qualifica\u00e7\u00e3o"
+                                title="Taxa de Qualificação"
                                 value={`${qualificationRate}%`}
                                 subtitle={`${metrics.leads_qualified} de ${metrics.contacts_total} contatos`}
                                 icon={Clock}
@@ -595,16 +503,16 @@ const AdminTenantDetailPage: React.FC = () => {
 
                         {/* Tenant Info */}
                         <div className="bg-card border border-border rounded-xl p-5">
-                            <h3 className="text-sm font-semibold text-foreground mb-3">Informa\u00e7\u00f5es do Tenant</h3>
+                            <h3 className="text-sm font-semibold text-foreground mb-3">Informações do Tenant</h3>
                             <div className="space-y-3">
                                 {[
                                     { label: 'ID', value: tenant.id },
                                     { label: 'Empresa', value: tenant.company_name },
-                                    { label: 'Localiza\u00e7\u00e3o', value: `${tenant.city}/${tenant.state}` },
+                                    { label: 'Localização', value: `${tenant.city}/${tenant.state}` },
                                     { label: 'Status', value: tenant.is_active ? 'Ativo' : 'Inativo' },
-                                    { label: 'CRM', value: tenant.crm_type || 'N\u00e3o configurado' },
-                                    { label: 'WhatsApp', value: tenant.wa_phone_number_id || 'N\u00e3o configurado' },
-                                    { label: 'Usu\u00e1rios', value: `${users.length}` },
+                                    { label: 'CRM', value: tenant.crm_type || 'Não configurado' },
+                                    { label: 'WhatsApp', value: tenant.wa_phone_number_id || 'Não configurado' },
+                                    { label: 'Usuários', value: `${users.length}` },
                                 ].map(({ label, value }) => (
                                     <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 py-2 border-b border-border/50 last:border-0">
                                         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide min-w-[140px]">{label}</span>
@@ -620,17 +528,17 @@ const AdminTenantDetailPage: React.FC = () => {
                     <div className="space-y-4 max-w-3xl mx-auto animate-fade-in">
                         {agentConfig ? (
                             <div className="bg-card border border-border rounded-xl p-5">
-                                <h3 className="text-sm font-semibold text-foreground mb-4">Configura\u00e7\u00e3o do Agente</h3>
+                                <h3 className="text-sm font-semibold text-foreground mb-4">Configuração do Agente</h3>
                                 <div className="space-y-4">
                                     {[
                                         { label: 'Nome do Agente', value: agentConfig.agent_name },
                                         { label: 'Tom', value: agentConfig.tone },
                                         { label: 'Modelo IA', value: agentConfig.ai_model },
-                                        { label: 'Mensagem de sauda\u00e7\u00e3o', value: agentConfig.greeting_message || 'N\u00e3o definida' },
-                                        { label: 'Mensagem de fallback', value: agentConfig.fallback_message || 'N\u00e3o definida' },
-                                        { label: '\u00c1udio habilitado', value: agentConfig.audio_enabled ? 'Sim' : 'N\u00e3o' },
+                                        { label: 'Mensagem de saudação', value: agentConfig.greeting_message || 'Não definida' },
+                                        { label: 'Mensagem de fallback', value: agentConfig.fallback_message || 'Não definida' },
+                                        { label: 'Áudio habilitado', value: agentConfig.audio_enabled ? 'Sim' : 'Não' },
                                         { label: 'Intensidade de emojis', value: agentConfig.emoji_intensity },
-                                        { label: 'Busca Vista ativa', value: agentConfig.vista_integration_enabled ? 'Sim' : 'N\u00e3o' },
+                                        { label: 'Busca Vista ativa', value: agentConfig.vista_integration_enabled ? 'Sim' : 'Não' },
                                     ].map(({ label, value }) => (
                                         <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 py-2 border-b border-border/50 last:border-0">
                                             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide min-w-[160px]">{label}</span>
@@ -643,141 +551,21 @@ const AdminTenantDetailPage: React.FC = () => {
                             <div className="bg-card border border-border rounded-xl p-5">
                                 <div className="flex flex-col items-center justify-center py-8">
                                     <Bot className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                                    <p className="text-sm text-muted-foreground">Nenhuma configura\u00e7\u00e3o de agente encontrada</p>
+                                    <p className="text-sm text-muted-foreground">Nenhuma configuração de agente encontrada</p>
                                 </div>
                             </div>
                         )}
                     </div>
                 )}
 
-                {activeTab === 'catalog' && (
-                    <div className="space-y-6 max-w-5xl mx-auto animate-fade-in">
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                            {/* Form de Configuração */}
-                            <div className="lg:col-span-2 space-y-6">
-                                <div className="bg-card border border-border rounded-xl p-5 md:p-6">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="text-sm font-semibold text-foreground">Configuração do Feed XML</h3>
-                                    </div>
-                                    <div className="space-y-4">
-
-                                        <div className="space-y-2">
-                                            <Label htmlFor="xml_url">URL do XML (Publicamente Acessível)</Label>
-                                            <div className="relative">
-                                                <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                                <Input
-                                                    id="xml_url"
-                                                    placeholder="https://crm.exemplo.com.br/export/vivareal.xml"
-                                                    className="pl-9 font-mono text-sm"
-                                                    value={xmlUrl}
-                                                    onChange={(e) => setXmlUrl(e.target.value)}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label htmlFor="xml_parser">Formato de Leitura (Parser)</Label>
-                                            <Select value={xmlParser} onValueChange={setXmlParser}>
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="auto">Detecção Automática</SelectItem>
-                                                    <SelectItem value="zap_vivareal">ZAP / VivaReal Padrão</SelectItem>
-                                                    <SelectItem value="vista">Vista CRM</SelectItem>
-                                                    <SelectItem value="custom">Formato Customizado (Precisa de ajuste manual)</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                Se "Automática", o sistema tentará inferir através de tags comuns como &lt;Imovel&gt; ou &lt;Listing&gt;.
-                                            </p>
-                                        </div>
-
-                                        <div className="pt-4 flex items-center justify-end border-t border-border">
-                                            <Button onClick={handleSaveXmlConfig} disabled={savingXml}>
-                                                {savingXml ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />} Salvar
-                                            </Button>
-                                        </div>
-
-                                    </div>
-                                </div>
-
-                                <div className="bg-muted/30 border border-border rounded-xl p-5">
-                                    <h4 className="font-medium flex items-center gap-2 mb-2 text-sm text-foreground">
-                                        <AlertCircle className="h-4 w-4 text-amber-500" /> Funcionamento da Busca por IA
-                                    </h4>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
-                                        Ao sincronizar, o sistema processará o arquivo XML informado e criará seus <strong>Knowledge Embeddings</strong> (vetores numéricos contextuais) através da API da OpenAI (`text-embedding-3-small`).<br /><br />
-                                        Isso permite que a Aimee interprete de forma semântica o desejo exato do lead e identifique imóveis ideais baseados na semelhança do contexto e filtros quantitativos. Esta busca é limitada aos imóveis cadastrados neste tenant!
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* Stats do Banco e Sincronização */}
-                            <div className="space-y-6">
-                                <div className="bg-card border border-border rounded-xl p-5 md:p-6 flex flex-col items-center justify-center text-center">
-                                    <Database className="h-10 w-10 text-[hsl(250_70%_60%)] mb-3 opacity-80" />
-                                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Visão do Catálogo</h3>
-                                    <div className="flex items-center justify-center gap-8 my-2">
-                                        <div className="flex flex-col items-center">
-                                            <div className="text-4xl font-display font-bold text-foreground">
-                                                {loading ? <span className="animate-pulse">...</span> : catalogStats.total}
-                                            </div>
-                                            <div className="text-[10px] uppercase font-bold text-muted-foreground mt-1">Imóveis BD</div>
-                                        </div>
-
-                                        <div className="h-10 w-px bg-border"></div>
-
-                                        <div className="flex flex-col items-center">
-                                            <div className="text-4xl font-display font-bold text-indigo-500">
-                                                {loading ? <span className="animate-pulse">...</span> : (catalogStats.pending || 0)}
-                                            </div>
-                                            <div className="text-[10px] uppercase font-bold text-indigo-500/80 mt-1 flex items-center gap-1"><Clock className="w-3 h-3" /> Fila IA</div>
-                                        </div>
-                                    </div>
-
-                                    {catalogStats.lastSync ? (
-                                        <div className="flex items-center justify-center gap-1.5 text-[10px] text-emerald-500 font-medium bg-emerald-500/10 py-1 px-2.5 rounded-full mx-auto w-fit mt-1">
-                                            <CheckCircle2 className="h-3 w-3" />
-                                            Sincronizado {new Date(catalogStats.lastSync).toLocaleString('pt-BR')}
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center justify-center gap-1.5 text-[10px] text-amber-500 font-medium bg-amber-500/10 py-1 px-2.5 rounded-full mx-auto w-fit mt-1">
-                                            <Clock className="h-3 w-3" />
-                                            Nunca sincronizado
-                                        </div>
-                                    )}
-
-                                    <Separator className="my-5 w-full bg-border/50" />
-
-                                    <Button
-                                        onClick={handleSyncCatalog}
-                                        disabled={syncingXml || !xmlUrl}
-                                        className="w-full bg-[hsl(250_70%_60%)] hover:bg-[hsl(250_70%_50%)] text-white shadow-lg shadow-[hsl(250_70%_60%_/0.2)]"
-                                    >
-                                        {syncingXml ? (
-                                            <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Processando Vetores...</>
-                                        ) : (
-                                            <><RefreshCw className="h-4 w-4 mr-2" /> Forçar Sincronização</>
-                                        )}
-                                    </Button>
-                                    <p className="text-[10px] text-muted-foreground mt-3">Essa ação invocará processos de inteligência artificial de leitura e geração de embeddings e pode demorar.</p>
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
-                )}
-
                 {activeTab === 'billing' && (
                     <div className="space-y-4 max-w-3xl mx-auto animate-fade-in">
                         <div className="bg-card border border-border rounded-xl p-5">
-                            <h3 className="text-sm font-semibold text-foreground mb-4">Informa\u00e7\u00f5es de Billing</h3>
+                            <h3 className="text-sm font-semibold text-foreground mb-4">Informações de Billing</h3>
                             <div className="flex flex-col items-center justify-center py-8">
                                 <CreditCard className="h-8 w-8 text-muted-foreground/30 mb-2" />
                                 <p className="text-sm text-muted-foreground">Sistema de billing em desenvolvimento</p>
-                                <p className="text-xs text-muted-foreground mt-1">Planos e cobran\u00e7as ser\u00e3o exibidos ap\u00f3s implementa\u00e7\u00e3o</p>
+                                <p className="text-xs text-muted-foreground mt-1">Planos e cobranças serão exibidos após implementação</p>
                             </div>
                         </div>
                     </div>
@@ -997,11 +785,11 @@ const AdminTenantDetailPage: React.FC = () => {
                 {activeTab === 'integrations' && (
                     <div className="space-y-4 max-w-3xl mx-auto animate-fade-in">
                         <div className="bg-card border border-border rounded-xl p-5">
-                            <h3 className="text-sm font-semibold text-foreground mb-4">Integra\u00e7\u00f5es</h3>
+                            <h3 className="text-sm font-semibold text-foreground mb-4">Integrações</h3>
                             {integrations.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-8">
                                     <Plug className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                                    <p className="text-sm text-muted-foreground">Nenhuma integra\u00e7\u00e3o configurada</p>
+                                    <p className="text-sm text-muted-foreground">Nenhuma integração configurada</p>
                                 </div>
                             ) : (
                                 <div className="space-y-3">

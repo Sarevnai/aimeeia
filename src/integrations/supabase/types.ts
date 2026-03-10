@@ -398,6 +398,7 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          campaign_type: string | null
           created_at: string | null
           delivered_count: number | null
           department_code: Database["public"]["Enums"]["department_type"] | null
@@ -410,6 +411,7 @@ export type Database = {
           tenant_id: string
         }
         Insert: {
+          campaign_type?: string | null
           created_at?: string | null
           delivered_count?: number | null
           department_code?:
@@ -424,6 +426,7 @@ export type Database = {
           tenant_id: string
         }
         Update: {
+          campaign_type?: string | null
           created_at?: string | null
           delivered_count?: number | null
           department_code?:
@@ -684,17 +687,20 @@ export type Database = {
       }
       conversations: {
         Row: {
+          campaign_id: string | null
           contact_id: string | null
           created_at: string | null
           department_code: Database["public"]["Enums"]["department_type"] | null
           id: string
           last_message_at: string | null
           phone_number: string
+          source: string | null
           stage_id: string | null
           status: Database["public"]["Enums"]["conversation_status"] | null
           tenant_id: string
         }
         Insert: {
+          campaign_id?: string | null
           contact_id?: string | null
           created_at?: string | null
           department_code?:
@@ -703,11 +709,13 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           phone_number: string
+          source?: string | null
           stage_id?: string | null
           status?: Database["public"]["Enums"]["conversation_status"] | null
           tenant_id: string
         }
         Update: {
+          campaign_id?: string | null
           contact_id?: string | null
           created_at?: string | null
           department_code?:
@@ -716,11 +724,19 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           phone_number?: string
+          source?: string | null
           stage_id?: string | null
           status?: Database["public"]["Enums"]["conversation_status"] | null
           tenant_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "conversations_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "conversations_contact_id_fkey"
             columns: ["contact_id"]
@@ -1462,8 +1478,6 @@ export type Database = {
           wa_phone_number_id: string | null
           wa_verify_token: string | null
           waba_id: string | null
-          xml_catalog_url: string | null
-          xml_parser_type: string | null
         }
         Insert: {
           access_code?: string
@@ -1483,8 +1497,6 @@ export type Database = {
           wa_phone_number_id?: string | null
           wa_verify_token?: string | null
           waba_id?: string | null
-          xml_catalog_url?: string | null
-          xml_parser_type?: string | null
         }
         Update: {
           access_code?: string
@@ -1504,8 +1516,6 @@ export type Database = {
           wa_phone_number_id?: string | null
           wa_verify_token?: string | null
           waba_id?: string | null
-          xml_catalog_url?: string | null
-          xml_parser_type?: string | null
         }
         Relationships: []
       }
@@ -1908,6 +1918,8 @@ export type Database = {
         | "awaiting_name"
         | "awaiting_triage"
         | "completed"
+        | "remarketing_vip_pitch"
+        | "remarketing_buyin"
       user_role: "admin" | "operator" | "viewer" | "super_admin"
     }
     CompositeTypes: {
@@ -2044,6 +2056,8 @@ export const Constants = {
         "awaiting_name",
         "awaiting_triage",
         "completed",
+        "remarketing_vip_pitch",
+        "remarketing_buyin",
       ],
       user_role: ["admin", "operator", "viewer", "super_admin"],
     },

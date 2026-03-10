@@ -198,6 +198,7 @@ serve(async (req: Request) => {
     // ========== AI PHASE ==========
 
     const department = conversation?.department_code || null;
+    const conversationSource = conversation?.source || 'organic';
 
     // Issue 1: Verificar se há ticket administrativo aberto para sobrepor departamento.
     // Previne que o AI use prompt de vendas/locação quando o contexto real é administrativo.
@@ -246,11 +247,17 @@ serve(async (req: Request) => {
     // Load conversation history
     const history = await loadConversationHistory(supabase, tenant_id, conversation_id, aiConfig.max_history_messages || 10, effectiveDepartment);
 
+    // Load remarketing context if applicable
+    let remarketingContext: string | null = null;
+    if (conversationSource === 'remarketing') {
+      remarketingContext = await loadRemarketingContext(supabase, tenant_id, contact_id);
+    }
+
     // Build system prompt (pass preloaded directive to avoid double DB query)
     const systemPrompt = await buildSystemPrompt(
       supabase, aiConfig, tenant, effectiveDepartment, regions,
       contact_name, mergedQual, history, behaviorConfig as AIBehaviorConfig | null,
-      directive
+      directive, conversationSource, remarketingContext
     );
 
     // Get tools (enhanced with skill descriptions if structured_config defines them)
@@ -675,6 +682,75 @@ async function loadConversationHistory(
     role: m.direction === 'inbound' ? 'user' : 'assistant',
     content: m.body,
   })) as ConversationMessage[];
+}
+
+async function loadRemarketingContext(
+  supabase: any,
+  tenantId: string,
+  contactId: string
+): Promise<string | null> {
+  try {
+    const sections: string[] = [];
+
+    // 1. Load contact CRM data
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('name, crm_archive_reason, crm_natureza, neighborhood, city, notes')
+      .eq('id', contactId)
+      .maybeSingle();
+
+    if (contact) {
+      sections.push('📋 CONTEXTO DO LEAD (REMARKETING):');
+      sections.push('- Lead re-engajado via campanha de remarketing');
+      if (contact.crm_archive_reason) sections.push(`- Motivo de arquivamento anterior: ${contact.crm_archive_reason}`);
+      if (contact.crm_natureza) sections.push(`- Interesse anterior: ${contact.crm_natureza}`);
+      if (contact.neighborhood || contact.city) {
+        const location = [contact.neighborhood, contact.city].filter(Boolean).join(', ');
+        sections.push(`- Região anterior: ${location}`);
+      }
+      if (contact.notes) sections.push(`- Observações: ${contact.notes}`);
+    }
+
+    // 2. Load summary of last archived conversation
+    const { data: archivedConv } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('contact_id', contactId)
+      .eq('status', 'archived')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (archivedConv) {
+      const { data: prevMessages } = await supabase
+        .from('messages')
+        .select('body, direction, sender_type')
+        .eq('conversation_id', archivedConv.id)
+        .not('body', 'is', null)
+        .neq('sender_type', 'system')
+        .order('created_at', { ascending: false })
+        .limit(15);
+
+      if (prevMessages && prevMessages.length > 0) {
+        const summary = prevMessages.reverse().map((m: any) => {
+          const role = m.direction === 'inbound' ? 'Cliente' : 'Aimee';
+          return `${role}: ${m.body?.slice(0, 100)}`;
+        }).join('\n');
+        sections.push(`\n📜 RESUMO DA ÚLTIMA CONVERSA:\n${summary}`);
+      }
+    }
+
+    if (sections.length === 0) return null;
+
+    sections.push('\n⚠️ USE este contexto para personalizar o atendimento.');
+    sections.push('NÃO pergunte informações que já foram coletadas antes.');
+
+    return sections.join('\n');
+  } catch (error) {
+    console.error('⚠️ Error loading remarketing context:', error);
+    return null;
+  }
 }
 
 async function sendAndSave(

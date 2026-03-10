@@ -32,3 +32,4 @@ src/contexts/TenantContext.tsx
 src/pages/admin/AdminDashboardPage.tsx
 src/pages/admin/AdminTenantDetailPage.tsx
 src/pages/admin/AdminTenantsPage.tsx
+.claude/worktrees/confident-raman/

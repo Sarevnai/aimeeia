@@ -107,7 +107,6 @@ export async function updateAntiLoopState(
       tenant_id: tenantId,
       phone_number: phoneNumber,
       last_ai_messages: messages,
-      last_ai_message_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, { onConflict: 'tenant_id,phone_number' });
 }

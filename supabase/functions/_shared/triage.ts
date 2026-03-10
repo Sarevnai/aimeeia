@@ -81,7 +81,8 @@ export async function handleTriage(
   messageBody: string,
   phoneNumber: string,
   conversationId: string,
-  triageConfig?: TriageConfig | null
+  triageConfig?: TriageConfig | null,
+  contactName?: string | null
 ): Promise<TriageResult> {
   const stage = state?.triage_stage || 'greeting';
   const agentName = config.agent_name || 'Aimee';
@@ -159,7 +160,7 @@ export async function handleTriage(
       await completeTriage(supabase, tenant.id, phoneNumber, conversationId, buttonResult.department);
 
       const welcomeMsg = triageConfig?.department_welcome?.[buttonResult.department]
-        ? replaceTvars(triageConfig.department_welcome[buttonResult.department], state?.contact_name)
+        ? replaceTvars(triageConfig.department_welcome[buttonResult.department], contactName || undefined)
         : DEPARTMENT_WELCOME[buttonResult.department] || 'Como posso te ajudar?';
 
       return {
@@ -175,7 +176,7 @@ export async function handleTriage(
       await completeTriage(supabase, tenant.id, phoneNumber, conversationId, inferredDept);
 
       const welcomeMsg = triageConfig?.department_welcome?.[inferredDept]
-        ? replaceTvars(triageConfig.department_welcome[inferredDept], state?.contact_name)
+        ? replaceTvars(triageConfig.department_welcome[inferredDept], contactName || undefined)
         : DEPARTMENT_WELCOME[inferredDept] || 'Como posso te ajudar?';
 
       return {
@@ -195,7 +196,6 @@ export async function handleTriage(
   // ========== STAGE: REMARKETING VIP PITCH ==========
   if (stage === 'remarketing_vip_pitch') {
     const rmkConfig = triageConfig?.remarketing;
-    const contactName = state?.contact_name || null;
 
     // Build VIP pitch messages (configurable or default)
     const pitchMessages = rmkConfig?.vip_pitch?.map(msg => replaceTvars(msg, contactName || undefined)) || [
@@ -227,7 +227,6 @@ export async function handleTriage(
   // ========== STAGE: REMARKETING BUY-IN ==========
   if (stage === 'remarketing_buyin') {
     const rmkConfig = triageConfig?.remarketing;
-    const contactName = state?.contact_name || null;
     const lower = messageBody.toLowerCase().trim();
 
     // Detect positive response

@@ -170,7 +170,8 @@ serve(async (req: Request) => {
       supabase, tenant as Tenant, aiConfig, state as ConversationState | null,
       raw_message || { text: { body: message_body } },
       message_body, phone_number, conversation_id,
-      triageConfig
+      triageConfig,
+      contact_name || null
     );
 
     if (triageResult.shouldContinue) {

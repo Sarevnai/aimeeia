@@ -8,6 +8,15 @@ port = 54323
 [inbucket]
 port = 54324
 
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.ai-agent]
+verify_jwt = false
+
+[functions.portal-leads-webhook]
+verify_jwt = false
+
 [functions.crm-sync-properties]
 enabled = true
 verify_jwt = false
@@ -18,6 +27,9 @@ entrypoint = "./functions/crm-sync-properties/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/crm-sync-properties/*.html" ]
+
+[functions.property-followup]
+verify_jwt = false
 
 [functions.generate-property-embedding]
 enabled = true

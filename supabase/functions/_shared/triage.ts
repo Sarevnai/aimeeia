@@ -295,19 +295,41 @@ export async function handleTriage(
 
 // ========== HELPER FUNCTIONS ==========
 
+// Common greetings and filler words that should NOT be treated as names
+const NOT_A_NAME = new Set([
+  'olá', 'ola', 'oi', 'oii', 'oiii', 'ei', 'hey', 'hello', 'hi',
+  'bom', 'boa', 'bom dia', 'boa tarde', 'boa noite', 'boa tarde!', 'bom dia!', 'boa noite!',
+  'tudo', 'bem', 'tudo bem', 'tudo bom', 'ok', 'okay', 'sim', 'não', 'nao',
+  'aqui', 'é', 'e', 'eu', 'de', 'da', 'do', 'me', 'meu', 'minha',
+  'opa', 'eai', 'eaí', 'e aí', 'oi tudo', 'salve', 'fala', 'ae', 'aê',
+]);
+
 function extractName(text: string): string | null {
   const cleaned = text.trim();
   if (cleaned.length < 2 || cleaned.length > 60) return null;
-  // If it's a single word or two words, likely a name
-  const words = cleaned.split(/\s+/);
-  if (words.length <= 4) {
-    return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-  }
-  // Try to extract "me chamo X" / "meu nome é X"
+
+  // Try to extract "me chamo X" / "meu nome é X" / "sou o X" first (most reliable)
   const nameMatch = cleaned.match(/(?:me\s+chamo?|meu\s+nome\s+[eé]|sou\s+(?:o|a)?\s*)\s*([a-záàâãéèêíïóôõöúç\s]+)/i);
   if (nameMatch) {
-    return nameMatch[1].trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    const extracted = nameMatch[1].trim();
+    if (extracted.length >= 2 && !NOT_A_NAME.has(extracted.toLowerCase())) {
+      return extracted.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    }
   }
+
+  // If it's a short phrase (≤4 words), treat as name — but filter out greetings/fillers
+  const words = cleaned.split(/\s+/);
+  if (words.length <= 4) {
+    const lower = cleaned.toLowerCase().replace(/[!?.]/g, '').trim();
+    if (NOT_A_NAME.has(lower)) return null;
+    // Also reject if it starts with a greeting word
+    const firstWord = words[0].toLowerCase().replace(/[!?.]/g, '');
+    if (NOT_A_NAME.has(firstWord)) return null;
+    // Reject pure numeric or very short single chars
+    if (/^\d+$/.test(lower)) return null;
+    return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  }
+
   return null;
 }
 

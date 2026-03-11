@@ -177,10 +177,31 @@ export async function saveQualificationData(
 
 // ========== PRIVATE HELPERS ==========
 
+// Common abbreviations and aliases for neighborhoods in Florianópolis
+const NEIGHBORHOOD_ALIASES: Record<string, string[]> = {
+  'santo antônio de lisboa': ['santo antônio', 'santo antonio', 'sto antônio', 'sto antonio', 'sto. antônio', 'sto. antonio'],
+  'ingleses do rio vermelho': ['ingleses', 'praia dos ingleses', 'centrinho dos ingleses'],
+  'cachoeira do bom jesus': ['cachoeira', 'cachoeira do bom jesus'],
+  'ponta das canas': ['ponta das canas'],
+  'são joão do rio vermelho': ['são joão', 'sao joao'],
+  'armação do pântano do sul': ['armação', 'armacao'],
+  'lagoa da conceição': ['lagoa', 'lagoa da conceição', 'lagoa da conceicao'],
+  'ribeirão da ilha': ['ribeirão', 'ribeirao'],
+  'jurerê internacional': ['jurerê internacional', 'jurere internacional'],
+  'jurerê tradicional': ['jurerê tradicional', 'jurere tradicional'],
+  'jurerê': ['jurere', 'jurerê'],
+  'canasvieiras': ['canasvieiras', 'canas vieiras', 'canasvierias', 'canas'],
+  'saco dos limões': ['saco dos limões', 'saco dos limoes'],
+  'costeira do pirajubaé': ['costeira', 'pirajubaé', 'pirajubae'],
+  'vargem do bom jesus': ['vargem do bom jesus'],
+  'balneário do estreito': ['balneário estreito'],
+};
+
 function detectNeighborhood(
   lower: string,
   regions: Array<{ region_name: string; neighborhoods: string[] }>
 ): string | null {
+  // 1. Direct match against neighborhoods list
   for (const region of regions) {
     for (const neighborhood of region.neighborhoods) {
       if (lower.includes(neighborhood.toLowerCase())) {
@@ -191,6 +212,21 @@ function detectNeighborhood(
       return region.region_name;
     }
   }
+
+  // 2. Alias/fuzzy match — check abbreviations and common misspellings
+  for (const region of regions) {
+    for (const neighborhood of region.neighborhoods) {
+      const aliases = NEIGHBORHOOD_ALIASES[neighborhood.toLowerCase()];
+      if (aliases) {
+        for (const alias of aliases) {
+          if (lower.includes(alias)) {
+            return neighborhood;
+          }
+        }
+      }
+    }
+  }
+
   return null;
 }
 

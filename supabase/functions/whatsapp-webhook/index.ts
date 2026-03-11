@@ -352,16 +352,40 @@ async function processInboundMessage(
     .maybeSingle();
 
   if (state?.is_ai_active === false) {
-    console.log('🤚 AI disabled for this conversation (operator takeover)');
-    return { action: 'operator_active' };
+    console.log('🔄 Reactivating AI after handoff — lead sent new message');
+    await supabase.from('conversation_states').upsert({
+      phone_number: phoneNumber,
+      tenant_id: tenant.id,
+      is_ai_active: true,
+      operator_takeover_at: null,
+      triage_stage: state?.triage_stage || 'greeting',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'phone_number,tenant_id' });
+    // Don't return — continue to step 7 to invoke ai-agent
   }
 
   // 6.5 MC-4: Debounce — if AI is already processing a message for this conversation,
   // skip invoking the agent. The current message is already saved (step 4) and will
   // be included in the conversation history when the agent reads it.
+  // TTL: if lock is older than 2 minutes, consider it stale and proceed anyway.
   if (state?.is_processing === true) {
-    console.log('⏳ MC-4: AI already processing for this conversation. Message saved, skipping agent invocation (debounce).');
-    return { action: 'debounced' };
+    const lockAgeMs = state?.updated_at
+      ? Date.now() - new Date(state.updated_at).getTime()
+      : 0;
+    const LOCK_TTL_MS = 120_000; // 2 minutes
+
+    if (lockAgeMs < LOCK_TTL_MS) {
+      console.log(`⏳ MC-4: AI already processing (lock age: ${Math.round(lockAgeMs / 1000)}s). Message saved, skipping agent invocation.`);
+      return { action: 'debounced' };
+    }
+
+    // Stale lock — release it and proceed
+    console.warn(`⚠️ MC-4: Stale processing lock detected (age: ${Math.round(lockAgeMs / 1000)}s). Releasing and proceeding.`);
+    await supabase
+      .from('conversation_states')
+      .update({ is_processing: false, updated_at: new Date().toISOString() })
+      .eq('tenant_id', tenant.id)
+      .eq('phone_number', phoneNumber);
   }
 
   // 7. Invoke ai-agent

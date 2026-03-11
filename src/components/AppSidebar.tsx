@@ -17,7 +17,6 @@ import {
   ChevronRight,
   Radar,
   RefreshCw,
-  FileText,
   Ticket,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -48,10 +47,10 @@ interface AppSidebarProps {
 // Define which paths each role can access
 const ROLE_PATHS: Record<string, string[]> = {
   super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios', '/chamados',
-    '/empreendimentos', '/campanhas', '/templates', '/atualizacao',
+    '/empreendimentos', '/campanhas', '/atualizacao',
     '/financeiro', '/minha-aimee', '/acessos', '/guia', '/admin'],
   admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios', '/chamados',
-    '/empreendimentos', '/campanhas', '/templates', '/atualizacao',
+    '/empreendimentos', '/campanhas', '/atualizacao',
     '/financeiro', '/minha-aimee', '/acessos', '/guia'],
   operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/chamados', '/empreendimentos', '/guia'],
   viewer: ['/', '/relatorios', '/guia'],
@@ -117,7 +116,6 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
       items: [
         { label: 'Empreendimentos', icon: Building2, path: '/empreendimentos' },
         { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
-        { label: 'Templates', icon: FileText, path: '/templates' },
         { label: 'Atualização', icon: RefreshCw, path: '/atualizacao' },
       ],
     },

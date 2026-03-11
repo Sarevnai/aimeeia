@@ -23,17 +23,21 @@ import {
     CheckCircle,
     FileText,
     Plus,
+    BookUser,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import TenantStatusBadge from '@/components/admin/TenantStatusBadge';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import AdminNewCampaignSheet from '@/components/admin/AdminNewCampaignSheet';
+import AdminTemplatesTab from '@/components/admin/AdminTemplatesTab';
+import AdminContactsTab from '@/components/admin/AdminContactsTab';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -107,6 +111,12 @@ const AdminTenantDetailPage: React.FC = () => {
     const [tenantUpdateCampaigns, setTenantUpdateCampaigns] = useState<any[]>([]);
     const [loadingCampaigns, setLoadingCampaigns] = useState(false);
     const [campaignSheetOpen, setCampaignSheetOpen] = useState(false);
+
+    // ── Campaign edit/delete state ───────────────────────────────────
+    const [editCampaign, setEditCampaign] = useState<{ id: string; type: 'marketing' | 'atualizacao'; name: string; status: string; template_name?: string; description?: string; message_template?: string } | null>(null);
+    const [editCampaignLoading, setEditCampaignLoading] = useState(false);
+    const [deleteCampaign, setDeleteCampaign] = useState<{ id: string; type: 'marketing' | 'atualizacao'; name: string } | null>(null);
+    const [deleteCampaignLoading, setDeleteCampaignLoading] = useState(false);
 
     // ── Invite user state ──────────────────────────────────────────────
     const [inviteOpen, setInviteOpen] = useState(false);
@@ -368,6 +378,68 @@ const AdminTenantDetailPage: React.FC = () => {
         }
     };
 
+    // ── Campaign helpers ───────────────────────────────────────────────
+    const reloadCampaigns = async () => {
+        if (!id) return;
+        const [mkt, upd] = await Promise.all([
+            supabase.from('campaigns').select('*').eq('tenant_id', id).order('created_at', { ascending: false }),
+            supabase.from('owner_update_campaigns').select('*').eq('tenant_id', id).order('created_at', { ascending: false }),
+        ]);
+        setTenantCampaigns(mkt.data ?? []);
+        setTenantUpdateCampaigns(upd.data ?? []);
+    };
+
+    const handleEditCampaign = async () => {
+        if (!editCampaign) return;
+        setEditCampaignLoading(true);
+        if (editCampaign.type === 'marketing') {
+            const { error } = await supabase
+                .from('campaigns')
+                .update({ name: editCampaign.name.trim(), status: editCampaign.status })
+                .eq('id', editCampaign.id);
+            if (error) {
+                toast({ title: 'Erro ao atualizar', description: error.message, variant: 'destructive' });
+            } else {
+                toast({ title: 'Campanha atualizada!' });
+                setEditCampaign(null);
+                await reloadCampaigns();
+            }
+        } else {
+            const { error } = await supabase
+                .from('owner_update_campaigns')
+                .update({
+                    name: editCampaign.name.trim(),
+                    status: editCampaign.status,
+                    description: editCampaign.description?.trim() || null,
+                    message_template: editCampaign.message_template?.trim() || null,
+                })
+                .eq('id', editCampaign.id);
+            if (error) {
+                toast({ title: 'Erro ao atualizar', description: error.message, variant: 'destructive' });
+            } else {
+                toast({ title: 'Campanha atualizada!' });
+                setEditCampaign(null);
+                await reloadCampaigns();
+            }
+        }
+        setEditCampaignLoading(false);
+    };
+
+    const handleDeleteCampaign = async () => {
+        if (!deleteCampaign) return;
+        setDeleteCampaignLoading(true);
+        const table = deleteCampaign.type === 'marketing' ? 'campaigns' : 'owner_update_campaigns';
+        const { error } = await supabase.from(table).delete().eq('id', deleteCampaign.id);
+        if (error) {
+            toast({ title: 'Erro ao excluir', description: error.message, variant: 'destructive' });
+        } else {
+            toast({ title: 'Campanha excluida!' });
+            await reloadCampaigns();
+        }
+        setDeleteCampaign(null);
+        setDeleteCampaignLoading(false);
+    };
+
     if (loading) {
         return (
             <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -457,7 +529,9 @@ const AdminTenantDetailPage: React.FC = () => {
                             { value: 'billing', label: 'Billing', icon: CreditCard },
                             { value: 'users', label: 'Usuários', icon: Users },
                             { value: 'integrations', label: 'Integrações', icon: Plug },
+                            { value: 'contacts', label: 'Contatos', icon: BookUser },
                             { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
+                            { value: 'templates', label: 'Templates', icon: FileText },
                         ].map((tab) => (
                             <TabsTrigger
                                 key={tab.value}
@@ -826,6 +900,13 @@ const AdminTenantDetailPage: React.FC = () => {
                     </div>
                 )}
 
+                {/* ═══ CONTACTS TAB ═══ */}
+                {activeTab === 'contacts' && (
+                    <div className="max-w-5xl mx-auto animate-fade-in">
+                        <AdminContactsTab tenantId={tenant.id} />
+                    </div>
+                )}
+
                 {/* ═══ CAMPAIGNS TAB ═══ */}
                 {activeTab === 'campaigns' && (
                     <div className="space-y-4 max-w-5xl mx-auto animate-fade-in">
@@ -863,7 +944,7 @@ const AdminTenantDetailPage: React.FC = () => {
                                     <div className="space-y-2">
                                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Marketing ({tenantCampaigns.length})</p>
                                         {tenantCampaigns.map((c: any) => (
-                                            <div key={c.id} className="flex items-center gap-3 rounded-xl bg-card border border-border p-4 shadow-sm">
+                                            <div key={c.id} className="flex items-center gap-3 rounded-xl bg-card border border-border p-4 shadow-sm hover:border-primary/30 transition-colors">
                                                 <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
                                                     <Megaphone className="h-4 w-4" />
                                                 </div>
@@ -878,6 +959,20 @@ const AdminTenantDetailPage: React.FC = () => {
                                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${c.status === 'sent' ? 'bg-success/15 text-success' :
                                                     c.status === 'draft' ? 'bg-muted text-muted-foreground' : 'bg-warning/15 text-warning'
                                                     }`}>{c.status || 'draft'}</span>
+                                                <button
+                                                    onClick={() => setEditCampaign({ id: c.id, type: 'marketing', name: c.name, status: c.status || 'draft', template_name: c.template_name })}
+                                                    className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                                    title="Editar"
+                                                >
+                                                    <Pencil className="h-4 w-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => setDeleteCampaign({ id: c.id, type: 'marketing', name: c.name })}
+                                                    className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                                    title="Excluir"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
@@ -887,7 +982,7 @@ const AdminTenantDetailPage: React.FC = () => {
                                     <div className="space-y-2">
                                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Atualização de Carteira ({tenantUpdateCampaigns.length})</p>
                                         {tenantUpdateCampaigns.map((c: any) => (
-                                            <div key={c.id} className="flex items-center gap-3 rounded-xl bg-card border border-border p-4 shadow-sm">
+                                            <div key={c.id} className="flex items-center gap-3 rounded-xl bg-card border border-border p-4 shadow-sm hover:border-warning/30 transition-colors">
                                                 <div className="p-2 rounded-lg bg-warning/10 text-warning shrink-0">
                                                     <Home className="h-4 w-4" />
                                                 </div>
@@ -903,6 +998,20 @@ const AdminTenantDetailPage: React.FC = () => {
                                                     c.status === 'draft' ? 'bg-muted text-muted-foreground' :
                                                         c.status === 'in_progress' ? 'bg-warning/15 text-warning' : 'bg-info/15 text-info'
                                                     }`}>{c.status || 'draft'}</span>
+                                                <button
+                                                    onClick={() => setEditCampaign({ id: c.id, type: 'atualizacao', name: c.name, status: c.status || 'draft', description: c.description || '', message_template: c.message_template || '' })}
+                                                    className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                                    title="Editar"
+                                                >
+                                                    <Pencil className="h-4 w-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => setDeleteCampaign({ id: c.id, type: 'atualizacao', name: c.name })}
+                                                    className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                                    title="Excluir"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
@@ -922,18 +1031,114 @@ const AdminTenantDetailPage: React.FC = () => {
                 )}
             </div>
 
+            {activeTab === 'templates' && (
+                <div className="max-w-7xl mx-auto animate-fade-in">
+                    <AdminTemplatesTab tenantId={tenant.id} />
+                </div>
+            )}
+
+            {/* ═══ Edit Campaign Dialog ═══ */}
+            <Dialog open={!!editCampaign} onOpenChange={(o) => { if (!o) setEditCampaign(null); }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Pencil className="h-5 w-5 text-primary" />
+                            Editar Campanha
+                        </DialogTitle>
+                    </DialogHeader>
+                    {editCampaign && (
+                        <div className="space-y-4 py-2">
+                            <div className="space-y-1.5">
+                                <Label>Nome da campanha</Label>
+                                <Input
+                                    value={editCampaign.name}
+                                    onChange={(e) => setEditCampaign({ ...editCampaign, name: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label>Status</Label>
+                                <Select value={editCampaign.status} onValueChange={(v) => setEditCampaign({ ...editCampaign, status: v })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="draft">Rascunho</SelectItem>
+                                        <SelectItem value="sending">Enviando</SelectItem>
+                                        <SelectItem value="sent">Enviado</SelectItem>
+                                        {editCampaign.type === 'atualizacao' && (
+                                            <>
+                                                <SelectItem value="in_progress">Em andamento</SelectItem>
+                                                <SelectItem value="completed">Concluido</SelectItem>
+                                            </>
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            {editCampaign.type === 'marketing' && editCampaign.template_name && (
+                                <div className="space-y-1.5">
+                                    <Label>Template</Label>
+                                    <Input value={editCampaign.template_name} disabled className="bg-muted/40" />
+                                    <p className="text-[11px] text-muted-foreground">Template nao pode ser alterado apos criacao.</p>
+                                </div>
+                            )}
+                            {editCampaign.type === 'atualizacao' && (
+                                <>
+                                    <div className="space-y-1.5">
+                                        <Label>Descricao</Label>
+                                        <Input
+                                            value={editCampaign.description || ''}
+                                            onChange={(e) => setEditCampaign({ ...editCampaign, description: e.target.value })}
+                                            placeholder="Descricao da campanha..."
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Mensagem template</Label>
+                                        <Textarea
+                                            value={editCampaign.message_template || ''}
+                                            onChange={(e) => setEditCampaign({ ...editCampaign, message_template: e.target.value })}
+                                            placeholder="Mensagem base para o agente..."
+                                            rows={4}
+                                            className="resize-none"
+                                        />
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditCampaign(null)} disabled={editCampaignLoading}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={handleEditCampaign} disabled={editCampaignLoading || !editCampaign?.name.trim()}>
+                            {editCampaignLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* ═══ Delete Campaign Dialog ═══ */}
+            <Dialog open={!!deleteCampaign} onOpenChange={(o) => { if (!o) setDeleteCampaign(null); }}>
+                <DialogContent className="sm:max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Excluir Campanha</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-muted-foreground py-2">
+                        Tem certeza que deseja excluir <span className="font-medium text-foreground">"{deleteCampaign?.name}"</span>? Esta acao nao pode ser desfeita.
+                    </p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteCampaign(null)} disabled={deleteCampaignLoading}>
+                            Cancelar
+                        </Button>
+                        <Button variant="destructive" onClick={handleDeleteCampaign} disabled={deleteCampaignLoading}>
+                            {deleteCampaignLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Excluir'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <AdminNewCampaignSheet
                 open={campaignSheetOpen}
                 onOpenChange={setCampaignSheetOpen}
                 preselectedTenantId={id || null}
-                onCreated={async () => {
-                    const [mkt, upd] = await Promise.all([
-                        supabase.from('campaigns').select('*').eq('tenant_id', id!).order('created_at', { ascending: false }),
-                        supabase.from('owner_update_campaigns').select('*').eq('tenant_id', id!).order('created_at', { ascending: false }),
-                    ]);
-                    setTenantCampaigns(mkt.data ?? []);
-                    setTenantUpdateCampaigns(upd.data ?? []);
-                }}
+                onCreated={reloadCampaigns}
             />
         </div>
     );

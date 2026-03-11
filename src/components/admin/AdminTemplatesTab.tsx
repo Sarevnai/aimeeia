@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { useTenant } from '@/contexts/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import {
     Loader2, Search, Plus, FileText, CheckCircle, Clock, XCircle, AlertTriangle,
-    MessageSquare, Image, Video, Smartphone, Globe, Copy, Pencil, Trash2, RefreshCw,
+    MessageSquare, Image, Video, Smartphone, Globe, Copy, Trash2, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Json } from '@/integrations/supabase/types';
@@ -76,7 +75,11 @@ const formatDate = (d: string | null) => {
 
 /* ─── Preview Component ─── */
 
-const TemplatePreview: React.FC<{ components: Json | null }> = ({ components }) => {
+const TemplatePreview: React.FC<{
+    components: Json | null;
+    headerSamples?: Record<number, string>;
+    bodySamples?: Record<number, string>;
+}> = ({ components, headerSamples, bodySamples }) => {
     if (!components || !Array.isArray(components)) {
         return <p className="text-xs text-muted-foreground italic">Sem preview disponível</p>;
     }
@@ -90,7 +93,6 @@ const TemplatePreview: React.FC<{ components: Json | null }> = ({ components }) 
     return (
         <div className="bg-[#e5ddd5] rounded-xl p-4 max-w-sm">
             <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                {/* Header */}
                 {header && (
                     <div className="p-3 pb-0">
                         {header.format === 'IMAGE' ? (
@@ -102,28 +104,22 @@ const TemplatePreview: React.FC<{ components: Json | null }> = ({ components }) 
                                 <Video className="h-8 w-8 text-muted-foreground" />
                             </div>
                         ) : header.text ? (
-                            <p className="text-sm font-bold text-foreground">{highlightVars(header.text)}</p>
+                            <p className="text-sm font-bold text-foreground">{highlightVars(header.text, headerSamples)}</p>
                         ) : null}
                     </div>
                 )}
-
-                {/* Body */}
                 {body?.text && (
                     <div className="p-3">
                         <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-                            {highlightVars(body.text)}
+                            {highlightVars(body.text, bodySamples)}
                         </p>
                     </div>
                 )}
-
-                {/* Footer */}
                 {footer?.text && (
                     <div className="px-3 pb-2">
                         <p className="text-[11px] text-muted-foreground">{footer.text}</p>
                     </div>
                 )}
-
-                {/* Buttons */}
                 {buttons?.buttons && buttons.buttons.length > 0 && (
                     <div className="border-t border-border">
                         {buttons.buttons.map((btn, i) => (
@@ -143,21 +139,42 @@ const TemplatePreview: React.FC<{ components: Json | null }> = ({ components }) 
     );
 };
 
-function highlightVars(text: string): React.ReactNode {
+function highlightVars(text: string, samples?: Record<number, string>): React.ReactNode {
     const parts = text.split(/(\{\{\d+\}\})/g);
-    return parts.map((part, i) =>
-        /\{\{\d+\}\}/.test(part) ? (
-            <span key={i} className="bg-accent/15 text-accent font-medium px-0.5 rounded">{part}</span>
-        ) : (
-            <React.Fragment key={i}>{part}</React.Fragment>
-        )
-    );
+    return parts.map((part, i) => {
+        const match = part.match(/\{\{(\d+)\}\}/);
+        if (match) {
+            const num = parseInt(match[1], 10);
+            const sample = samples?.[num]?.trim();
+            if (sample) {
+                return <span key={i} className="bg-success/15 text-success font-medium px-0.5 rounded">{sample}</span>;
+            }
+            return <span key={i} className="bg-accent/15 text-accent font-medium px-0.5 rounded">{part}</span>;
+        }
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+    });
 }
 
-/* ─── Main Page ─── */
+function extractVarNumbers(text: string): number[] {
+    const nums = new Set<number>();
+    for (const m of text.matchAll(/\{\{(\d+)\}\}/g)) nums.add(parseInt(m[1], 10));
+    return Array.from(nums).sort((a, b) => a - b);
+}
 
-const TemplatesPage: React.FC = () => {
-    const { tenantId } = useTenant();
+const StatCard: React.FC<{ label: string; value: number; className?: string }> = ({ label, value, className }) => (
+    <div className={cn('rounded-lg border border-border p-3 text-center', className)}>
+        <p className="text-xl font-bold">{value}</p>
+        <p className="text-[10px] text-muted-foreground">{label}</p>
+    </div>
+);
+
+/* ─── Main Component ─── */
+
+interface AdminTemplatesTabProps {
+    tenantId: string;
+}
+
+const AdminTemplatesTab: React.FC<AdminTemplatesTabProps> = ({ tenantId }) => {
     const { toast } = useToast();
 
     const [loading, setLoading] = useState(true);
@@ -167,7 +184,6 @@ const TemplatesPage: React.FC = () => {
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [selectedTemplate, setSelectedTemplate] = useState<WhatsappTemplate | null>(null);
 
-    // New template dialog
     const [showNewDialog, setShowNewDialog] = useState(false);
     const [newName, setNewName] = useState('');
     const [newCategory, setNewCategory] = useState('MARKETING');
@@ -179,10 +195,10 @@ const TemplatesPage: React.FC = () => {
     const [newButtonUrl, setNewButtonUrl] = useState('');
     const [creating, setCreating] = useState(false);
     const [syncing, setSyncing] = useState(false);
+    const [headerSamples, setHeaderSamples] = useState<Record<number, string>>({});
+    const [bodySamples, setBodySamples] = useState<Record<number, string>>({});
 
-    // ─── Fetch ──
     const fetchTemplates = async () => {
-        if (!tenantId) return;
         setLoading(true);
         const { data, error } = await supabase
             .from('whatsapp_templates')
@@ -200,16 +216,13 @@ const TemplatesPage: React.FC = () => {
 
     useEffect(() => { fetchTemplates(); }, [tenantId]);
 
-    // ─── Filter ──
     const filtered = templates.filter((t) => {
-        const matchSearch = !search.trim() ||
-            t.name.toLowerCase().includes(search.toLowerCase());
+        const matchSearch = !search.trim() || t.name.toLowerCase().includes(search.toLowerCase());
         const matchStatus = statusFilter === 'all' || t.status === statusFilter;
         const matchCategory = categoryFilter === 'all' || t.category === categoryFilter;
         return matchSearch && matchStatus && matchCategory;
     });
 
-    // ─── Stats ──
     const stats = {
         total: templates.length,
         approved: templates.filter((t) => t.status === 'APPROVED').length,
@@ -217,18 +230,37 @@ const TemplatesPage: React.FC = () => {
         rejected: templates.filter((t) => t.status === 'REJECTED').length,
     };
 
-    // ─── Create (via Edge Function + fallback to DB) ──
     const handleCreate = async () => {
-        if (!tenantId || !newName.trim() || !newBodyText.trim()) return;
+        if (!newName.trim() || !newBodyText.trim()) return;
+
+        const hVars = extractVarNumbers(newHeaderText);
+        const bVars = extractVarNumbers(newBodyText);
+        if (hVars.some((n) => !headerSamples[n]?.trim()) || bVars.some((n) => !bodySamples[n]?.trim())) {
+            toast({
+                title: 'Exemplos obrigatórios',
+                description: 'Preencha todos os valores de exemplo das variáveis para aprovação da Meta.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
         setCreating(true);
 
         const components: TemplateComponent[] = [];
 
         if (newHeaderText.trim()) {
-            components.push({ type: 'HEADER', format: 'TEXT', text: newHeaderText.trim() });
+            const headerComp: TemplateComponent = { type: 'HEADER', format: 'TEXT', text: newHeaderText.trim() };
+            if (hVars.length > 0) {
+                headerComp.example = { header_text: hVars.map((n) => headerSamples[n].trim()) };
+            }
+            components.push(headerComp);
         }
 
-        components.push({ type: 'BODY', text: newBodyText.trim() });
+        const bodyComp: TemplateComponent = { type: 'BODY', text: newBodyText.trim() };
+        if (bVars.length > 0) {
+            bodyComp.example = { body_text: [bVars.map((n) => bodySamples[n].trim())] };
+        }
+        components.push(bodyComp);
 
         if (newFooterText.trim()) {
             components.push({ type: 'FOOTER', text: newFooterText.trim() });
@@ -247,7 +279,6 @@ const TemplatesPage: React.FC = () => {
 
         const templateName = newName.trim().toLowerCase().replace(/\s+/g, '_');
 
-        // Try to create on Meta first
         try {
             const { data: metaResult, error: metaError } = await supabase.functions.invoke('manage-templates', {
                 body: {
@@ -261,7 +292,6 @@ const TemplatesPage: React.FC = () => {
             });
 
             if (metaError || !metaResult?.success) {
-                // Fallback: save locally only
                 console.warn('Meta API unavailable, saving locally:', metaError || metaResult);
                 await supabase
                     .from('whatsapp_templates')
@@ -278,7 +308,6 @@ const TemplatesPage: React.FC = () => {
                 toast({ title: 'Template enviado à Meta!', description: `Status: ${metaResult.status || 'PENDING'}. Aguardando aprovação.` });
             }
         } catch {
-            // Fallback: save locally
             await supabase
                 .from('whatsapp_templates')
                 .insert({
@@ -298,11 +327,8 @@ const TemplatesPage: React.FC = () => {
         setCreating(false);
     };
 
-    // ─── Sync from Meta ──
     const handleSync = async () => {
-        if (!tenantId) return;
         setSyncing(true);
-
         try {
             const { data, error } = await supabase.functions.invoke('manage-templates', {
                 body: { tenant_id: tenantId, action: 'sync' },
@@ -319,7 +345,6 @@ const TemplatesPage: React.FC = () => {
         } catch (err: any) {
             toast({ title: 'Erro ao sincronizar', description: err?.message || 'Conexão falhou', variant: 'destructive' });
         }
-
         setSyncing(false);
     };
 
@@ -332,9 +357,10 @@ const TemplatesPage: React.FC = () => {
         setNewFooterText('');
         setNewButtonText('');
         setNewButtonUrl('');
+        setHeaderSamples({});
+        setBodySamples({});
     };
 
-    // ─── Delete ──
     const handleDelete = async (id: string) => {
         const { error } = await supabase
             .from('whatsapp_templates')
@@ -350,13 +376,15 @@ const TemplatesPage: React.FC = () => {
         }
     };
 
-    // ─── Copy name ──
     const handleCopyName = (name: string) => {
         navigator.clipboard.writeText(name);
         toast({ title: 'Nome copiado!', description: name });
     };
 
-    // ─── Preview for new template ──
+    const headerVars = extractVarNumbers(newHeaderText);
+    const bodyVars = extractVarNumbers(newBodyText);
+    const hasMissingSamples = headerVars.some((n) => !headerSamples[n]?.trim()) || bodyVars.some((n) => !bodySamples[n]?.trim());
+
     const newPreviewComponents: TemplateComponent[] = [];
     if (newHeaderText.trim()) newPreviewComponents.push({ type: 'HEADER', format: 'TEXT', text: newHeaderText });
     if (newBodyText.trim()) newPreviewComponents.push({ type: 'BODY', text: newBodyText });
@@ -369,143 +397,136 @@ const TemplatesPage: React.FC = () => {
     }
 
     return (
-        <div className="flex flex-col h-[calc(100vh-4rem)]">
-            {/* Header */}
-            <div className="p-4 border-b border-border bg-card space-y-4">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="font-display text-2xl font-bold text-foreground">Templates WhatsApp</h2>
-                        <p className="text-sm text-muted-foreground">
-                            Gerencie os templates validados pela Meta para campanhas e atualizações
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Button size="sm" variant="outline" className="gap-1.5" onClick={handleSync} disabled={syncing}>
-                            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                            Sincronizar com Meta
-                        </Button>
-                        <Button size="sm" className="gap-1.5" onClick={() => setShowNewDialog(true)}>
-                            <Plus className="h-4 w-4" /> Registrar Template
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Stats */}
-                <div className="grid grid-cols-4 gap-4">
-                    <StatCard label="Total" value={stats.total} className="bg-card" />
-                    <StatCard label="Aprovados" value={stats.approved} className="bg-success/5 text-success" />
-                    <StatCard label="Pendentes" value={stats.pending} className="bg-warning/5 text-warning" />
-                    <StatCard label="Rejeitados" value={stats.rejected} className="bg-destructive/5 text-destructive" />
-                </div>
-
-                {/* Filters */}
-                <div className="flex gap-2">
-                    <div className="relative flex-1 max-w-sm">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Buscar por nome..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            className="pl-9 h-9"
-                        />
-                    </div>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Todos status</SelectItem>
-                            <SelectItem value="APPROVED">Aprovados</SelectItem>
-                            <SelectItem value="PENDING">Pendentes</SelectItem>
-                            <SelectItem value="REJECTED">Rejeitados</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                        <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Todas categorias</SelectItem>
-                            <SelectItem value="MARKETING">Marketing</SelectItem>
-                            <SelectItem value="UTILITY">Utilidade</SelectItem>
-                            <SelectItem value="AUTHENTICATION">Autenticação</SelectItem>
-                        </SelectContent>
-                    </Select>
+        <div className="space-y-4">
+            {/* Header actions */}
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                    Gerencie os templates WhatsApp validados pela Meta para campanhas e atualizações.
+                </p>
+                <div className="flex items-center gap-2 shrink-0">
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={handleSync} disabled={syncing}>
+                        {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                        Sincronizar Meta
+                    </Button>
+                    <Button size="sm" className="gap-1.5" onClick={() => setShowNewDialog(true)}>
+                        <Plus className="h-4 w-4" /> Registrar Template
+                    </Button>
                 </div>
             </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-auto p-4">
-                {loading ? (
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
-                        {[1, 2, 3, 4, 5, 6].map(i => (
-                            <div key={i} className="rounded-xl bg-card border border-border p-4 space-y-3">
-                                <div className="skeleton h-5 w-28" />
-                                <div className="flex gap-2"><div className="skeleton h-5 w-16" /><div className="skeleton h-5 w-12" /></div>
-                                <div className="skeleton h-12 w-full" />
-                            </div>
-                        ))}
-                    </div>
-                ) : filtered.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
-                        <div className="mx-auto w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
-                            <FileText className="h-8 w-8 text-accent" />
+            {/* Stats */}
+            <div className="grid grid-cols-4 gap-3">
+                <StatCard label="Total" value={stats.total} className="bg-card" />
+                <StatCard label="Aprovados" value={stats.approved} className="bg-success/5 text-success" />
+                <StatCard label="Pendentes" value={stats.pending} className="bg-warning/5 text-warning" />
+                <StatCard label="Rejeitados" value={stats.rejected} className="bg-destructive/5 text-destructive" />
+            </div>
+
+            {/* Filters */}
+            <div className="flex gap-2">
+                <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Buscar por nome..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="pl-9 h-9"
+                    />
+                </div>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Todos status</SelectItem>
+                        <SelectItem value="APPROVED">Aprovados</SelectItem>
+                        <SelectItem value="PENDING">Pendentes</SelectItem>
+                        <SelectItem value="REJECTED">Rejeitados</SelectItem>
+                    </SelectContent>
+                </Select>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                    <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Todas categorias</SelectItem>
+                        <SelectItem value="MARKETING">Marketing</SelectItem>
+                        <SelectItem value="UTILITY">Utilidade</SelectItem>
+                        <SelectItem value="AUTHENTICATION">Autenticação</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+
+            {/* Template list */}
+            {loading ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {[1, 2, 3].map(i => (
+                        <div key={i} className="rounded-xl bg-card border border-border p-4 space-y-3">
+                            <div className="skeleton h-5 w-28" />
+                            <div className="flex gap-2"><div className="skeleton h-5 w-16" /><div className="skeleton h-5 w-12" /></div>
+                            <div className="skeleton h-12 w-full" />
                         </div>
-                        <p className="text-foreground font-medium mb-1">
-                            {templates.length === 0 ? 'Nenhum template registrado' : 'Nenhum resultado'}
-                        </p>
-                        <p className="text-muted-foreground text-sm max-w-sm mb-4">
-                            {templates.length === 0 ? 'Registre ou sincronize seus templates da Meta para gerê-las.' : 'Tente ajustar os filtros de busca.'}
-                        </p>
-                        {templates.length === 0 && (
-                            <Button size="sm" className="gap-1.5" onClick={() => setShowNewDialog(true)}>
-                                <Plus className="h-4 w-4" /> Registrar template
-                            </Button>
-                        )}
+                    ))}
+                </div>
+            ) : filtered.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="mx-auto w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+                        <FileText className="h-7 w-7 text-accent" />
                     </div>
-                ) : (
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
-                        {filtered.map((t) => {
-                            const statusInfo = STATUS_MAP[t.status || 'PENDING'] || STATUS_MAP.PENDING;
-                            const categoryInfo = CATEGORY_MAP[t.category || 'MARKETING'] || CATEGORY_MAP.MARKETING;
+                    <p className="text-foreground font-medium mb-1">
+                        {templates.length === 0 ? 'Nenhum template registrado' : 'Nenhum resultado'}
+                    </p>
+                    <p className="text-muted-foreground text-sm max-w-sm mb-4">
+                        {templates.length === 0
+                            ? 'Registre ou sincronize os templates da Meta para este tenant.'
+                            : 'Tente ajustar os filtros de busca.'}
+                    </p>
+                    {templates.length === 0 && (
+                        <Button size="sm" className="gap-1.5" onClick={() => setShowNewDialog(true)}>
+                            <Plus className="h-4 w-4" /> Registrar template
+                        </Button>
+                    )}
+                </div>
+            ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {filtered.map((t) => {
+                        const statusInfo = STATUS_MAP[t.status || 'PENDING'] || STATUS_MAP.PENDING;
+                        const categoryInfo = CATEGORY_MAP[t.category || 'MARKETING'] || CATEGORY_MAP.MARKETING;
 
-                            return (
-                                <div
-                                    key={t.id}
-                                    className="card-interactive p-4 cursor-pointer animate-fade-in"
-                                    onClick={() => setSelectedTemplate(t)}
-                                >
-                                    <div className="flex items-start justify-between gap-2 mb-3">
-                                        <div className="flex-1 min-w-0">
-                                            <h3 className="text-sm font-semibold text-foreground truncate font-mono">{t.name}</h3>
-                                            <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(t.created_at)}</p>
-                                        </div>
-                                        <Badge className={cn('text-[10px] gap-1 border-0 shrink-0', statusInfo.color)}>
-                                            {statusInfo.icon} {statusInfo.label}
-                                        </Badge>
+                        return (
+                            <div
+                                key={t.id}
+                                className="card-interactive p-4 cursor-pointer animate-fade-in"
+                                onClick={() => setSelectedTemplate(t)}
+                            >
+                                <div className="flex items-start justify-between gap-2 mb-3">
+                                    <div className="flex-1 min-w-0">
+                                        <h3 className="text-sm font-semibold text-foreground truncate font-mono">{t.name}</h3>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(t.created_at)}</p>
                                     </div>
-
-                                    {/* Category + Language */}
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <Badge variant="outline" className="text-[10px] gap-1">
-                                            {categoryInfo.icon} {categoryInfo.label}
-                                        </Badge>
-                                        {t.language && (
-                                            <Badge variant="outline" className="text-[10px] gap-1">
-                                                <Globe className="h-3 w-3" /> {t.language}
-                                            </Badge>
-                                        )}
-                                    </div>
-
-                                    {/* Body preview */}
-                                    {t.components && Array.isArray(t.components) && (() => {
-                                        const body = (t.components as unknown as TemplateComponent[]).find((c) => c.type === 'BODY');
-                                        return body?.text ? (
-                                            <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">{body.text}</p>
-                                        ) : null;
-                                    })()}
+                                    <Badge className={cn('text-[10px] gap-1 border-0 shrink-0', statusInfo.color)}>
+                                        {statusInfo.icon} {statusInfo.label}
+                                    </Badge>
                                 </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Badge variant="outline" className="text-[10px] gap-1">
+                                        {categoryInfo.icon} {categoryInfo.label}
+                                    </Badge>
+                                    {t.language && (
+                                        <Badge variant="outline" className="text-[10px] gap-1">
+                                            <Globe className="h-3 w-3" /> {t.language}
+                                        </Badge>
+                                    )}
+                                </div>
+
+                                {t.components && Array.isArray(t.components) && (() => {
+                                    const body = (t.components as unknown as TemplateComponent[]).find((c) => c.type === 'BODY');
+                                    return body?.text ? (
+                                        <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">{body.text}</p>
+                                    ) : null;
+                                })()}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
 
             {/* ═══ TEMPLATE DETAIL SHEET ═══ */}
             <Sheet open={!!selectedTemplate} onOpenChange={(open) => !open && setSelectedTemplate(null)}>
@@ -526,7 +547,6 @@ const TemplatesPage: React.FC = () => {
                                 </SheetHeader>
 
                                 <div className="mt-6 space-y-6">
-                                    {/* Info */}
                                     <div className="grid grid-cols-2 gap-3 text-sm">
                                         <div>
                                             <span className="text-xs text-muted-foreground">Categoria</span>
@@ -549,7 +569,6 @@ const TemplatesPage: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    {/* Preview */}
                                     <div>
                                         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                                             Preview da Mensagem
@@ -557,7 +576,6 @@ const TemplatesPage: React.FC = () => {
                                         <TemplatePreview components={selectedTemplate.components} />
                                     </div>
 
-                                    {/* Components JSON */}
                                     <div>
                                         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                                             Componentes (JSON)
@@ -567,7 +585,6 @@ const TemplatesPage: React.FC = () => {
                                         </pre>
                                     </div>
 
-                                    {/* Actions */}
                                     <div className="flex items-center gap-2 pt-2 border-t border-border">
                                         <Button
                                             variant="outline"
@@ -653,6 +670,26 @@ const TemplatesPage: React.FC = () => {
                                         onChange={(e) => setNewHeaderText(e.target.value)}
                                         placeholder="Ex: Atualização do seu imóvel"
                                     />
+                                    {headerVars.length > 0 && (
+                                        <div className="space-y-2 pl-3 border-l-2 border-accent/30">
+                                            <p className="text-[11px] text-muted-foreground font-medium">
+                                                Exemplos de variáveis (obrigatório para aprovação Meta)
+                                            </p>
+                                            {headerVars.map((num) => (
+                                                <div key={num} className="flex items-center gap-2">
+                                                    <span className="text-xs font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded shrink-0">
+                                                        {`{{${num}}}`}
+                                                    </span>
+                                                    <Input
+                                                        value={headerSamples[num] || ''}
+                                                        onChange={(e) => setHeaderSamples((prev) => ({ ...prev, [num]: e.target.value }))}
+                                                        placeholder={`Ex: valor de exemplo para {{${num}}}`}
+                                                        className="h-8 text-xs"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="space-y-2">
@@ -664,6 +701,26 @@ const TemplatesPage: React.FC = () => {
                                         className="text-sm"
                                         placeholder={`Olá {{1}}, gostaríamos de saber se o imóvel {{2}} no endereço {{3}} ainda está disponível para locação.\n\nPode nos confirmar?`}
                                     />
+                                    {bodyVars.length > 0 && (
+                                        <div className="space-y-2 pl-3 border-l-2 border-accent/30">
+                                            <p className="text-[11px] text-muted-foreground font-medium">
+                                                Exemplos de variáveis (obrigatório para aprovação Meta)
+                                            </p>
+                                            {bodyVars.map((num) => (
+                                                <div key={num} className="flex items-center gap-2">
+                                                    <span className="text-xs font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded shrink-0">
+                                                        {`{{${num}}}`}
+                                                    </span>
+                                                    <Input
+                                                        value={bodySamples[num] || ''}
+                                                        onChange={(e) => setBodySamples((prev) => ({ ...prev, [num]: e.target.value }))}
+                                                        placeholder={`Ex: valor de exemplo para {{${num}}}`}
+                                                        className="h-8 text-xs"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="space-y-2">
@@ -700,7 +757,11 @@ const TemplatesPage: React.FC = () => {
                                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                                     Preview ao vivo
                                 </h4>
-                                <TemplatePreview components={newPreviewComponents.length > 0 ? (newPreviewComponents as unknown as Json) : null} />
+                                <TemplatePreview
+                                    components={newPreviewComponents.length > 0 ? (newPreviewComponents as unknown as Json) : null}
+                                    headerSamples={headerSamples}
+                                    bodySamples={bodySamples}
+                                />
                             </div>
                         </div>
                     </div>
@@ -711,7 +772,7 @@ const TemplatesPage: React.FC = () => {
                         </Button>
                         <Button
                             onClick={handleCreate}
-                            disabled={!newName.trim() || !newBodyText.trim() || creating}
+                            disabled={!newName.trim() || !newBodyText.trim() || creating || hasMissingSamples}
                             className="gap-1.5"
                         >
                             {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -724,13 +785,4 @@ const TemplatesPage: React.FC = () => {
     );
 };
 
-/* ─── Sub-components ─── */
-
-const StatCard: React.FC<{ label: string; value: number; className?: string }> = ({ label, value, className }) => (
-    <div className={cn('rounded-lg border border-border p-3 text-center', className)}>
-        <p className="text-xl font-bold">{value}</p>
-        <p className="text-[10px] text-muted-foreground">{label}</p>
-    </div>
-);
-
-export default TemplatesPage;
+export default AdminTemplatesTab;

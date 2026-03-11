@@ -182,6 +182,8 @@ export async function buildSystemPrompt(
       .eq('is_active', true)
       .maybeSingle())?.data;
 
+    const postHandoff = buildPostHandoffFollowup();
+
     // Priority 1A: Structured config (Consultora VIP pattern)
     if (directive?.structured_config) {
       let prompt = buildStructuredPrompt(
@@ -191,6 +193,7 @@ export async function buildSystemPrompt(
       if (conversationSource === 'remarketing') {
         prompt += buildRemarketingAnamnese(remarketingContext);
       }
+      prompt += postHandoff;
       return prompt;
     }
 
@@ -210,6 +213,7 @@ export async function buildSystemPrompt(
       if (conversationSource === 'remarketing') {
         prompt += buildRemarketingAnamnese(remarketingContext);
       }
+      prompt += postHandoff;
       return prompt;
     }
   } catch (e) {
@@ -220,11 +224,12 @@ export async function buildSystemPrompt(
   console.log(`🔧 Using built-in prompt for: ${department}`);
   const behaviorInstructions = buildBehaviorInstructions(behaviorConfig);
   const remarketingInstructions = conversationSource === 'remarketing' ? buildRemarketingAnamnese(remarketingContext) : '';
+  const postHandoffFallback = buildPostHandoffFollowup();
   switch (department) {
-    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions + remarketingInstructions;
-    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions + remarketingInstructions;
-    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions;
-    default: return buildDefaultPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions;
+    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
+    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
+    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
+    default: return buildDefaultPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
   }
 }
 
@@ -313,6 +318,17 @@ function buildStructuredPrompt(
     sections.push(`\n# GUARDRAILS (RESTRIÇÕES OPERACIONAIS)`);
     sc.guardrails.forEach(g => sections.push(`- ${replaceVars(g)}`));
   }
+
+  // === SECTION 7: TONE & STYLE (from ai_agent_config) ===
+  const emojiRule = config.emoji_intensity === 'none'
+    ? 'NÃO use emojis em hipótese alguma.'
+    : config.emoji_intensity === 'low'
+    ? 'Use emojis com moderação (máximo 1-2 por mensagem).'
+    : 'Use emojis de forma amigável.';
+  sections.push(`\n# TOM E ESTILO`);
+  sections.push(`- Tom: ${config.tone || 'friendly'}`);
+  sections.push(`- ${emojiRule}`);
+  sections.push(`- Responda de forma concisa e objetiva. Máximo 3 parágrafos curtos.`);
 
   // === DYNAMIC SECTIONS (always appended) ===
   const contextSummary = buildContextSummary(qualificationData, contactName);
@@ -485,6 +501,23 @@ function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null): st
   }
 
   return instructions;
+}
+
+// ========== FOLLOW-UP PÓS-HANDOFF ==========
+
+function buildPostHandoffFollowup(): string {
+  return `
+
+# FOLLOW-UP PÓS-ATENDIMENTO
+Se o histórico da conversa mostrar que houve uma transferência anterior para corretor
+(mensagem "Lead transferido para atendimento humano via CRM"), siga este protocolo:
+1. Cumprimente o lead pelo nome, diga que é bom falar com ele novamente
+2. Pergunte como foi o atendimento com o consultor/corretor
+3. Pergunte se ele já conseguiu comprar/alugar o imóvel que procurava
+4. Se NÃO conseguiu: pergunte se quer que você mostre outras opções com o mesmo perfil ou se prefere explorar outros bairros e características. Use buscar_imoveis normalmente com os dados já coletados
+5. Se SIM conseguiu: parabenize e pergunte se precisa de algo mais
+6. Mantenha o tom caloroso e consultivo — o lead já te conhece
+`;
 }
 
 // ========== REMARKETING VIP ANAMNESE ==========

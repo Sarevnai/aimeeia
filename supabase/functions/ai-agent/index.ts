@@ -204,6 +204,13 @@ serve(async (req: Request) => {
           .is('department_code', null);
       }
 
+      // MC-4: Release processing lock after triage response
+      await supabase
+        .from('conversation_states')
+        .update({ is_processing: false, updated_at: new Date().toISOString() })
+        .eq('tenant_id', tenant_id)
+        .eq('phone_number', phone_number);
+
       return jsonResponse({
         action: 'triage',
         department: triageResult.department,
@@ -747,8 +754,7 @@ async function loadConversationHistory(
     .select('direction, body, sender_type')
     .eq('tenant_id', tenantId)
     .eq('conversation_id', conversationId)
-    .not('body', 'is', null)
-    .neq('sender_type', 'system');
+    .not('body', 'is', null);
 
   if (departmentCode) {
     query = query.or(`department_code.eq.${departmentCode},department_code.is.null`);
@@ -762,7 +768,7 @@ async function loadConversationHistory(
 
   return messages.reverse().map((m: any) => ({
     role: m.direction === 'inbound' ? 'user' : 'assistant',
-    content: m.body,
+    content: m.sender_type === 'system' ? `[SISTEMA: ${m.body}]` : m.body,
   })) as ConversationMessage[];
 }
 

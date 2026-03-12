@@ -1,0 +1,161 @@
+// ========== AIMEE.iA v2 - AGENTE ADMIN ==========
+// Handles: administrativo department.
+// Focused prompt (~800 tokens), ticket creation + human handoff tools.
+
+import { AgentModule, AgentContext } from './agent-interface.ts';
+import { executeCreateTicket, executeAdminHandoff } from './tool-executors.ts';
+import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
+
+// ========== SYSTEM PROMPT ==========
+
+function buildAdminPrompt(ctx: AgentContext): string {
+  const { aiConfig: config, tenant, contactName } = ctx;
+
+  // Priority 1: Legacy directive_content (structured_config is less common for admin)
+  if (ctx.directive?.directive_content) {
+    let prompt = ctx.directive.directive_content;
+    prompt = prompt.replaceAll('{{AGENT_NAME}}', config.agent_name || 'Aimee');
+    prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
+    prompt = prompt.replaceAll('{{CITY}}', tenant.city);
+    prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
+    if (config.custom_instructions) {
+      prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
+    }
+    return prompt;
+  }
+
+  // Priority 2: Built-in fallback
+  return `Você é ${config.agent_name || 'Aimee'}, assistente virtual do setor administrativo da ${tenant.company_name}.
+
+PERSONALIDADE:
+- Tom: profissional, empático e resolutivo
+- ${config.emoji_intensity === 'none' ? 'Não use emojis' : 'Use emojis com moderação (📋, ✅, 🔧)'}
+- ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
+
+OBJETIVO:
+Você é a primeira linha de atendimento administrativo. Sua função é:
+1. Identificar a necessidade do cliente
+2. Coletar as informações necessárias
+3. Criar um chamado (ticket) usando a ferramenta criar_ticket
+4. Informar ao cliente que o chamado foi aberto e será acompanhado pela equipe
+
+CLASSIFICAÇÃO DE INTENÇÃO:
+- Palavras como "boleto", "pagamento", "2ª via", "segunda via", "cobrança", "financeiro", "pagar" → Categoria: Financeiro
+- Palavras como "vazamento", "goteira", "reparo", "manutenção", "quebrou", "estrago", "infiltração", "entupiu" → Categoria: Manutenção
+- Palavras como "contrato", "renovação", "cláusula", "reajuste", "aditivo" → Categoria: Contrato
+- Palavras como "rescisão", "sair", "devolver", "desocupar", "encerrar contrato" → Categoria: Rescisão
+- Palavras como "vistoria", "laudo", "checklist", "entrada", "saída" → Categoria: Vistoria
+- Palavras como "chave", "cópia", "chaveiro", "acesso" → Categoria: Chaves
+
+FLUXO DE ATENDIMENTO:
+1. Identifique a categoria da demanda pela mensagem do cliente
+2. Colete as informações ESSENCIAIS (não exija tudo de uma vez):
+   - FINANCEIRO: CPF/CNPJ, unidade/imóvel
+   - MANUTENÇÃO: descrição do problema, endereço/unidade, URGÊNCIA (vazamento = urgente)
+   - CONTRATO: tipo de solicitação, unidade
+   - RESCISÃO: unidade, motivo, data pretendida
+   - VISTORIA: unidade, tipo (entrada/saída)
+   - CHAVES: unidade, motivo
+3. Após coletar dados suficientes, USE a ferramenta criar_ticket para registrar o chamado
+4. Confirme ao cliente que o chamado foi criado e informe prazo estimado
+
+PRIORIDADES:
+- URGENTE: vazamentos, falta de água/luz/gás, problemas de segurança, risco estrutural
+- ALTA: boletos vencidos, problemas que impedem uso do imóvel
+- MÉDIA: manutenções gerais, dúvidas contratuais
+- BAIXA: informações gerais, solicitações sem urgência
+
+REGRAS:
+- Pergunte UMA informação por vez, de forma natural
+- Se tiver informações suficientes para abrir o chamado, USE criar_ticket SEM esperar ter todos os dados
+- Se o cliente pedir atendimento humano ou a demanda for muito complexa, use encaminhar_humano
+- NUNCA prometa prazos específicos de resolução - diga "nossa equipe vai analisar"
+- Responda em português BR, máximo 3 parágrafos
+${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
+}
+
+// ========== TOOLS ==========
+
+function getAdminTools(): any[] {
+  return [
+    {
+      type: "function",
+      function: {
+        name: "criar_ticket",
+        description: "Cria um chamado/ticket para a demanda do cliente. Use quando identificar uma solicitação concreta (boleto, manutenção, contrato, etc.).",
+        parameters: {
+          type: "object",
+          properties: {
+            titulo: {
+              type: "string",
+              description: "Título curto e descritivo do chamado. Ex: 'Segunda via de boleto - Apto 302'"
+            },
+            categoria: {
+              type: "string",
+              description: "Categoria principal da demanda",
+              enum: ["Financeiro", "Manutenção", "Contrato", "Rescisão", "Vistoria", "Chaves", "Outros"]
+            },
+            descricao: {
+              type: "string",
+              description: "Descrição detalhada coletada na conversa com o cliente"
+            },
+            prioridade: {
+              type: "string",
+              description: "Prioridade baseada na urgência",
+              enum: ["baixa", "media", "alta", "urgente"]
+            },
+          },
+          required: ["titulo", "categoria", "descricao", "prioridade"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "encaminhar_humano",
+        description: "Transfere o atendimento para um operador humano. Use quando o cliente solicitar expressamente um humano, quando a demanda for muito complexa para resolver via IA, ou quando envolver negociação de valores.",
+        parameters: {
+          type: "object",
+          properties: {
+            motivo: {
+              type: "string",
+              description: "Motivo detalhado da transferência para o operador"
+            },
+          },
+          required: ["motivo"],
+        },
+      },
+    },
+  ];
+}
+
+// ========== AGENT MODULE EXPORT ==========
+
+export const adminAgent: AgentModule = {
+  buildSystemPrompt(ctx: AgentContext): string {
+    return buildAdminPrompt(ctx);
+  },
+
+  getTools(_ctx: AgentContext): any[] {
+    return getAdminTools();
+  },
+
+  async executeToolCall(ctx: AgentContext, toolName: string, args: any): Promise<string> {
+    console.log(`🔧 [Admin] Executing tool: ${toolName}`, args);
+    if (toolName === 'criar_ticket') return await executeCreateTicket(ctx, args);
+    if (toolName === 'encaminhar_humano') return await executeAdminHandoff(ctx, args);
+    return `Ferramenta desconhecida: ${toolName}`;
+  },
+
+  async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
+    let finalResponse = aiResponse;
+
+    if (isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
+      finalResponse = ctx.aiConfig.fallback_message || 'Posso te ajudar com mais alguma coisa?';
+    }
+
+    await updateAntiLoopState(ctx.supabase, ctx.tenantId, ctx.phoneNumber, finalResponse);
+
+    return finalResponse;
+  },
+};

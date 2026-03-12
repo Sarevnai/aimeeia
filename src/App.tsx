@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { TenantProvider } from "@/contexts/TenantContext";
 import { DepartmentFilterProvider } from "@/contexts/DepartmentFilterContext";
@@ -38,6 +38,9 @@ import AdminBillingPage from "@/pages/admin/AdminBillingPage";
 import AdminAgentPage from "@/pages/admin/AdminAgentPage";
 import AdminMetricsPage from "@/pages/admin/AdminMetricsPage";
 import AdminCampaignsPage from "@/pages/admin/AdminCampaignsPage";
+import AgentsOverviewPage from "@/pages/admin/AgentsOverviewPage";
+import AgentDetailPage from "@/pages/admin/AgentDetailPage";
+import AgentGlobalSettingsPage from "@/pages/admin/AgentGlobalSettingsPage";
 
 const queryClient = new QueryClient();
 
@@ -80,7 +83,10 @@ const App = () => (
                   <Route path="tenants" element={<AdminTenantsPage />} />
                   <Route path="tenants/:id" element={<AdminTenantDetailPage />} />
                   <Route path="billing" element={<AdminBillingPage />} />
-                  <Route path="agent" element={<AdminAgentPage />} />
+                  <Route path="agents" element={<AgentsOverviewPage />} />
+                  <Route path="agents/settings" element={<AgentGlobalSettingsPage />} />
+                  <Route path="agents/:agentType" element={<AgentDetailPage />} />
+                  <Route path="agent" element={<Navigate to="/admin/agents" replace />} />
                   <Route path="metrics" element={<AdminMetricsPage />} />
                   <Route path="campanhas" element={<AdminCampaignsPage />} />
                 </Route>

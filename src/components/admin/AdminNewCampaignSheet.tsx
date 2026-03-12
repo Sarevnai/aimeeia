@@ -8,10 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Loader2, ChevronLeft, ChevronRight, Check,
     Megaphone, Home, Wifi, WifiOff, MessageSquare,
-    Calendar, Clock, Users, FileText, Send,
+    Calendar, Clock, Users, FileText, Send, Search,
+    Phone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Json } from '@/integrations/supabase/types';
@@ -40,7 +42,15 @@ interface TemplateComponent {
     buttons?: { type: string; text: string }[];
 }
 
-type CampaignType = 'marketing' | 'atualizacao';
+interface Contact {
+    id: string;
+    name: string | null;
+    phone: string;
+    email: string | null;
+    department_code: string | null;
+}
+
+type CampaignType = 'marketing' | 'remarketing' | 'atualizacao';
 type Step = 1 | 2 | 3 | 4 | 5;
 
 interface Props {
@@ -70,8 +80,9 @@ const TemplatePreview: React.FC<{ components: Json | null }> = ({ components }) 
 };
 
 /* ─── Step indicator ─── */
-const STEPS_MARKETING = ['Tipo', 'Tenant', 'Template', 'Audiência', 'Agendar'];
-const STEPS_ATUALIZACAO = ['Tipo', 'Tenant', 'Mensagem', 'Audiência', 'Agendar'];
+const STEPS_MARKETING = ['Tipo', 'Tenant', 'Template', 'Contatos', 'Enviar'];
+const STEPS_REMARKETING = ['Tipo', 'Tenant', 'Template', 'Contatos', 'Enviar'];
+const STEPS_ATUALIZACAO = ['Tipo', 'Tenant', 'Mensagem', 'Contatos', 'Enviar'];
 
 /* ─── Main Component ─── */
 const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated, preselectedTenantId }) => {
@@ -96,17 +107,20 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
     // Step 3 — atualizacao only
     const [customMessage, setCustomMessage] = useState('');
 
-    // Step 4
+    // Step 4 — Contact selection
+    const [contacts, setContacts] = useState<Contact[]>([]);
+    const [loadingContacts, setLoadingContacts] = useState(false);
+    const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+    const [contactSearch, setContactSearch] = useState('');
+
+    // Step 5 — Name + dispatch mode
     const [campaignName, setCampaignName] = useState('');
     const [campaignDesc, setCampaignDesc] = useState('');
-
-    // Step 5
-    const [scheduleDate, setScheduleDate] = useState('');
-    const [schedulePeriod, setSchedulePeriod] = useState('');
+    const [dispatchNow, setDispatchNow] = useState(false);
 
     const selectedTenant = tenants.find((t) => t.id === selectedTenantId);
     const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
-    const steps = campaignType === 'marketing' ? STEPS_MARKETING : STEPS_ATUALIZACAO;
+    const steps = campaignType === 'atualizacao' ? STEPS_ATUALIZACAO : campaignType === 'remarketing' ? STEPS_REMARKETING : STEPS_MARKETING;
 
     /* ── Reset on open ── */
     useEffect(() => {
@@ -116,10 +130,12 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
         setSelectedTenantId(preselectedTenantId || '');
         setSelectedTemplateId('');
         setCustomMessage('');
+        setContacts([]);
+        setSelectedContactIds(new Set());
+        setContactSearch('');
         setCampaignName('');
         setCampaignDesc('');
-        setScheduleDate('');
-        setSchedulePeriod('');
+        setDispatchNow(false);
     }, [open, preselectedTenantId]);
 
     /* ── Fetch tenants ── */
@@ -139,7 +155,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
 
     /* ── Fetch templates when step 3 (marketing) ── */
     useEffect(() => {
-        if (!open || step !== 3 || campaignType !== 'marketing' || !selectedTenantId) return;
+        if (!open || step !== 3 || (campaignType !== 'marketing' && campaignType !== 'remarketing') || !selectedTenantId) return;
         setLoadingTemplates(true);
         supabase
             .from('whatsapp_templates')
@@ -153,16 +169,59 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
             });
     }, [open, step, campaignType, selectedTenantId]);
 
+    /* ── Fetch contacts when step 4 ── */
+    useEffect(() => {
+        if (!open || step !== 4 || !selectedTenantId) return;
+        setLoadingContacts(true);
+        supabase
+            .from('contacts')
+            .select('id, name, phone, email, department_code')
+            .eq('tenant_id', selectedTenantId)
+            .order('name')
+            .then(({ data }) => {
+                setContacts((data as Contact[]) ?? []);
+                setLoadingContacts(false);
+            });
+    }, [open, step, selectedTenantId]);
+
+    /* ── Filtered contacts ── */
+    const filteredContacts = contacts.filter((c) => {
+        if (!contactSearch.trim()) return true;
+        const q = contactSearch.toLowerCase();
+        return (
+            (c.name || '').toLowerCase().includes(q) ||
+            c.phone.includes(q) ||
+            (c.email || '').toLowerCase().includes(q)
+        );
+    });
+
+    const toggleContact = (id: string) => {
+        setSelectedContactIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleAll = () => {
+        if (selectedContactIds.size === filteredContacts.length) {
+            setSelectedContactIds(new Set());
+        } else {
+            setSelectedContactIds(new Set(filteredContacts.map((c) => c.id)));
+        }
+    };
+
     /* ── Validation per step ── */
     const canNext = () => {
         if (step === 1) return true;
         if (step === 2) return !!selectedTenantId;
         if (step === 3) {
-            if (campaignType === 'marketing') return !!selectedTemplateId;
+            if (campaignType === 'marketing' || campaignType === 'remarketing') return !!selectedTemplateId;
             return customMessage.trim().length > 10;
         }
-        if (step === 4) return campaignName.trim().length > 0;
-        return !!scheduleDate && !!schedulePeriod;
+        if (step === 4) return selectedContactIds.size > 0;
+        return campaignName.trim().length > 0;
     };
 
     const next = () => setStep((s) => Math.min(s + 1, 5) as Step);
@@ -170,45 +229,137 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
 
     /* ── Submit ── */
     const handleSubmit = async () => {
-        if (!selectedTenantId) return;
+        if (!selectedTenantId || selectedContactIds.size === 0) return;
         setSubmitting(true);
 
-        if (campaignType === 'marketing') {
+        const selectedContacts = contacts.filter((c) => selectedContactIds.has(c.id));
+
+        if (campaignType === 'marketing' || campaignType === 'remarketing') {
             const templateName = selectedTemplate?.name || null;
-            const { error } = await supabase.from('campaigns').insert({
+
+            // 1. Create campaign
+            const { data: campaign, error } = await supabase.from('campaigns').insert({
                 tenant_id: selectedTenantId,
                 name: campaignName.trim(),
                 template_name: templateName,
-                status: 'draft',
-                sent_count: 0,
+                campaign_type: campaignType,
+                status: dispatchNow ? 'sending' : 'draft',
+                sent_count: dispatchNow ? selectedContacts.length : 0,
                 delivered_count: 0,
-            });
-            if (error) {
-                toast({ title: 'Erro ao criar campanha', description: error.message, variant: 'destructive' });
-            } else {
-                toast({ title: '✅ Campanha criada!', description: `"${campaignName}" agendada para ${scheduleDate}.` });
-                onOpenChange(false);
-                onCreated();
+            }).select('id').single();
+
+            if (error || !campaign) {
+                toast({ title: 'Erro ao criar campanha', description: error?.message, variant: 'destructive' });
+                setSubmitting(false);
+                return;
             }
+
+            // 2. Create campaign_results
+            const results = selectedContacts.map((c) => ({
+                tenant_id: selectedTenantId,
+                campaign_id: campaign.id,
+                contact_id: c.id,
+                phone: c.phone,
+                status: 'pending',
+            }));
+
+            const { error: resErr } = await supabase.from('campaign_results').insert(results);
+            if (resErr) {
+                toast({ title: 'Erro ao criar resultados', description: resErr.message, variant: 'destructive' });
+                setSubmitting(false);
+                return;
+            }
+
+            // 3. Dispatch if requested
+            if (dispatchNow && templateName) {
+                await dispatchCampaign(campaign.id, selectedTenantId, templateName, selectedContacts, selectedTemplate);
+            }
+
+            toast({
+                title: dispatchNow ? 'Campanha disparada!' : 'Campanha criada!',
+                description: `"${campaignName}" com ${selectedContacts.length} contato${selectedContacts.length > 1 ? 's' : ''}.`,
+            });
         } else {
+            // Atualizacao
             const { error } = await supabase.from('owner_update_campaigns').insert({
                 tenant_id: selectedTenantId,
                 name: campaignName.trim(),
                 description: campaignDesc.trim() || null,
                 message_template: customMessage.trim() || null,
                 status: 'draft',
-                scheduled_date: scheduleDate || null,
+                total_contacts: selectedContacts.length,
             });
+
             if (error) {
                 toast({ title: 'Erro ao criar pedido', description: error.message, variant: 'destructive' });
-            } else {
-                toast({ title: '✅ Pedido de atualização criado!', description: `"${campaignName}" agendado para ${scheduleDate}.` });
-                onOpenChange(false);
-                onCreated();
+                setSubmitting(false);
+                return;
             }
+
+            toast({
+                title: 'Pedido de atualizacao criado!',
+                description: `"${campaignName}" com ${selectedContacts.length} proprietario${selectedContacts.length > 1 ? 's' : ''}.`,
+            });
         }
 
         setSubmitting(false);
+        onOpenChange(false);
+        onCreated();
+    };
+
+    /* ── Extract named params from template components ── */
+    const extractNamedParamNames = (components: Json | null): string[] => {
+        if (!Array.isArray(components)) return [];
+        const body = (components as TemplateComponent[]).find((c) => c.type === 'BODY') as any;
+        return body?.example?.body_text_named_params?.map((p: { param_name: string }) => p.param_name) ?? [];
+    };
+
+    /* ── Build named params for a contact ── */
+    const buildNamedParams = (
+        paramNames: string[],
+        contact: Contact,
+    ): Array<{ name: string; value: string }> => {
+        return paramNames.map((name) => {
+            let value = '';
+            if (name === 'nome') value = (contact.name || '').split(' ')[0];
+            return { name, value };
+        });
+    };
+
+    /* ── Dispatch: send templates to each contact ── */
+    const dispatchCampaign = async (
+        campaignId: string,
+        tenantId: string,
+        templateName: string,
+        contactList: Contact[],
+        template?: WhatsappTemplate,
+    ) => {
+        const paramNames = extractNamedParamNames(template?.components ?? null);
+
+        for (const contact of contactList) {
+            try {
+                const named_body_params = paramNames.length > 0
+                    ? buildNamedParams(paramNames, contact)
+                    : undefined;
+
+                await supabase.functions.invoke('send-wa-template', {
+                    body: {
+                        tenant_id: tenantId,
+                        phone_number: contact.phone,
+                        template_name: templateName,
+                        language_code: 'pt_BR',
+                        campaign_id: campaignId,
+                        contact_id: contact.id,
+                        ...(named_body_params ? { named_body_params } : {}),
+                    },
+                });
+            } catch (err) {
+                console.error(`Failed to send to ${contact.phone}:`, err);
+            }
+        }
+
+        // Update campaign status
+        await supabase.from('campaigns').update({ status: 'sent' }).eq('id', campaignId);
     };
 
     return (
@@ -266,6 +417,12 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                                         desc: 'Envio em massa com templates Meta aprovados para leads e contatos.',
                                     },
                                     {
+                                        value: 'remarketing' as CampaignType,
+                                        icon: <MessageSquare className="h-5 w-5" />,
+                                        title: 'Remarketing VIP',
+                                        desc: 'Re-engaja leads arquivados no CRM com fluxo de atendimento personalizado.',
+                                    },
+                                    {
                                         value: 'atualizacao' as CampaignType,
                                         icon: <Home className="h-5 w-5" />,
                                         title: 'Atualização de Carteira',
@@ -306,7 +463,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                         <div className="animate-fade-in space-y-4">
                             <div>
                                 <h3 className="text-lg font-display font-bold text-foreground mb-1">Tenant / WABA</h3>
-                                <p className="text-sm text-muted-foreground">A campanha será disparada via o número WABA configurado.</p>
+                                <p className="text-sm text-muted-foreground">A campanha sera disparada via o numero WABA configurado.</p>
                             </div>
                             {loadingTenants ? (
                                 <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
@@ -336,7 +493,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                                                             #{t.wa_phone_number_id}
                                                         </p>
                                                     ) : (
-                                                        <p className="text-xs text-destructive mt-0.5">WABA não configurado</p>
+                                                        <p className="text-xs text-destructive mt-0.5">WABA nao configurado</p>
                                                     )}
                                                 </div>
                                                 {hasWABA ? (
@@ -355,8 +512,8 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                         </div>
                     )}
 
-                    {/* STEP 3 — Template (marketing) or Custom message (atualizacao) */}
-                    {step === 3 && campaignType === 'marketing' && (
+                    {/* STEP 3 — Template (marketing/remarketing) or Custom message (atualizacao) */}
+                    {step === 3 && (campaignType === 'marketing' || campaignType === 'remarketing') && (
                         <div className="animate-fade-in space-y-4">
                             <div>
                                 <h3 className="text-lg font-display font-bold text-foreground mb-1">Template Meta</h3>
@@ -368,7 +525,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                                 <div className="flex flex-col items-center py-10 text-center">
                                     <FileText className="h-10 w-10 text-muted-foreground mb-3" />
                                     <p className="text-sm font-medium">Sem templates aprovados</p>
-                                    <p className="text-xs text-muted-foreground mt-1">Crie e aguarde aprovação da Meta em Modelos → Tenant.</p>
+                                    <p className="text-xs text-muted-foreground mt-1">Crie e aguarde aprovacao da Meta em Modelos.</p>
                                 </div>
                             ) : (
                                 <div className="space-y-2">
@@ -386,17 +543,11 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-semibold font-mono text-foreground">{t.name}</p>
                                                 <div className="flex items-center gap-2 mt-1">
-                                                    {t.category && (
-                                                        <Badge variant="outline" className="text-[10px]">{t.category}</Badge>
-                                                    )}
-                                                    {t.language && (
-                                                        <Badge variant="outline" className="text-[10px]">{t.language}</Badge>
-                                                    )}
+                                                    {t.category && <Badge variant="outline" className="text-[10px]">{t.category}</Badge>}
+                                                    {t.language && <Badge variant="outline" className="text-[10px]">{t.language}</Badge>}
                                                 </div>
                                             </div>
-                                            {selectedTemplateId === t.id && (
-                                                <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                                            )}
+                                            {selectedTemplateId === t.id && <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />}
                                         </button>
                                     ))}
                                 </div>
@@ -414,108 +565,188 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                         <div className="animate-fade-in space-y-4">
                             <div>
                                 <h3 className="text-lg font-display font-bold mb-1">Mensagem da Aimee</h3>
-                                <p className="text-sm text-muted-foreground">Instrução base para o agente ao contactar proprietários.</p>
+                                <p className="text-sm text-muted-foreground">Instrucao base para o agente ao contactar proprietarios.</p>
                             </div>
                             <div className="space-y-2">
-                                <Label>Mensagem / Instruções *</Label>
+                                <Label>Mensagem / Instrucoes *</Label>
                                 <Textarea
                                     value={customMessage}
                                     onChange={(e) => setCustomMessage(e.target.value)}
                                     rows={6}
-                                    placeholder={`Ex: Olá {{nome}}, gostaria de confirmar a disponibilidade do imóvel {{codigo}} para locação. Ainda está disponível?`}
+                                    placeholder={`Ex: Ola {{nome}}, gostaria de confirmar a disponibilidade do imovel {{codigo}} para locacao. Ainda esta disponivel?`}
                                     className="text-sm bg-muted/40 resize-none"
                                 />
-                                <p className="text-[11px] text-muted-foreground">Use {'{{nome}}'}, {'{{codigo}}'} como variáveis.</p>
+                                <p className="text-[11px] text-muted-foreground">Use {'{{nome}}'}, {'{{codigo}}'} como variaveis.</p>
                             </div>
                         </div>
                     )}
 
-                    {/* STEP 4 — Name / Audience */}
+                    {/* STEP 4 — Contact Selection */}
                     {step === 4 && (
                         <div className="animate-fade-in space-y-4">
                             <div>
-                                <h3 className="text-lg font-display font-bold mb-1">Detalhes da campanha</h3>
-                                <p className="text-sm text-muted-foreground">Nomeie e descreva a campanha.</p>
+                                <h3 className="text-lg font-display font-bold mb-1">Selecionar Contatos</h3>
+                                <p className="text-sm text-muted-foreground">
+                                    Escolha quem recebera a campanha. <strong>{selectedContactIds.size}</strong> selecionado{selectedContactIds.size !== 1 ? 's' : ''}.
+                                </p>
                             </div>
+
+                            {/* Search + Select All */}
+                            <div className="flex items-center gap-2">
+                                <div className="relative flex-1">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Buscar por nome ou telefone..."
+                                        value={contactSearch}
+                                        onChange={(e) => setContactSearch(e.target.value)}
+                                        className="pl-9 bg-muted/40 h-9 text-sm"
+                                    />
+                                </div>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs h-9 shrink-0"
+                                    onClick={toggleAll}
+                                >
+                                    {selectedContactIds.size === filteredContacts.length && filteredContacts.length > 0 ? 'Desmarcar' : 'Selecionar'} todos
+                                </Button>
+                            </div>
+
+                            {loadingContacts ? (
+                                <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                            ) : filteredContacts.length === 0 ? (
+                                <div className="flex flex-col items-center py-10 text-center">
+                                    <Users className="h-10 w-10 text-muted-foreground mb-3" />
+                                    <p className="text-sm font-medium">Nenhum contato encontrado</p>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        {contacts.length === 0
+                                            ? 'Cadastre contatos na aba Contatos do tenant.'
+                                            : 'Tente outra busca.'}
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-1 max-h-[340px] overflow-auto pr-1">
+                                    {filteredContacts.map((c) => {
+                                        const checked = selectedContactIds.has(c.id);
+                                        return (
+                                            <button
+                                                key={c.id}
+                                                onClick={() => toggleContact(c.id)}
+                                                className={cn(
+                                                    'flex items-center gap-3 rounded-lg p-2.5 border text-left w-full transition-all',
+                                                    checked
+                                                        ? 'border-primary/40 bg-primary/5'
+                                                        : 'border-transparent hover:bg-muted/30'
+                                                )}
+                                            >
+                                                <Checkbox checked={checked} className="shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium text-foreground truncate">
+                                                        {c.name || 'Sem nome'}
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                                        <Phone className="h-3 w-3" /> {c.phone}
+                                                    </p>
+                                                </div>
+                                                {c.department_code && (
+                                                    <Badge variant="outline" className="text-[10px] shrink-0">{c.department_code}</Badge>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* STEP 5 — Name + Dispatch */}
+                    {step === 5 && (
+                        <div className="animate-fade-in space-y-5">
+                            <div>
+                                <h3 className="text-lg font-display font-bold mb-1">Finalizar Campanha</h3>
+                                <p className="text-sm text-muted-foreground">Nomeie e escolha quando disparar.</p>
+                            </div>
+
                             <div className="space-y-4">
                                 <div className="space-y-2">
                                     <Label>Nome da campanha *</Label>
                                     <Input
                                         value={campaignName}
                                         onChange={(e) => setCampaignName(e.target.value)}
-                                        placeholder="Ex: Promoção Março 2026"
+                                        placeholder="Ex: Promocao Marco 2026"
                                         className="bg-muted/40"
                                     />
                                 </div>
-                                <div className="space-y-2">
-                                    <Label>Descrição (opcional)</Label>
-                                    <Textarea
-                                        value={campaignDesc}
-                                        onChange={(e) => setCampaignDesc(e.target.value)}
-                                        placeholder="Contexto ou objetivo da campanha..."
-                                        className="bg-muted/40 resize-none"
-                                        rows={3}
-                                    />
-                                </div>
+                                {campaignType === 'atualizacao' && (
+                                    <div className="space-y-2">
+                                        <Label>Descricao (opcional)</Label>
+                                        <Textarea
+                                            value={campaignDesc}
+                                            onChange={(e) => setCampaignDesc(e.target.value)}
+                                            placeholder="Contexto ou objetivo..."
+                                            className="bg-muted/40 resize-none"
+                                            rows={2}
+                                        />
+                                    </div>
+                                )}
                             </div>
 
                             {/* Summary card */}
                             <div className="rounded-xl bg-muted/30 border border-border p-4 space-y-2 text-sm">
-                                <p className="font-semibold text-foreground text-xs uppercase tracking-wide text-muted-foreground">Resumo</p>
+                                <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Resumo</p>
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Tipo</span>
-                                    <Badge variant="outline">{campaignType === 'marketing' ? 'Marketing' : 'Atualização'}</Badge>
+                                    <Badge variant="outline">{campaignType === 'marketing' ? 'Marketing' : campaignType === 'remarketing' ? 'Remarketing VIP' : 'Atualização'}</Badge>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Tenant</span>
                                     <span className="font-medium">{selectedTenant?.company_name}</span>
                                 </div>
-                                {campaignType === 'marketing' && (
+                                {(campaignType === 'marketing' || campaignType === 'remarketing') && (
                                     <div className="flex justify-between">
                                         <span className="text-muted-foreground">Template</span>
                                         <span className="font-mono text-xs">{selectedTemplate?.name || '—'}</span>
                                     </div>
                                 )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* STEP 5 — Schedule */}
-                    {step === 5 && (
-                        <div className="animate-fade-in space-y-5">
-                            <div>
-                                <h3 className="text-lg font-display font-bold mb-1">Agendamento</h3>
-                                <p className="text-sm text-muted-foreground">Quando a Aimee deve iniciar os disparos?</p>
-                            </div>
-                            <div className="space-y-4 bg-card border border-border rounded-xl p-4 shadow-sm">
-                                <div className="space-y-2">
-                                    <Label className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />Data de disparo *</Label>
-                                    <Input
-                                        type="date"
-                                        value={scheduleDate}
-                                        onChange={(e) => setScheduleDate(e.target.value)}
-                                        className="bg-muted/40"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />Período *</Label>
-                                    <Select value={schedulePeriod} onValueChange={setSchedulePeriod}>
-                                        <SelectTrigger className="bg-muted/40">
-                                            <SelectValue placeholder="Selecione o período..." />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="morning">Manhã (08h às 12h)</SelectItem>
-                                            <SelectItem value="afternoon">Tarde (13h às 18h)</SelectItem>
-                                            <SelectItem value="night">Noite (19h às 21h)</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Contatos</span>
+                                    <span className="font-semibold text-primary">{selectedContactIds.size}</span>
                                 </div>
                             </div>
 
-                            <div className="bg-warning/10 border border-warning/20 rounded-xl p-4 text-sm text-foreground">
-                                <p className="font-semibold mb-1">⚠️ Atenção</p>
-                                <p className="opacity-90">A campanha será criada como <strong>rascunho</strong>. O disparo real requer integração WABA ativa e template aprovado.</p>
-                            </div>
+                            {/* Dispatch mode */}
+                            {(campaignType === 'marketing' || campaignType === 'remarketing') && (
+                                <div className="space-y-3">
+                                    <button
+                                        onClick={() => setDispatchNow(false)}
+                                        className={cn(
+                                            'flex items-center gap-3 rounded-xl p-3.5 border text-left w-full transition-all',
+                                            !dispatchNow ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
+                                        )}
+                                    >
+                                        <Clock className="h-5 w-5 text-muted-foreground shrink-0" />
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold">Salvar como rascunho</p>
+                                            <p className="text-xs text-muted-foreground">Cria a campanha sem enviar. Dispare depois.</p>
+                                        </div>
+                                        {!dispatchNow && <Check className="h-4 w-4 text-primary shrink-0" />}
+                                    </button>
+                                    <button
+                                        onClick={() => setDispatchNow(true)}
+                                        className={cn(
+                                            'flex items-center gap-3 rounded-xl p-3.5 border text-left w-full transition-all',
+                                            dispatchNow ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
+                                        )}
+                                    >
+                                        <Send className="h-5 w-5 text-primary shrink-0" />
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold">Disparar agora</p>
+                                            <p className="text-xs text-muted-foreground">Envia imediatamente via WhatsApp para os {selectedContactIds.size} contatos.</p>
+                                        </div>
+                                        {dispatchNow && <Check className="h-4 w-4 text-primary shrink-0" />}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -530,14 +761,14 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
 
                     {step < 5 ? (
                         <Button onClick={next} disabled={!canNext()} className="gap-1.5 px-6">
-                            Próximo <ChevronRight className="h-4 w-4" />
+                            Proximo <ChevronRight className="h-4 w-4" />
                         </Button>
                     ) : (
                         <Button onClick={handleSubmit} disabled={submitting || !canNext()} className="gap-1.5 px-6">
                             {submitting ? (
-                                <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</>
+                                <><Loader2 className="h-4 w-4 animate-spin" /> {dispatchNow ? 'Enviando...' : 'Criando...'}</>
                             ) : (
-                                <><Send className="h-4 w-4" /> Criar Campanha</>
+                                <><Send className="h-4 w-4" /> {dispatchNow ? 'Disparar Campanha' : 'Criar Campanha'}</>
                             )}
                         </Button>
                     )}

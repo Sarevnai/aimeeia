@@ -24,6 +24,7 @@ import {
     FileText,
     Plus,
     BookUser,
+    Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -117,6 +118,14 @@ const AdminTenantDetailPage: React.FC = () => {
     const [editCampaignLoading, setEditCampaignLoading] = useState(false);
     const [deleteCampaign, setDeleteCampaign] = useState<{ id: string; type: 'marketing' | 'atualizacao'; name: string } | null>(null);
     const [deleteCampaignLoading, setDeleteCampaignLoading] = useState(false);
+
+    // ── Dispatch state ──────────────────────────────────────────────────
+    const [dispatchCampaign, setDispatchCampaign] = useState<{ id: string; name: string; template_name: string; language_code: string } | null>(null);
+    const [dispatchContacts, setDispatchContacts] = useState<{ id: string; name: string | null; phone: string }[]>([]);
+    const [dispatchSelectedIds, setDispatchSelectedIds] = useState<Set<string>>(new Set());
+    const [dispatchSearch, setDispatchSearch] = useState('');
+    const [dispatchLoading, setDispatchLoading] = useState(false);
+    const [dispatchContactsLoading, setDispatchContactsLoading] = useState(false);
 
     // ── Invite user state ──────────────────────────────────────────────
     const [inviteOpen, setInviteOpen] = useState(false);
@@ -438,6 +447,84 @@ const AdminTenantDetailPage: React.FC = () => {
         }
         setDeleteCampaign(null);
         setDeleteCampaignLoading(false);
+    };
+
+    // ── Dispatch helpers ────────────────────────────────────────────────
+    const openDispatchDialog = async (campaign: { id: string; name: string; template_name: string }) => {
+        setDispatchSelectedIds(new Set());
+        setDispatchSearch('');
+        setDispatchContactsLoading(true);
+        // Fetch template language + contacts in parallel
+        const [templateRes, contactsRes] = await Promise.all([
+            supabase
+                .from('whatsapp_templates')
+                .select('language')
+                .eq('tenant_id', id!)
+                .eq('name', campaign.template_name)
+                .maybeSingle(),
+            supabase
+                .from('contacts')
+                .select('id, name, phone')
+                .eq('tenant_id', id!)
+                .order('name', { ascending: true }),
+        ]);
+        const language_code = templateRes.data?.language ?? 'pt_BR';
+        setDispatchCampaign({ ...campaign, language_code });
+        setDispatchContacts(contactsRes.data ?? []);
+        setDispatchContactsLoading(false);
+    };
+
+    const handleDispatch = async () => {
+        if (!dispatchCampaign || dispatchSelectedIds.size === 0) return;
+        setDispatchLoading(true);
+        const selectedContacts = dispatchContacts.filter(c => dispatchSelectedIds.has(c.id));
+        // Update campaign status to sending
+        await supabase.from('campaigns').update({ status: 'sending' }).eq('id', dispatchCampaign.id);
+
+        // Create/reset campaign_results rows (upsert to allow re-dispatch)
+        const results = selectedContacts.map(c => ({
+            campaign_id: dispatchCampaign.id,
+            contact_id: c.id,
+            phone: c.phone,
+            status: 'pending' as const,
+            tenant_id: id!,
+            error_message: null,
+            wa_message_id: null,
+        }));
+        await supabase.from('campaign_results').upsert(results as any, {
+            onConflict: 'campaign_id,contact_id',
+        });
+
+        // Dispatch messages
+        let sentCount = 0;
+        for (const contact of selectedContacts) {
+            try {
+                await supabase.functions.invoke('send-wa-template', {
+                    body: {
+                        tenant_id: id!,
+                        phone_number: contact.phone,
+                        template_name: dispatchCampaign.template_name,
+                        language_code: dispatchCampaign.language_code,
+                        campaign_id: dispatchCampaign.id,
+                        contact_id: contact.id,
+                    },
+                });
+                sentCount++;
+            } catch (err) {
+                console.error(`Failed to send to ${contact.phone}:`, err);
+            }
+        }
+
+        // Update campaign as sent
+        await supabase.from('campaigns').update({
+            status: 'sent',
+            sent_count: sentCount,
+        }).eq('id', dispatchCampaign.id);
+
+        toast({ title: `Disparo concluido! ${sentCount}/${selectedContacts.length} mensagens enviadas.` });
+        setDispatchCampaign(null);
+        await reloadCampaigns();
+        setDispatchLoading(false);
     };
 
     if (loading) {
@@ -959,6 +1046,15 @@ const AdminTenantDetailPage: React.FC = () => {
                                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${c.status === 'sent' ? 'bg-success/15 text-success' :
                                                     c.status === 'draft' ? 'bg-muted text-muted-foreground' : 'bg-warning/15 text-warning'
                                                     }`}>{c.status || 'draft'}</span>
+                                                {c.status !== 'sent' && c.template_name && (
+                                                    <button
+                                                        onClick={() => openDispatchDialog({ id: c.id, name: c.name, template_name: c.template_name })}
+                                                        className="p-1.5 rounded text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                                        title="Disparar"
+                                                    >
+                                                        <Send className="h-4 w-4" />
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() => setEditCampaign({ id: c.id, type: 'marketing', name: c.name, status: c.status || 'draft', template_name: c.template_name })}
                                                     className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
@@ -1129,6 +1225,99 @@ const AdminTenantDetailPage: React.FC = () => {
                         </Button>
                         <Button variant="destructive" onClick={handleDeleteCampaign} disabled={deleteCampaignLoading}>
                             {deleteCampaignLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Excluir'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* ═══ Dispatch Campaign Dialog ═══ */}
+            <Dialog open={!!dispatchCampaign} onOpenChange={(o) => { if (!o && !dispatchLoading) setDispatchCampaign(null); }}>
+                <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Send className="h-5 w-5 text-emerald-600" />
+                            Disparar Campanha
+                        </DialogTitle>
+                    </DialogHeader>
+                    {dispatchCampaign && (
+                        <div className="flex-1 overflow-hidden flex flex-col gap-3">
+                            <div className="bg-muted/40 rounded-lg p-3 text-sm">
+                                <p><span className="font-medium">Campanha:</span> {dispatchCampaign.name}</p>
+                                <p className="text-xs font-mono text-muted-foreground mt-0.5">{dispatchCampaign.template_name} <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{dispatchCampaign.language_code}</span></p>
+                            </div>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Buscar contatos..."
+                                    value={dispatchSearch}
+                                    onChange={(e) => setDispatchSearch(e.target.value)}
+                                    className="pl-9"
+                                />
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{dispatchSelectedIds.size} de {dispatchContacts.length} selecionados</span>
+                                <div className="flex gap-2">
+                                    <button
+                                        className="text-primary hover:underline"
+                                        onClick={() => {
+                                            const filtered = dispatchContacts.filter(c => {
+                                                const q = dispatchSearch.toLowerCase();
+                                                return !q || (c.name || '').toLowerCase().includes(q) || c.phone.includes(q);
+                                            });
+                                            setDispatchSelectedIds(new Set(filtered.map(c => c.id)));
+                                        }}
+                                    >Selecionar todos</button>
+                                    <button
+                                        className="text-muted-foreground hover:underline"
+                                        onClick={() => setDispatchSelectedIds(new Set())}
+                                    >Limpar</button>
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto border rounded-lg divide-y max-h-[40vh]">
+                                {dispatchContactsLoading ? (
+                                    <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                                ) : dispatchContacts.length === 0 ? (
+                                    <div className="text-center py-8 text-sm text-muted-foreground">Nenhum contato cadastrado para este tenant.</div>
+                                ) : (
+                                    dispatchContacts
+                                        .filter(c => {
+                                            const q = dispatchSearch.toLowerCase();
+                                            return !q || (c.name || '').toLowerCase().includes(q) || c.phone.includes(q);
+                                        })
+                                        .map(c => (
+                                            <label key={c.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/30 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-4 w-4 rounded border-border"
+                                                    checked={dispatchSelectedIds.has(c.id)}
+                                                    onChange={(e) => {
+                                                        const next = new Set(dispatchSelectedIds);
+                                                        if (e.target.checked) next.add(c.id);
+                                                        else next.delete(c.id);
+                                                        setDispatchSelectedIds(next);
+                                                    }}
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium truncate">{c.name || 'Sem nome'}</p>
+                                                    <p className="text-xs text-muted-foreground">{c.phone}</p>
+                                                </div>
+                                            </label>
+                                        ))
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDispatchCampaign(null)} disabled={dispatchLoading}>
+                            Cancelar
+                        </Button>
+                        <Button
+                            onClick={handleDispatch}
+                            disabled={dispatchLoading || dispatchSelectedIds.size === 0}
+                            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                        >
+                            {dispatchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            Disparar ({dispatchSelectedIds.size})
                         </Button>
                     </DialogFooter>
                 </DialogContent>

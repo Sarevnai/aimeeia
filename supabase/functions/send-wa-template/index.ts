@@ -8,7 +8,8 @@
 //   template_name: string       (e.g. "atualizacao_imovel_v1")
 //   language_code?: string      (default "pt_BR")
 //   header_params?: string[]    (header {{1}}, {{2}}, ...)
-//   body_params?: string[]      (body {{1}}, {{2}}, ...)
+//   body_params?: string[]      (body positional {{1}}, {{2}}, ...)
+//   named_body_params?: {name: string, value: string}[]  (named params e.g. {{nome}})
 //   header_image_url?: string   (for IMAGE headers)
 //   header_video_url?: string   (for VIDEO headers)
 //   conversation_id?: string    (optional, to link in messages table)
@@ -36,6 +37,7 @@ serve(async (req: Request) => {
             language_code = 'pt_BR',
             header_params,
             body_params,
+            named_body_params,
             header_image_url,
             header_video_url,
             conversation_id,
@@ -82,12 +84,61 @@ serve(async (req: Request) => {
             });
         }
 
-        // Body parameters
-        if (body_params && body_params.length > 0) {
+        // Body parameters — named params take precedence over positional
+        if (named_body_params && named_body_params.length > 0) {
+            components.push({
+                type: 'body',
+                parameters: named_body_params.map(({ name, value }: { name: string; value: string }) => ({
+                    type: 'text',
+                    parameter_name: name,
+                    text: value,
+                })),
+            });
+        } else if (body_params && body_params.length > 0) {
             components.push({
                 type: 'body',
                 parameters: body_params.map((text: string) => ({ type: 'text', text })),
             });
+        }
+
+        // ── Auto-detect named params from DB if no body params provided ──
+        const hasBodyComponent = components.some((c) => c.type === 'body');
+        if (!hasBodyComponent) {
+            const { data: templateRow } = await supabase
+                .from('whatsapp_templates')
+                .select('components')
+                .eq('name', template_name)
+                .eq('tenant_id', tenant_id)
+                .maybeSingle();
+
+            if (templateRow?.components && Array.isArray(templateRow.components)) {
+                const bodyComp = (templateRow.components as any[]).find((c: any) => c.type === 'BODY');
+                const namedParams = bodyComp?.example?.body_text_named_params as
+                    | Array<{ param_name: string; example: string }>
+                    | undefined;
+
+                if (namedParams && namedParams.length > 0) {
+                    // Lookup contact name if we have contact_id
+                    let contactName = '';
+                    if (contact_id) {
+                        const { data: contactRow } = await supabase
+                            .from('contacts')
+                            .select('name')
+                            .eq('id', contact_id)
+                            .maybeSingle();
+                        contactName = contactRow?.name?.split(' ')[0] || '';
+                    }
+
+                    const autoParams = namedParams.map((p) => ({
+                        type: 'text',
+                        parameter_name: p.param_name,
+                        text: p.param_name === 'nome' ? (contactName || 'você') : (p.example || ''),
+                    }));
+
+                    components.push({ type: 'body', parameters: autoParams });
+                    console.log(`🔄 Auto-detected named params: ${JSON.stringify(autoParams)}`);
+                }
+            }
         }
 
         // ── Send via Meta Cloud API ──
@@ -143,7 +194,10 @@ serve(async (req: Request) => {
         console.log(`✅ Template sent to ${phone_number}, id: ${waMessageId}`);
 
         // ── Save outbound message ──
-        const templateBody = `[Template: ${template_name}]${body_params ? ' ' + body_params.join(', ') : ''}`;
+        const paramsPreview = named_body_params
+            ? named_body_params.map(({ value }: { value: string }) => value).join(', ')
+            : body_params?.join(', ') || '';
+        const templateBody = `[Template: ${template_name}]${paramsPreview ? ' ' + paramsPreview : ''}`;
         await saveOutboundMessage(
             supabase,
             tenant_id,

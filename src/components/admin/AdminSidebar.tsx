@@ -58,7 +58,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
         {
             label: 'Produto',
             items: [
-                { label: 'Agente Aimee', icon: Bot, path: '/admin/agent' },
+                { label: 'Agentes IA', icon: Bot, path: '/admin/agents' },
                 { label: 'Planos', icon: ScrollText, path: '/admin/billing' },
             ],
         },

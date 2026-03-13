@@ -307,7 +307,7 @@ export const comercialAgent: AgentModule = {
     if (isLoopingQuestion(finalResponse, ctx.qualificationData)) {
       const contextSummary = buildContextSummary(ctx.qualificationData);
       finalResponse = isQualificationComplete(ctx.qualificationData)
-        ? `Tenho todas as informações necessárias. Vou buscar imóveis para você! 🔍`
+        ? `Com base no que conversamos, já tenho um bom perfil. Quer que eu busque opções pra você agora?`
         : `${contextSummary}\n\nBaseado no que já conversamos, posso te ajudar com mais alguma coisa?`;
     }
 

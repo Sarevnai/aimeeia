@@ -26,9 +26,9 @@ const TRIAGE_BUTTON_TEXTS: Record<string, DepartmentType> = {
 };
 
 const DEPARTMENT_WELCOME: Record<string, string> = {
-  locacao: 'Ótimo! Vou te ajudar a encontrar o imóvel ideal para alugar 🏠\n\nQual tipo de imóvel você procura? Apartamento, casa...?',
-  vendas: 'Ótimo! Vou te ajudar a encontrar o imóvel perfeito para comprar 🏡\n\nQue tipo de imóvel você tem interesse?',
-  administrativo: 'Certo! Estou aqui para te ajudar 📋\n\nPosso auxiliar com boletos, contratos, manutenção ou outras questões. O que você precisa?',
+  locacao: 'Vou te ajudar a encontrar o imóvel ideal para alugar.\n\nQual tipo de imóvel você procura? Apartamento, casa...?',
+  vendas: 'Vou te ajudar a encontrar o imóvel perfeito para comprar.\n\nQue tipo de imóvel você tem interesse?',
+  administrativo: 'Estou aqui para te ajudar.\n\nPosso auxiliar com boletos, contratos, manutenção ou outras questões. O que você precisa?',
 };
 
 // ========== EXTRACT TRIAGE BUTTON ==========
@@ -101,7 +101,7 @@ export async function handleTriage(
     const greetingMsg = triageConfig?.greeting_message
       ? replaceTvars(triageConfig.greeting_message)
       : config.greeting_message ||
-        `Olá! 👋 Eu sou a ${agentName}, assistente virtual da ${tenant.company_name}.\n\nComo posso te chamar?`;
+        `Olá! Eu sou a ${agentName}, assistente virtual da ${tenant.company_name}.\n\nComo posso te chamar?`;
 
     await updateTriageStage(supabase, tenant.id, phoneNumber, 'awaiting_name');
 
@@ -132,7 +132,7 @@ export async function handleTriage(
     // Name confirmation
     const nameConfirmation = triageConfig?.name_confirmation_template
       ? replaceTvars(triageConfig.name_confirmation_template, name || undefined)
-      : name ? `Prazer, ${name}! 😊` : `Prazer! 😊`;
+      : name ? `Prazer, ${name}!` : `Prazer!`;
     messages.push(nameConfirmation);
 
     // VIP intro (if configured — adds ancoragem VIP after name)
@@ -208,10 +208,10 @@ export async function handleTriage(
       ),
       replaceTvars(
         `As vantagens pra você:\n` +
-        `✅ Custo zero — quem paga é o proprietário\n` +
-        `✅ A {{COMPANY_NAME}} tem uma das maiores pautas de {{CITY}}. Se não tiver na nossa pauta, fazemos parceria com outras imobiliárias\n` +
-        `✅ Centraliza tudo em uma consultora dedicada a você\n\n` +
-        `Se você enxerga valor nesse tipo de atendimento exclusivo, me sinaliza que eu vou te colocar como meu cliente! 🙌`,
+        `- Custo zero — quem paga é o proprietário\n` +
+        `- A {{COMPANY_NAME}} tem uma das maiores pautas de {{CITY}}. Se não tiver na nossa pauta, fazemos parceria com outras imobiliárias\n` +
+        `- Centraliza tudo em uma consultora dedicada a você\n\n` +
+        `Se você enxerga valor nesse tipo de atendimento exclusivo, me sinaliza que eu vou te colocar como meu cliente!`,
         contactName || undefined
       ),
     ];
@@ -238,7 +238,7 @@ export async function handleTriage(
       // Buy-in confirmed! Send honesty contract + anamnese intro
       const honestyMessages = rmkConfig?.honesty_contract?.map(msg => replaceTvars(msg, contactName || undefined)) || [
         replaceTvars(
-          `Fico feliz, {{NAME}}! Vou te colocar como meu cliente. 🎉\n\n` +
+          `Fico feliz, {{NAME}}! Vou te colocar como meu cliente.\n\n` +
           `Peço apenas uma coisa em troca: *seja completamente honesto(a) comigo*.\n\n` +
           `Não tenha nenhum receio de me dizer se não gostou de algo. Se a vaga é pequena, se precisa de churrasqueira a carvão, ` +
           `se tem que bater sol o dia inteiro, se não pode ser face sul...\n\n` +
@@ -246,7 +246,7 @@ export async function handleTriage(
           contactName || undefined
         ),
         replaceTvars(
-          rmkConfig?.anamnese_intro || `Agora vou fazer algumas perguntas rápidas pra entender exatamente o que você procura. Vamos lá? 💪`,
+          rmkConfig?.anamnese_intro || `Agora vou fazer algumas perguntas rápidas pra entender exatamente o que você procura. Vamos lá?`,
           contactName || undefined
         ),
       ];
@@ -266,7 +266,7 @@ export async function handleTriage(
       const declineMsg = rmkConfig?.decline_message
         ? replaceTvars(rmkConfig.decline_message, contactName || undefined)
         : replaceTvars(
-            `Sem problemas, {{NAME}}! Fico à disposição caso mude de ideia. É só me chamar aqui que retomo seu atendimento. 😊`,
+            `Sem problemas, {{NAME}}! Fico à disposição caso mude de ideia. É só me chamar aqui que retomo seu atendimento.`,
             contactName || undefined
           );
 
@@ -279,7 +279,7 @@ export async function handleTriage(
 
     // Ambiguous response — ask for clarification
     const clarificationMsg = replaceTvars(
-      `{{NAME}}, seria ótimo poder te ajudar! Posso seguir com seu atendimento VIP de consultoria imobiliária? 😊`,
+      `{{NAME}}, seria ótimo poder te ajudar! Posso seguir com seu atendimento VIP de consultoria imobiliária?`,
       contactName || undefined
     );
 
@@ -302,11 +302,20 @@ const NOT_A_NAME = new Set([
   'tudo', 'bem', 'tudo bem', 'tudo bom', 'ok', 'okay', 'sim', 'não', 'nao',
   'aqui', 'é', 'e', 'eu', 'de', 'da', 'do', 'me', 'meu', 'minha',
   'opa', 'eai', 'eaí', 'e aí', 'oi tudo', 'salve', 'fala', 'ae', 'aê',
+  'como', 'como está', 'como esta', 'como vai', 'tudo certo', 'beleza',
+  'obrigado', 'obrigada', 'valeu', 'vlw', 'blz',
 ]);
 
 function extractName(text: string): string | null {
   const cleaned = text.trim();
   if (cleaned.length < 2 || cleaned.length > 60) return null;
+
+  // Reject interrogative sentences (e.g., "Como está?", "Tudo bem?")
+  if (/\?/.test(cleaned)) return null;
+
+  // Reject common conversational phrases that aren't names
+  const lowerCleaned = cleaned.toLowerCase().replace(/[!?.]/g, '').trim();
+  if (/^(como\s+(est[aá]|vai)|tudo\s+(bem|certo|bom)|e\s+a[ií]|beleza|tranquilo)/.test(lowerCleaned)) return null;
 
   // Try to extract "me chamo X" / "meu nome é X" / "sou o X" first (most reliable)
   const nameMatch = cleaned.match(/(?:me\s+chamo?|meu\s+nome\s+[eé]|sou\s+(?:o|a)?\s*)\s*([a-záàâãéèêíïóôõöúç\s]+)/i);

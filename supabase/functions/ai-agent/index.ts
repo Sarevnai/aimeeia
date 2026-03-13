@@ -129,9 +129,17 @@ serve(async (req: Request) => {
 
     const { data: conversation } = await supabase
       .from('conversations')
-      .select('*, qualification_data')
+      .select('*')
       .eq('id', conversation_id)
       .single();
+
+    // Load qualification data from lead_qualification table
+    const { data: qualRow } = await supabase
+      .from('lead_qualification')
+      .select('*')
+      .eq('tenant_id', tenant_id)
+      .eq('phone_number', phone_number)
+      .maybeSingle();
 
     const regions = await loadRegions(supabase, tenant_id);
 
@@ -199,13 +207,13 @@ serve(async (req: Request) => {
     const handoffIntentRegex = /\b(quero|preciso|pode|gostaria|solicito)\s+(d[oae]\s+)?(atendimento|corretor|corretora|humano|atendente|falar\s+com|agendar\s+visita|visitar)/i;
     const directHandoffRegex = /\b(falar?\s+com\s+(um\s+)?(corretor|humano|atendente|pessoa))\b/i;
 
-    const qualScore = conversation?.qualification_data?.qualification_score || 0;
+    const qualScore = qualRow?.qualification_score || 0;
     const isHandoffIntent = handoffIntentRegex.test(message_body) || directHandoffRegex.test(message_body);
 
     if (isHandoffIntent && qualScore >= 65) {
       console.log(`🚀 MC-1: Handoff intent detected ("${message_body.slice(0, 60)}"), score=${qualScore}. Bypassing LLM.`);
 
-      const qualData = conversation?.qualification_data || {};
+      const qualData = qualRow || {};
       const contactForHandoff = contact_name || 'Cliente';
       const dossierLines = [
         `Nome: ${contactForHandoff}`,
@@ -266,7 +274,7 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     const effectiveDepartment = openAdminTicket ? 'administrativo' : department;
-    const qualData = conversation?.qualification_data || {};
+    const qualData = qualRow || {};
 
     // Load AI directive + structured_config
     let directive: any = null;
@@ -389,7 +397,7 @@ serve(async (req: Request) => {
       if (isLoopingQuestion(finalResponse, mergedQual)) {
         const contextSummary = buildContextSummary(mergedQual);
         finalResponse = isQualificationComplete(mergedQual)
-          ? `Tenho todas as informações necessárias. Vou buscar imóveis para você! 🔍`
+          ? `Com base no que conversamos, já tenho um bom perfil. Quer que eu busque opções pra você agora?`
           : `${contextSummary}\n\nBaseado no que já conversamos, posso te ajudar com mais alguma coisa?`;
       }
 

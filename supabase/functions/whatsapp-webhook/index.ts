@@ -312,6 +312,13 @@ async function processInboundMessage(
     created_at: new Date().toISOString(),
   });
 
+  // 4.5 Reset follow-up flag (lead replied, so clear inactivity follow-up)
+  await supabase
+    .from('conversation_states')
+    .update({ follow_up_sent_at: null, updated_at: new Date().toISOString() })
+    .eq('tenant_id', tenant.id)
+    .eq('phone_number', phoneNumber);
+
   // 5. Update conversation last_message_at
   await supabase
     .from('conversations')

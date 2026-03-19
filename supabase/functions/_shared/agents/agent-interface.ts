@@ -24,6 +24,8 @@ export interface AgentContext {
   directive: any | null;
   structuredConfig: StructuredConfig | null;
   remarketingContext: string | null;
+  isReturningLead: boolean;               // C4: Lead retornante com dados de sessão anterior
+  previousQualificationData: QualificationData | null; // C4: Dados da sessão anterior (para revalidação)
   tenantApiKey: string | undefined;
   tenantProvider: string;
   lastAiMessages: string[];

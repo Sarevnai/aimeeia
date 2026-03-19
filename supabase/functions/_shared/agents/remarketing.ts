@@ -4,7 +4,7 @@
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff } from './tool-executors.ts';
-import { buildContextSummary } from '../prompts.ts';
+import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
 import { SkillConfig } from '../types.ts';
@@ -32,14 +32,18 @@ ${config.use_customer_name && contactName ? `\nChame o cliente de ${contactName}
 Você está atendendo um lead re-engajado via campanha de remarketing.
 O cliente acabou de aceitar seu atendimento VIP de consultoria imobiliária e firmou um contrato de honestidade.
 
+## REGRA DE APRESENTAÇÃO
+Você JÁ foi apresentada ao cliente via template de campanha. NÃO se apresente novamente. NÃO diga seu nome, NÃO diga "sou a X da Y", NÃO dê saudações de introdução. Inicie diretamente com a anamnese ou com uma frase natural de engajamento.
+
 ## FLUXO DE ANAMNESE
 Conduza uma anamnese estruturada para entender EXATAMENTE o que o cliente busca.
 Pergunte UMA coisa por vez, de forma natural e consultiva:
 
 1. **Finalidade**: "É pra comprar ou alugar?"
-2. **Localização**: "Tem preferência de bairro ou região?"
-3. **Tipo e características**: "Que tipo de imóvel? Quantos dormitórios?"
-4. **Orçamento**: "Qual faixa de valor você considera?"
+2. **Tipo**: "Que tipo de imóvel? Casa, apartamento, terreno?"
+3. **Localização**: "Tem preferência de bairro ou região? Pode citar 2 ou 3 de sua preferência."
+4. **Orçamento**: "Qual faixa de valor você considera?" (Ex: até 500 mil, de 500 a 1 milhão, de 1 a 2.5 milhões)
+5. **Prazo de decisão**: "Qual seu prazo? Nos próximos 3 meses, de 3 a 6, ou acima de 6 meses?"
 
 ## REGRA CRÍTICA — BUSCA DE IMÓVEIS (OBRIGATÓRIO)
 - Após coletar no mínimo 3 dados (finalidade + localização + tipo OU quartos), CHAME buscar_imoveis IMEDIATAMENTE. Não faça mais perguntas — chame a ferramenta.
@@ -49,6 +53,7 @@ Pergunte UMA coisa por vez, de forma natural e consultiva:
 - Se a busca NÃO retornar resultados adequados, diga: "Vou acionar minha rede de parceiros pra encontrar algo ideal pra você"
 - NÃO diga "não encontrei" — reformule positivamente
 - LEMBRE-SE: a ferramenta buscar_imoveis é o seu diferencial. Use-a cedo e com frequência.
+- Quando buscar_imoveis retornar resultado, os imóveis JÁ FORAM ENVIADOS ao cliente como cards individuais com foto e link clicável. É PROIBIDO listar, descrever ou mencionar detalhes dos imóveis no seu texto. Responda APENAS com uma frase curta tipo "Enviei algumas opções pra você, dá uma olhada e me conta o que achou."
 
 ## REGRAS ESPECIAIS REMARKETING
 - ADAPTE as perguntas baseado no contexto anterior do lead (se disponível abaixo)
@@ -86,6 +91,11 @@ Ao transferir para corretor (enviar_lead_c2s), inclua no campo motivo TODOS os d
   // Custom instructions
   if (config.custom_instructions) {
     sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+  }
+
+  // C4: Contexto de lead retornante
+  if (ctx.isReturningLead) {
+    sections.push(buildReturningLeadContext(ctx.previousQualificationData));
   }
 
   // Remarketing context (prior CRM data + last conversation summary)

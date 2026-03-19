@@ -4,7 +4,7 @@
 
 import { AgentContext } from './agent-interface.ts';
 import { sendWhatsAppMessage, sendWhatsAppImage, saveOutboundMessage } from '../whatsapp.ts';
-import { formatConsultativeProperty, formatPropertySummary } from '../property.ts';
+import { formatConsultativeProperty } from '../property.ts';
 import { logActivity } from '../utils.ts';
 import { ConversationMessage, PropertyResult } from '../types.ts';
 
@@ -64,7 +64,12 @@ export async function executePropertySearch(
     const semanticQuery = args.query_semantica ||
       `Imóvel para ${args.finalidade || ctx.department || 'locacao'}`;
 
-    console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}"`);
+    // C1: Aplicar margem de 30% acima do orçamento informado pelo cliente
+    // "O cliente pediu 1 milhão, mandamos de 1M até 1.3M" — regra de negociação imobiliária
+    const clientBudget = args.preco_max || null;
+    const searchBudget = clientBudget ? Math.round(clientBudget * 1.3) : null;
+
+    console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
 
     const queryEmbedding = await generateEmbedding(semanticQuery);
 
@@ -73,7 +78,7 @@ export async function executePropertySearch(
       match_tenant_id: ctx.tenantId,
       match_threshold: 0.2,
       match_count: 5,
-      filter_max_price: args.preco_max || null,
+      filter_max_price: searchBudget,
       filter_tipo: args.tipo_imovel || null,
     });
 
@@ -82,11 +87,48 @@ export async function executePropertySearch(
       return 'Não consegui buscar imóveis no nosso catálogo inteligente no momento. Tente novamente em instantes.';
     }
 
-    if (!properties || properties.length === 0) {
-      return 'Não encontrei imóveis exatos com esses critérios. Quer tentar expandir a busca ou remover alguns filtros como valor máximo?';
+    // C2: Filtrar imóveis sem preço válido — "sob consulta" não existe no sistema
+    let validProperties = (properties || []).filter((p: any) => p.price && p.price > 1);
+
+    // C6: Expansão geográfica proativa — se poucos resultados, busca ampla (sem bairro específico)
+    if (validProperties.length <= 1) {
+      console.log(`🌍 C6: Apenas ${validProperties.length} resultado(s) válido(s). Tentando expansão geográfica...`);
+      const expandedQuery = args.tipo_imovel
+        ? `${args.tipo_imovel} para ${args.finalidade || 'venda'} em ${ctx.tenant.city}`
+        : `imóvel para ${args.finalidade || 'venda'} em ${ctx.tenant.city}`;
+      const expandedEmbedding = await generateEmbedding(expandedQuery);
+      const { data: expandedProps } = await ctx.supabase.rpc('match_properties', {
+        query_embedding: expandedEmbedding,
+        match_tenant_id: ctx.tenantId,
+        match_threshold: 0.15, // Threshold mais baixo para busca ampla
+        match_count: 5,
+        filter_max_price: searchBudget,
+        filter_tipo: args.tipo_imovel || null,
+      });
+
+      const expandedValid = (expandedProps || []).filter((p: any) => p.price && p.price > 1);
+      // Mesclar: resultados originais primeiro, depois os expandidos (sem duplicatas)
+      const originalIds = new Set(validProperties.map((p: any) => p.external_id));
+      const newExpanded = expandedValid.filter((p: any) => !originalIds.has(p.external_id));
+      const allProperties = [...validProperties, ...newExpanded];
+
+      if (allProperties.length === 0) {
+        return 'Não encontrei imóveis disponíveis com esses critérios no momento. Quer que eu ajuste a faixa de preço ou o tipo de imóvel?';
+      }
+
+      // Substituir validProperties com o resultado combinado e sinalizar expansão
+      console.log(`🌍 C6: Expansão trouxe ${newExpanded.length} resultado(s) adicional(is) em bairros próximos.`);
+      validProperties.push(...newExpanded);
     }
 
-    const formattedProperties: PropertyResult[] = properties.map((p: any) => ({
+    if (validProperties.length === 0) {
+      return 'Não encontrei imóveis disponíveis com esses critérios. Quer que eu ajuste algum filtro?';
+    }
+
+    // C7: Construir URL do imóvel — usa p.url do DB se disponível,
+    // senão constrói a partir do website_url configurado no ai_agent_config + external_id
+    const websiteBase = (ctx.aiConfig as any).website_url?.replace(/\/$/, '') || '';
+    const formattedProperties: PropertyResult[] = validProperties.map((p: any) => ({
       codigo: p.external_id,
       tipo: p.type || 'Imóvel',
       bairro: p.neighborhood || 'Região',
@@ -97,7 +139,7 @@ export async function executePropertySearch(
       suites: null,
       vagas: null,
       area_util: null,
-      link: p.url || '',
+      link: p.url || (websiteBase && p.external_id ? `${websiteBase}/imovel/${p.external_id}` : ''),
       foto_destaque: p.images && p.images.length > 0 ? p.images[0] : null,
       descricao: p.description,
       valor_condominio: null,
@@ -115,17 +157,30 @@ export async function executePropertySearch(
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 
-    const firstProperty = formattedProperties[0];
-    if (firstProperty.foto_destaque) {
-      await sendWhatsAppImage(
-        ctx.phoneNumber,
-        firstProperty.foto_destaque,
-        formatConsultativeProperty(firstProperty, 0, Math.min(formattedProperties.length, 5)),
-        ctx.tenant
-      );
+    // C5: Enviar top 3 imóveis individualmente com foto + caption rico
+    const maxToSend = Math.min(formattedProperties.length, 3);
+    for (let i = 0; i < maxToSend; i++) {
+      const prop = formattedProperties[i];
+      const caption = formatConsultativeProperty(prop, i, formattedProperties.length);
+      if (prop.foto_destaque) {
+        await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
+      } else {
+        // Sem foto: envia como texto com link
+        const { sendWhatsAppMessage: sendMsg } = await import('../whatsapp.ts');
+        await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
+      }
+      // Pequeno delay entre envios para não sobrecarregar
+      if (i < maxToSend - 1) {
+        await new Promise(r => setTimeout(r, 1500));
+      }
     }
 
-    return formatPropertySummary(formattedProperties);
+    // C5: Retorna instrução para o LLM NÃO gerar lista de texto — os cards já foram enviados
+    const remaining = formattedProperties.length - maxToSend;
+    const hint = remaining > 0
+      ? `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. Restam ${remaining} opções não enviadas ainda. PROIBIDO: listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Sua resposta deve ser SOMENTE uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou de cada uma." — aguarde a resposta do cliente antes de enviar mais.`
+      : `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. PROIBIDO: listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Sua resposta deve ser SOMENTE uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
+    return hint;
 
   } catch (error) {
     console.error('❌ Property search execution error:', error);

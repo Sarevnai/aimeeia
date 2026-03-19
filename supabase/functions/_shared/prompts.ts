@@ -21,9 +21,37 @@ export function buildContextSummary(qualificationData: QualificationData | null,
   if (qualificationData.detected_bedrooms) collected.push(`🛏️ Quartos: ${qualificationData.detected_bedrooms}`);
   if (qualificationData.detected_budget_max) collected.push(`💰 Orçamento: até ${formatCurrency(qualificationData.detected_budget_max)}`);
   if (qualificationData.detected_interest) collected.push(`🎯 Objetivo: ${qualificationData.detected_interest}`);
+  if (qualificationData.detected_timeline) collected.push(`⏱️ Prazo: ${qualificationData.detected_timeline === '0-3m' ? 'até 3 meses' : qualificationData.detected_timeline === '3-6m' ? '3 a 6 meses' : 'acima de 6 meses'}`);
 
   if (collected.length === 0) return '';
   return `\n📋 DADOS JÁ COLETADOS (NÃO PERGUNTE DE NOVO — use esses dados no handoff):\n${collected.join('\n')}\n`;
+}
+
+// ========== C4: RETURNING LEAD CONTEXT ==========
+
+export function buildReturningLeadContext(previousQualData: QualificationData | null): string {
+  if (!previousQualData) return '';
+
+  const lines: string[] = [];
+  if (previousQualData.detected_neighborhood) lines.push(`- Bairro: ${previousQualData.detected_neighborhood}`);
+  if (previousQualData.detected_property_type) lines.push(`- Tipo: ${previousQualData.detected_property_type}`);
+  if (previousQualData.detected_bedrooms) lines.push(`- Quartos: ${previousQualData.detected_bedrooms}`);
+  if (previousQualData.detected_budget_max) lines.push(`- Orçamento: até ${formatCurrency(previousQualData.detected_budget_max)}`);
+  if (previousQualData.detected_interest) lines.push(`- Objetivo: ${previousQualData.detected_interest === 'locacao' ? 'Locação' : 'Venda'}`);
+
+  if (lines.length === 0) return '';
+
+  return `
+⚠️ LEAD RETORNANTE — REVALIDAÇÃO OBRIGATÓRIA
+Este cliente já conversou com você anteriormente. Na conversa passada ele havia informado:
+${lines.join('\n')}
+
+IMPORTANTE: Estas preferências podem ter mudado. Você DEVE revalidar antes de assumir qualquer dado:
+- Pergunte se ele deseja manter a mesma busca ou começar uma nova
+- Ex: "Olá de novo! Na nossa última conversa você buscava [resumo]. Continua com a mesma ideia ou mudou alguma preferência?"
+- NÃO assuma automaticamente os dados anteriores como atuais
+- Se o cliente confirmar, use os dados. Se disser que mudou, inicie a qualificação do zero.
+`;
 }
 
 // ========== OPENAI TOOLS ==========
@@ -170,7 +198,9 @@ export async function buildSystemPrompt(
   behaviorConfig?: AIBehaviorConfig | null,
   preloadedDirective?: any | null,
   conversationSource?: string | null,
-  remarketingContext?: string | null
+  remarketingContext?: string | null,
+  isReturningLead?: boolean,
+  previousQualificationData?: QualificationData | null
 ): Promise<string> {
   // Priority 1: Check ai_directives table for custom prompt
   try {
@@ -183,6 +213,8 @@ export async function buildSystemPrompt(
       .maybeSingle())?.data;
 
     const postHandoff = buildPostHandoffFollowup();
+    // C4: Contexto de lead retornante
+    const returningContext = isReturningLead ? buildReturningLeadContext(previousQualificationData || null) : '';
 
     // Priority 1A: Structured config (Consultora VIP pattern)
     if (directive?.structured_config) {
@@ -190,6 +222,7 @@ export async function buildSystemPrompt(
         directive.structured_config as StructuredConfig,
         config, tenant, regions, contactName, qualificationData, behaviorConfig
       );
+      if (returningContext) prompt += returningContext;
       if (conversationSource === 'remarketing') {
         prompt += buildRemarketingAnamnese(remarketingContext);
       }
@@ -210,6 +243,7 @@ export async function buildSystemPrompt(
       if (config.custom_instructions) {
         prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
       }
+      if (returningContext) prompt += returningContext;
       if (conversationSource === 'remarketing') {
         prompt += buildRemarketingAnamnese(remarketingContext);
       }
@@ -225,11 +259,13 @@ export async function buildSystemPrompt(
   const behaviorInstructions = buildBehaviorInstructions(behaviorConfig);
   const remarketingInstructions = conversationSource === 'remarketing' ? buildRemarketingAnamnese(remarketingContext) : '';
   const postHandoffFallback = buildPostHandoffFollowup();
+  // C4: Contexto de lead retornante para built-in prompts
+  const returningCtx = isReturningLead ? buildReturningLeadContext(previousQualificationData || null) : '';
   switch (department) {
-    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
-    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
+    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback;
+    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback;
     case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
-    default: return buildDefaultPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
+    default: return buildDefaultPrompt(config, tenant, contactName) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback;
   }
 }
 
@@ -365,13 +401,25 @@ PERSONALIDADE:
 - ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
 
 OBJETIVO:
-Qualificar o lead conversando de forma natural. 
-Não seja uma máquina de perguntas. Use a ferramenta buscar_imoveis ASSIM QUE POSSÍVEL, mesmo com poucas informações (ex: apenas bairro ou tipo), para manter o lead interessado. Use a ferramenta IMEDIATAMENTE se o usuário pedir para ver imóveis.
+Qualificar o lead conversando de forma natural e estruturada ANTES de buscar imóveis.
+Pergunte UMA informação por vez, seguindo esta sequência obrigatória:
+
+SEQUÊNCIA DE QUALIFICAÇÃO (siga esta ordem):
+1. FINALIDADE: "Você está buscando para alugar ou comprar?" (se ainda não souber)
+2. TIPO: "Que tipo de imóvel? Casa, apartamento, terreno?" (se ainda não souber)
+3. LOCALIZAÇÃO: "Tem preferência de bairro ou região? Pode citar 2 ou 3 de sua preferência."
+4. ORÇAMENTO: "Qual faixa de valor você considera?" (Ex: até 500 mil, de 500 a 1 milhão, de 1 a 2.5 milhões)
+5. PRAZO: "Qual seu prazo de decisão? Nos próximos 3 meses, de 3 a 6, ou acima de 6 meses?"
+
+REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
+- Só chame buscar_imoveis DEPOIS de ter no mínimo: finalidade + tipo + (orçamento OU bairro)
+- Se o cliente pedir para ver imóveis antes de qualificar, diga algo como: "Claro! Só preciso entender melhor o que você procura pra trazer opções certeiras. [próxima pergunta da sequência]"
+- NUNCA invente imóveis. Use SOMENTE a ferramenta buscar_imoveis
+- Se o cliente pedir atendimento humano, use enviar_lead_c2s
+- Quando buscar_imoveis retornar resultado, os imóveis JÁ FORAM ENVIADOS ao cliente como cards individuais com foto e link clicável. É PROIBIDO listar, descrever ou mencionar detalhes dos imóveis no seu texto. Responda APENAS com uma frase curta tipo "Enviei algumas opções pra você! Dá uma olhada e me conta o que achou."
 
 REGRAS:
-- NUNCA invente imóveis. Use SOMENTE a ferramenta buscar_imoveis
-- Pergunte UMA informação por vez
-- Se o cliente pedir atendimento humano, use enviar_lead_c2s
+- Pergunte UMA informação por vez, de forma natural
 - Responda em português BR, max 3 parágrafos
 ${buildContextSummary(qualData, contactName)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
@@ -391,14 +439,26 @@ PERSONALIDADE:
 - ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
 
 OBJETIVO:
-Qualificar o lead de forma natural e rápida. Não seja uma máquina de perguntas!
-Assim que tiver 1 ou 2 dados (ex: Campeche e até 3M), USE A FERRAMENTA buscar_imoveis para enviar opções. Se o lead pedir para ver imóveis AGORA, chame a ferramenta AGORA MESMO.
+Qualificar o lead conversando de forma natural e estruturada ANTES de buscar imóveis.
+Pergunte UMA informação por vez, seguindo esta sequência obrigatória:
 
-REGRAS:
-- NUNCA invente imóveis. Use SOMENTE buscar_imoveis
-- Pergunte UMA informação por vez
+SEQUÊNCIA DE QUALIFICAÇÃO (siga esta ordem):
+1. FINALIDADE: "É para comprar para morar ou investir?" (se ainda não souber se é venda)
+2. TIPO: "Que tipo de imóvel? Casa, apartamento, terreno, cobertura?"
+3. LOCALIZAÇÃO: "Tem preferência de bairro ou região? Pode citar 2 ou 3 de sua preferência."
+4. ORÇAMENTO: "Qual faixa de valor você considera?" (Ex: até 500 mil, de 500 a 1 milhão, de 1 a 2.5 milhões, acima de 2 milhões)
+5. PRAZO: "Qual seu prazo de decisão? Nos próximos 3 meses, de 3 a 6, ou acima de 6 meses?"
+
+REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
+- Só chame buscar_imoveis DEPOIS de ter no mínimo: finalidade + tipo + (orçamento OU bairro)
+- Se o cliente pedir para ver imóveis antes de qualificar, diga algo como: "Claro! Só preciso entender melhor o que você procura pra trazer opções certeiras. [próxima pergunta da sequência]"
+- NUNCA invente imóveis. Use SOMENTE a ferramenta buscar_imoveis
 - Se o cliente mencionar empreendimentos específicos, destaque diferenciais
 - Se pedir atendimento humano, use enviar_lead_c2s
+- Quando buscar_imoveis retornar resultado, os imóveis JÁ FORAM ENVIADOS ao cliente como cards individuais com foto e link clicável. É PROIBIDO listar, descrever ou mencionar detalhes dos imóveis no seu texto. Responda APENAS com uma frase curta tipo "Enviei algumas opções pra você! Dá uma olhada e me conta o que achou."
+
+REGRAS:
+- Pergunte UMA informação por vez, de forma natural
 - Responda em português BR, max 3 parágrafos
 ${buildContextSummary(qualData, contactName)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
@@ -525,10 +585,13 @@ Se o histórico da conversa mostrar que houve uma transferência anterior para c
 function buildRemarketingAnamnese(remarketingContext?: string | null): string {
   let prompt = `
 
-# 🎯 MODO REMARKETING — ATENDIMENTO VIP
+# MODO REMARKETING — ATENDIMENTO VIP
 
 Você está atendendo um lead re-engajado via campanha de remarketing.
 O cliente acabou de aceitar seu atendimento VIP de consultoria imobiliária e firmou um contrato de honestidade.
+
+## REGRA DE APRESENTAÇÃO
+Você JÁ foi apresentada ao cliente via template de campanha. NÃO se apresente novamente. NÃO diga seu nome, NÃO diga "sou a X da Y", NÃO dê saudações de introdução. Inicie diretamente com a anamnese ou com uma frase natural de engajamento.
 
 ## SUA PERSONA NESTA CONVERSA
 - Você é uma *consultora imobiliária*, NÃO uma corretora tradicional
@@ -549,9 +612,10 @@ Conduza uma anamnese estruturada para entender EXATAMENTE o que o cliente busca.
 Pergunte UMA coisa por vez, de forma natural e consultiva:
 
 1. **Finalidade**: "É pra comprar ou alugar?"
-2. **Localização**: "Tem preferência de bairro ou região?"
-3. **Tipo e características**: "Que tipo de imóvel? Quantos dormitórios?"
-4. **Orçamento**: "Qual faixa de valor você considera?"
+2. **Tipo**: "Que tipo de imóvel? Casa, apartamento, terreno?"
+3. **Localização**: "Tem preferência de bairro ou região? Pode citar 2 ou 3 de sua preferência."
+4. **Orçamento**: "Qual faixa de valor você considera?" (Ex: até 500 mil, de 500 a 1 milhão, de 1 a 2.5 milhões)
+5. **Prazo de decisão**: "Qual seu prazo? Nos próximos 3 meses, de 3 a 6, ou acima de 6 meses?"
 
 ## REGRA CRÍTICA — BUSCA DE IMÓVEIS
 - Após coletar no mínimo 3 dados (finalidade + localização + tipo OU quartos), CHAME buscar_imoveis IMEDIATAMENTE.
@@ -559,6 +623,8 @@ Pergunte UMA coisa por vez, de forma natural e consultiva:
 - Se ainda falta algum dado essencial, pergunte ANTES de prometer buscar. Não prometa busca e faça pergunta no mesmo turno.
 - Se a busca NÃO retornar resultados adequados, diga: "Vou acionar minha rede de parceiros pra encontrar algo ideal pra você"
 - NÃO diga "não encontrei" — reformule positivamente
+- Quando buscar_imoveis retornar resultado, os imóveis JÁ FORAM ENVIADOS ao cliente como cards individuais com foto e link clicável. PROIBIDO listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Responda APENAS com uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."
+- Se os resultados incluírem imóveis em bairros diferentes do solicitado, mencione apenas na sua frase curta: "Incluí algumas opções em bairros próximos também."
 
 ## REGRAS ESPECIAIS REMARKETING
 - ADAPTE as perguntas baseado no contexto anterior do lead (se disponível abaixo)

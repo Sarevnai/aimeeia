@@ -45,7 +45,7 @@ function selectAgent(
 
 // ========== FEATURE FLAG ==========
 
-const MULTI_AGENT_ENABLED = Deno.env.get('MULTI_AGENT_ENABLED') === 'true'; // Default: OFF (set to 'true' to enable)
+const MULTI_AGENT_ENABLED = Deno.env.get('MULTI_AGENT_ENABLED') !== 'false'; // Default: ON (set to 'false' to disable)
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -232,6 +232,7 @@ serve(async (req: Request) => {
         regions: [], department: conversation?.department_code, conversationSource: 'organic',
         contactName: contact_name, qualificationData: qualData, conversationHistory: [],
         directive: null, structuredConfig: null, remarketingContext: null,
+        isReturningLead: false, previousQualificationData: null,
         tenantApiKey, tenantProvider, supabase, lastAiMessages: [],
       };
 
@@ -294,9 +295,18 @@ serve(async (req: Request) => {
       }
     }
 
+    // C4: Detectar se é uma nova conversa com dados de qualificação herdados de outra sessão
+    // Se o qualification_data foi carregado por phone_number mas pertence a outro conversation_id,
+    // precisamos sinalizar que o contexto deve ser revalidado
+    let isReturningLead = false;
+    if (qualRow && qualRow.conversation_id && qualRow.conversation_id !== conversation_id) {
+      isReturningLead = true;
+      console.log(`🔄 C4: Lead retornante detectado. Qualificação anterior de conversa ${qualRow.conversation_id}, conversa atual ${conversation_id}`);
+    }
+
     // Extract qualification from current message (skip for admin)
-    const extracted = effectiveDepartment === 'administrativo' ? {} : extractQualificationFromText(message_body, qualData, regions);
-    const mergedQual = mergeQualificationData(qualData, extracted);
+    const extracted = effectiveDepartment === 'administrativo' ? {} : extractQualificationFromText(message_body, isReturningLead ? {} : qualData, regions);
+    const mergedQual = isReturningLead ? mergeQualificationData({}, extracted) : mergeQualificationData(qualData, extracted);
 
     if (Object.keys(extracted).length > 0) {
       await saveQualificationData(supabase, tenant_id, conversation_id, contact_id, mergedQual);
@@ -337,6 +347,8 @@ serve(async (req: Request) => {
         directive,
         structuredConfig,
         remarketingContext,
+        isReturningLead,
+        previousQualificationData: isReturningLead ? qualData : null,
         tenantApiKey,
         tenantProvider,
         lastAiMessages: state?.last_ai_messages || [],
@@ -370,7 +382,8 @@ serve(async (req: Request) => {
       const systemPrompt = await buildSystemPrompt(
         supabase, aiConfig, tenant, effectiveDepartment, regions,
         contact_name, mergedQual, history, behaviorConfig as AIBehaviorConfig | null,
-        directive, conversationSource, remarketingContext
+        directive, conversationSource, remarketingContext,
+        isReturningLead, isReturningLead ? qualData : null
       );
 
       const tools = getToolsForDepartment(effectiveDepartment, structuredConfig?.skills);
@@ -381,7 +394,7 @@ serve(async (req: Request) => {
         message_body,
         tools,
         async (toolName, args) => {
-          return await legacyExecuteToolCall(supabase, tenant as Tenant, tenant_id, phone_number, conversation_id, contact_id, toolName, args, mergedQual, effectiveDepartment);
+          return await legacyExecuteToolCall(supabase, tenant as Tenant, aiConfig, tenant_id, phone_number, conversation_id, contact_id, toolName, args, mergedQual, effectiveDepartment);
         },
         {
           model: aiConfig.ai_model || 'gpt-4o-mini',
@@ -464,6 +477,7 @@ serve(async (req: Request) => {
 async function legacyExecuteToolCall(
   supabase: any,
   tenant: Tenant,
+  aiConfig: AIAgentConfig,
   tenantId: string,
   phoneNumber: string,
   conversationId: string,
@@ -476,7 +490,7 @@ async function legacyExecuteToolCall(
   console.log(`🔧 [Legacy] Executing tool: ${toolName}`, args);
 
   if (toolName === 'buscar_imoveis') {
-    return await legacyExecutePropertySearch(supabase, tenant, tenantId, phoneNumber, conversationId, args, department);
+    return await legacyExecutePropertySearch(supabase, tenant, aiConfig, tenantId, phoneNumber, conversationId, args, department);
   }
   if (toolName === 'enviar_lead_c2s') {
     return await legacyExecuteLeadHandoff(supabase, tenantId, phoneNumber, conversationId, contactId, args, qualData);
@@ -491,25 +505,53 @@ async function legacyExecuteToolCall(
 }
 
 async function legacyExecutePropertySearch(
-  supabase: any, tenant: Tenant, tenantId: string, phoneNumber: string,
+  supabase: any, tenant: Tenant, aiConfig: AIAgentConfig, tenantId: string, phoneNumber: string,
   conversationId: string, args: any, department: string | null
 ): Promise<string> {
   try {
     const semanticQuery = args.query_semantica || `Imóvel para ${args.finalidade || department || 'locacao'}`;
+    // C1: Margem de 30% acima do orçamento do cliente (regra de negociação imobiliária)
+    const clientBudget = args.preco_max || null;
+    const searchBudget = clientBudget ? Math.round(clientBudget * 1.3) : null;
+    console.log(`🔍 [Legacy] Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
     const queryEmbedding = await generateEmbedding(semanticQuery);
     const { data: properties, error } = await supabase.rpc('match_properties', {
       query_embedding: queryEmbedding, match_tenant_id: tenantId,
       match_threshold: 0.2, match_count: 5,
-      filter_max_price: args.preco_max || null, filter_tipo: args.tipo_imovel || null,
+      filter_max_price: searchBudget, filter_tipo: args.tipo_imovel || null,
     });
     if (error) return 'Não consegui buscar imóveis no nosso catálogo inteligente no momento. Tente novamente em instantes.';
-    if (!properties || properties.length === 0) return 'Não encontrei imóveis exatos com esses critérios. Quer tentar expandir a busca ou remover alguns filtros como valor máximo?';
 
-    const formattedProperties: PropertyResult[] = properties.map((p: any) => ({
+    // C2: Filtrar imóveis sem preço válido
+    let validProperties = (properties || []).filter((p: any) => p.price && p.price > 1);
+
+    // C6: Expansão geográfica proativa
+    if (validProperties.length <= 1) {
+      console.log(`🌍 [Legacy] C6: Apenas ${validProperties.length} resultado(s). Expansão geográfica...`);
+      const expandedQuery = args.tipo_imovel
+        ? `${args.tipo_imovel} para ${args.finalidade || 'venda'} em ${tenant.city}`
+        : `imóvel para ${args.finalidade || 'venda'} em ${tenant.city}`;
+      const expandedEmbedding = await generateEmbedding(expandedQuery);
+      const { data: expandedProps } = await supabase.rpc('match_properties', {
+        query_embedding: expandedEmbedding, match_tenant_id: tenantId,
+        match_threshold: 0.15, match_count: 5,
+        filter_max_price: searchBudget, filter_tipo: args.tipo_imovel || null,
+      });
+      const expandedValid = (expandedProps || []).filter((p: any) => p.price && p.price > 1);
+      const originalIds = new Set(validProperties.map((p: any) => p.external_id));
+      const newExpanded = expandedValid.filter((p: any) => !originalIds.has(p.external_id));
+      validProperties = [...validProperties, ...newExpanded];
+    }
+
+    if (validProperties.length === 0) return 'Não encontrei imóveis disponíveis com esses critérios no momento. Quer que eu ajuste a faixa de preço ou o tipo de imóvel?';
+
+    const websiteBase = aiConfig.website_url?.replace(/\/$/, '') || '';
+    const formattedProperties: PropertyResult[] = validProperties.map((p: any) => ({
       codigo: p.external_id, tipo: p.type || 'Imóvel', bairro: p.neighborhood || 'Região',
       cidade: p.city || tenant.city, preco: p.price, preco_formatado: null,
       quartos: p.bedrooms, suites: null, vagas: null, area_util: null,
-      link: p.url || '', foto_destaque: p.images?.length > 0 ? p.images[0] : null,
+      link: p.url || (websiteBase && p.external_id ? `${websiteBase}/imovel/${p.external_id}` : ''),
+      foto_destaque: p.images?.length > 0 ? p.images[0] : null,
       descricao: p.description, valor_condominio: null,
     }));
 
@@ -519,12 +561,23 @@ async function legacyExecutePropertySearch(
       last_search_params: { semantic_query: semanticQuery, ...args }, updated_at: new Date().toISOString(),
     }, { onConflict: 'tenant_id,phone_number' });
 
-    const firstProperty = formattedProperties[0];
-    if (firstProperty.foto_destaque) {
-      await sendWhatsAppImage(phoneNumber, firstProperty.foto_destaque,
-        formatConsultativeProperty(firstProperty, 0, Math.min(formattedProperties.length, 5)), tenant);
+    // C5: Enviar top 3 imóveis individualmente com foto + caption rico
+    const maxToSend = Math.min(formattedProperties.length, 3);
+    for (let i = 0; i < maxToSend; i++) {
+      const prop = formattedProperties[i];
+      const caption = formatConsultativeProperty(prop, i, formattedProperties.length);
+      if (prop.foto_destaque) {
+        await sendWhatsAppImage(phoneNumber, prop.foto_destaque, caption, tenant);
+      } else {
+        await sendWhatsAppMessage(phoneNumber, caption, tenant);
+      }
+      if (i < maxToSend - 1) await sleep(1500);
     }
-    return formatPropertySummary(formattedProperties);
+    const remaining = formattedProperties.length - maxToSend;
+    return remaining > 0
+      ? `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. Restam ${remaining} opções não enviadas ainda. PROIBIDO: listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Sua resposta deve ser SOMENTE uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou de cada uma." — aguarde a resposta do cliente antes de enviar mais.`
+      : `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. PROIBIDO: listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Sua resposta deve ser SOMENTE uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
+
   } catch (error) {
     console.error('❌ Property search execution error:', error);
     return 'Tive um problema ao buscar imóveis em nosso catálogo. Vou tentar novamente.';

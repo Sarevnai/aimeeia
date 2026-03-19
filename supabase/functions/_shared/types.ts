@@ -60,6 +60,7 @@ export interface AIAgentConfig {
   audio_max_chars: number;
   custom_instructions: string;
   vista_integration_enabled: boolean;
+  website_url: string | null;
 }
 
 export interface AudioConfig {
@@ -104,6 +105,7 @@ export interface QualificationData {
   detected_budget_min?: number | null;
   detected_budget_max?: number | null;
   detected_interest?: string | null;
+  detected_timeline?: string | null; // C3: "0-3m", "3-6m", "6m+"
   qualification_score?: number;
   questions_answered?: number;
 }
@@ -114,6 +116,7 @@ export interface ExtractedQualificationData {
   detected_bedrooms?: number;
   detected_budget_max?: number;
   detected_interest?: string;
+  detected_timeline?: string; // C3: "0-3m", "3-6m", "6m+"
 }
 
 // ========== PROPERTY ==========

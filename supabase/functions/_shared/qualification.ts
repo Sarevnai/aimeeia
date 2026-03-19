@@ -10,19 +10,30 @@ export function calculateQualificationScore(data: QualificationData | null): num
   if (!data) return 0;
 
   let score = 0;
-  if (data.detected_neighborhood) score += 25;
+  if (data.detected_neighborhood) score += 20;
   if (data.detected_property_type) score += 20;
-  if (data.detected_bedrooms) score += 20;
+  if (data.detected_bedrooms) score += 10;
   if (data.detected_budget_max) score += 25;
-  if (data.detected_interest) score += 10;
+  if (data.detected_interest) score += 20;  // C3: Finalidade (venda/locação) agora pesa mais
+  if (data.detected_timeline) score += 5;   // C3: Timeline de compra (bonus)
 
   return Math.min(score, 100);
 }
 
 export function isQualificationComplete(data: QualificationData | null): boolean {
-  // Relaxed qualification: semantic search is powerful enough to find properties
-  // with fewer strict parameters. We just need a minimum viable threshold.
-  return calculateQualificationScore(data) >= 20;
+  // C3: Qualificação mínima obrigatória antes de buscar imóveis:
+  // Exige pelo menos finalidade (venda/locação) + tipo de imóvel + orçamento OU bairro
+  // Score mínimo: interest(20) + type(20) + budget(25) ou neighborhood(20) = 60-65
+  return calculateQualificationScore(data) >= 60;
+}
+
+// C3: Retorna quais dados obrigatórios ainda faltam para qualificação mínima
+export function getMissingQualificationFields(data: QualificationData | null): string[] {
+  const missing: string[] = [];
+  if (!data?.detected_interest) missing.push('finalidade'); // venda ou locação
+  if (!data?.detected_property_type) missing.push('tipo_imovel'); // casa, apto, etc
+  if (!data?.detected_budget_max && !data?.detected_neighborhood) missing.push('orcamento_ou_bairro'); // pelo menos 1
+  return missing;
 }
 
 export function getNextQualificationQuestion(
@@ -76,6 +87,12 @@ export function extractQualificationFromText(
     else if (/comprar|compra|investir/i.test(lower)) extracted.detected_interest = 'venda';
   }
 
+  // C3: Timeline detection (prazo de decisão)
+  if (!currentData?.detected_timeline) {
+    const timeline = detectTimeline(lower);
+    if (timeline) extracted.detected_timeline = timeline;
+  }
+
   return extracted;
 }
 
@@ -92,6 +109,7 @@ export function mergeQualificationData(
   if (extracted.detected_bedrooms) merged.detected_bedrooms = extracted.detected_bedrooms;
   if (extracted.detected_budget_max) merged.detected_budget_max = extracted.detected_budget_max;
   if (extracted.detected_interest) merged.detected_interest = extracted.detected_interest;
+  if (extracted.detected_timeline) merged.detected_timeline = extracted.detected_timeline;
 
   merged.qualification_score = calculateQualificationScore(merged);
   merged.questions_answered = countAnswered(merged);
@@ -163,6 +181,7 @@ export async function saveQualificationData(
     detected_budget_min: data.detected_budget_min || null,
     detected_budget_max: data.detected_budget_max || null,
     detected_interest: data.detected_interest || null,
+    detected_timeline: data.detected_timeline || null,
     qualification_score: data.qualification_score || 0,
     questions_answered: data.questions_answered || 0,
     updated_at: new Date().toISOString(),
@@ -293,5 +312,23 @@ function countAnswered(data: QualificationData): number {
   if (data.detected_bedrooms) count++;
   if (data.detected_budget_max) count++;
   if (data.detected_interest) count++;
+  if (data.detected_timeline) count++;
   return count;
+}
+
+// C3: Detecta prazo de decisão/compra do cliente
+function detectTimeline(lower: string): string | null {
+  // Imediato / urgente / até 3 meses
+  if (/\b(imediato|urgente|agora|j[aá]|o\s+mais\s+r[aá]pido|esse\s+m[eê]s|pr[oó]ximo\s+m[eê]s|1\s*m[eê]s|2\s*meses?|3\s*meses?|curto\s+prazo|nos\s+pr[oó]ximos\s+3)\b/i.test(lower)) {
+    return '0-3m';
+  }
+  // 3 a 6 meses
+  if (/\b(4\s*meses?|5\s*meses?|6\s*meses?|meio\s+ano|primeiro\s+semestre|m[eé]dio\s+prazo|3\s*a\s*6)\b/i.test(lower)) {
+    return '3-6m';
+  }
+  // Acima de 6 meses / sem pressa
+  if (/\b(sem\s+pressa|n[aã]o\s+tenho\s+pressa|longo\s+prazo|mais\s+de\s+6|acima\s+de\s+6|1\s*ano|pr[oó]ximo\s+ano|ano\s+que\s+vem|quando\s+achar|sem\s+urg[eê]ncia)\b/i.test(lower)) {
+    return '6m+';
+  }
+  return null;
 }

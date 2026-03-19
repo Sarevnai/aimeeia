@@ -4,7 +4,7 @@
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff } from './tool-executors.ts';
-import { buildContextSummary } from '../prompts.ts';
+import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
 import { isQualificationComplete } from '../qualification.ts';
@@ -38,15 +38,27 @@ PERSONALIDADE:
 - ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}` : 'Seja cordial'}
 
 OBJETIVO:
-Qualificar o lead conversando de forma natural.
-Não seja uma máquina de perguntas. Use a ferramenta buscar_imoveis ASSIM QUE POSSÍVEL, mesmo com poucas informações (ex: apenas bairro ou tipo), para manter o lead interessado. Use a ferramenta IMEDIATAMENTE se o usuário pedir para ver imóveis.
+Qualificar o lead conversando de forma natural e estruturada ANTES de buscar imóveis.
+Pergunte UMA informação por vez, seguindo esta sequência obrigatória:
+
+SEQUÊNCIA DE QUALIFICAÇÃO (siga esta ordem):
+1. FINALIDADE: "${isLocacao ? 'Confirmar que é locação' : 'É para comprar para morar ou investir?'}"
+2. TIPO: "Que tipo de imóvel? Casa, apartamento, terreno?"
+3. LOCALIZAÇÃO: "Tem preferência de bairro ou região? Pode citar 2 ou 3 de sua preferência."
+4. ORÇAMENTO: "Qual faixa de valor você considera?" (Ex: até 500 mil, de 500 a 1 milhão, de 1 a 2.5 milhões)
+5. PRAZO: "Qual seu prazo de decisão? Nos próximos 3 meses, de 3 a 6, ou acima de 6 meses?"
+
+REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
+- Só chame buscar_imoveis DEPOIS de ter no mínimo: finalidade + tipo + (orçamento OU bairro)
+- Se o cliente pedir para ver imóveis antes de qualificar, diga: "Claro! Só preciso entender melhor o que você procura pra trazer opções certeiras. [próxima pergunta]"
+- NUNCA invente imóveis. Use SOMENTE a ferramenta buscar_imoveis
+- Se o cliente pedir atendimento humano, use enviar_lead_c2s
+- Quando buscar_imoveis retornar resultado, os imóveis JÁ FORAM ENVIADOS ao cliente como cards individuais com foto e link clicável. É PROIBIDO listar, descrever ou mencionar detalhes dos imóveis no seu texto. Responda APENAS com uma frase curta tipo "Enviei algumas opções pra você! Dá uma olhada e me conta o que achou."
 
 REGRAS:
-- NUNCA invente imóveis. Use SOMENTE a ferramenta buscar_imoveis
-- Pergunte UMA informação por vez
-- Se o cliente pedir atendimento humano, use enviar_lead_c2s
+- Pergunte UMA informação por vez, de forma natural
 - Responda em português BR, max 3 parágrafos
-${buildContextSummary(qualData, contactName)}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildPostHandoffFollowup()}`;
+${buildContextSummary(qualData, contactName)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildPostHandoffFollowup()}`;
 }
 
 function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig): string {
@@ -152,6 +164,11 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
     sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
   }
 
+  // C4: Contexto de lead retornante
+  if (ctx.isReturningLead) {
+    sections.push(buildReturningLeadContext(ctx.previousQualificationData));
+  }
+
   sections.push(buildPostHandoffFollowup());
 
   return sections.join('\n');
@@ -166,6 +183,7 @@ function buildLegacyDirectivePrompt(ctx: AgentContext): string {
   prompt = prompt.replaceAll('{{CITY}}', tenant.city);
   prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
   prompt += buildContextSummary(qualData, contactName);
+  if (ctx.isReturningLead) prompt += buildReturningLeadContext(ctx.previousQualificationData);
   prompt += generateRegionKnowledge(regions);
   prompt += buildBehaviorInstructionsLocal(ctx);
   if (config.custom_instructions) {

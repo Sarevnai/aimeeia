@@ -4,9 +4,81 @@
 
 import { AgentContext } from './agent-interface.ts';
 import { sendWhatsAppMessage, sendWhatsAppImage, saveOutboundMessage } from '../whatsapp.ts';
-import { formatConsultativeProperty } from '../property.ts';
-import { logActivity } from '../utils.ts';
+import { logActivity, formatCurrency } from '../utils.ts';
 import { ConversationMessage, PropertyResult } from '../types.ts';
+
+// ========== PROPERTY CAPTION GENERATION (AI) ==========
+
+export async function generatePropertyCaption(
+  property: PropertyResult,
+  agentName: string
+): Promise<string> {
+  // Truncar descrição do Vista para evitar que o modelo copie textos longos
+  const descricaoResumo = property.descricao
+    ? property.descricao.slice(0, 150).replace(/\s+\S*$/, '...')
+    : null;
+
+  const details = [
+    `Tipo: ${property.tipo}`,
+    `Bairro: ${property.bairro}`,
+    `Cidade: ${property.cidade}`,
+    property.preco && property.preco > 1 ? `Preço: ${property.preco_formatado || formatCurrency(property.preco)}` : null,
+    property.quartos ? `Quartos: ${property.quartos}` : null,
+    property.suites ? `Suítes: ${property.suites}` : null,
+    property.vagas ? `Vagas: ${property.vagas}` : null,
+    property.area_util ? `Área útil: ${property.area_util}m²` : null,
+    property.valor_condominio && property.valor_condominio > 1 ? `Condomínio: ${formatCurrency(property.valor_condominio)}` : null,
+    descricaoResumo ? `Referência (NÃO copie): ${descricaoResumo}` : null,
+  ].filter(Boolean).join('\n');
+
+  const systemPrompt = `Você é ${agentName}, consultora imobiliária apresentando UM imóvel para um cliente via WhatsApp. Escreva APENAS 2 a 3 frases curtas e naturais, como uma pessoa de verdade falando. Regras obrigatórias: português brasileiro, texto corrido e conversacional (nunca lista), mencione tipo, bairro e preço de forma orgânica, PROIBIDO copiar ou parafrasear a descrição do anúncio original, PROIBIDO usar travessão (— ou –), PROIBIDO usar emojis, PROIBIDO expressões de anúncio como "segue", "confira", "não perca", "oportunidade", "venha conhecer", "destaque". O texto deve soar como uma conversa curta, não como um anúncio.`;
+
+  try {
+    const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY') || '';
+    if (!apiKey) throw new Error('No API key available');
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.0-flash-001',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Apresente este imóvel:\n${details}` },
+        ],
+        max_tokens: 150,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    const data = await response.json();
+    const text = (data.choices?.[0]?.message?.content || '').trim();
+    if (!text) throw new Error('Empty response');
+
+    // Remover travessões e similares mesmo que o modelo ignore a instrução
+    return text.replace(/[—–]/g, ',').replace(/ - /g, ', ');
+  } catch (e) {
+    console.warn('⚠️ generatePropertyCaption fallback:', (e as Error).message);
+    return buildFallbackCaption(property);
+  }
+}
+
+function buildFallbackCaption(property: PropertyResult): string {
+  const preco = property.preco && property.preco > 1
+    ? (property.preco_formatado || formatCurrency(property.preco))
+    : null;
+  const info = [
+    property.tipo,
+    `em ${property.bairro}`,
+    preco ? `por ${preco}` : null,
+    property.quartos ? `com ${property.quartos} quarto${property.quartos > 1 ? 's' : ''}` : null,
+  ].filter(Boolean).join(' ');
+  return info + '.';
+}
 
 // ========== EMBEDDING GENERATION ==========
 
@@ -158,10 +230,12 @@ export async function executePropertySearch(
       }, { onConflict: 'tenant_id,phone_number' });
 
     // C5: Enviar top 3 imóveis individualmente com foto + caption rico
+    const agentName = (ctx.aiConfig as any).agent_name || 'Aimee';
     const maxToSend = Math.min(formattedProperties.length, 3);
     for (let i = 0; i < maxToSend; i++) {
       const prop = formattedProperties[i];
-      const caption = formatConsultativeProperty(prop, i, formattedProperties.length);
+      const aiCaption = await generatePropertyCaption(prop, agentName);
+      const caption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
       if (prop.foto_destaque) {
         await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
       } else {

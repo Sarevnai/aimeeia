@@ -85,12 +85,13 @@ serve(async (req: Request) => {
         }
 
         // Body parameters — named params take precedence over positional
+        // NOTE: We send named params as positional (without parameter_name) for
+        // compatibility with Meta Cloud API v21.0 which doesn't support parameter_name.
         if (named_body_params && named_body_params.length > 0) {
             components.push({
                 type: 'body',
                 parameters: named_body_params.map(({ name, value }: { name: string; value: string }) => ({
                     type: 'text',
-                    parameter_name: name,
                     text: value,
                 })),
             });
@@ -129,10 +130,26 @@ serve(async (req: Request) => {
                         contactName = contactRow?.name?.split(' ')[0] || '';
                     }
 
+                    // Lookup agent name from ai_agent_config
+                    let agentName = '';
+                    const { data: agentConfig } = await supabase
+                        .from('ai_agent_config')
+                        .select('agent_name')
+                        .eq('tenant_id', tenant_id)
+                        .maybeSingle();
+                    agentName = agentConfig?.agent_name || '';
+
+                    // Resolve each named param
+                    const paramResolvers: Record<string, string> = {
+                        nome: contactName || 'você',
+                        lead: contactName || 'você',
+                        agente: agentName || t.company_name || '',
+                        empresa: t.company_name || '',
+                    };
+
                     const autoParams = namedParams.map((p) => ({
                         type: 'text',
-                        parameter_name: p.param_name,
-                        text: p.param_name === 'nome' ? (contactName || 'você') : (p.example || ''),
+                        text: paramResolvers[p.param_name] || p.example || '',
                     }));
 
                     components.push({ type: 'body', parameters: autoParams });
@@ -159,7 +176,7 @@ serve(async (req: Request) => {
             payload.template.components = components;
         }
 
-        console.log(`📤 Sending template "${template_name}" to ${phone_number}`);
+        console.log(`📤 Sending template "${template_name}" to ${phone_number}`, JSON.stringify(payload));
 
         const response = await fetch(url, {
             method: 'POST',

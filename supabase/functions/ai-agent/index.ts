@@ -21,7 +21,7 @@ import { AgentModule, AgentContext, AgentType } from '../_shared/agents/agent-in
 import { comercialAgent } from '../_shared/agents/comercial.ts';
 import { adminAgent } from '../_shared/agents/admin.ts';
 import { remarketingAgent } from '../_shared/agents/remarketing.ts';
-import { decryptApiKey, loadConversationHistory, loadRemarketingContext, sendAndSave, generateEmbedding, executeLeadHandoff } from '../_shared/agents/tool-executors.ts';
+import { decryptApiKey, loadConversationHistory, loadRemarketingContext, sendAndSave, generateEmbedding, executeLeadHandoff, generatePropertyCaption } from '../_shared/agents/tool-executors.ts';
 
 // ========== AGENT SELECTION (Deterministic — no LLM call) ==========
 
@@ -158,7 +158,8 @@ serve(async (req: Request) => {
       raw_message || { text: { body: message_body } },
       message_body, phone_number, conversation_id,
       triageConfig,
-      contact_name || null
+      contact_name || null,
+      conversation?.source || null
     );
 
     if (triageResult.shouldContinue) {
@@ -561,11 +562,13 @@ async function legacyExecutePropertySearch(
       last_search_params: { semantic_query: semanticQuery, ...args }, updated_at: new Date().toISOString(),
     }, { onConflict: 'tenant_id,phone_number' });
 
-    // C5: Enviar top 3 imóveis individualmente com foto + caption rico
+    // C5: Enviar top 3 imóveis individualmente com foto + caption gerado por IA
+    const agentName = aiConfig.agent_name || 'Aimee';
     const maxToSend = Math.min(formattedProperties.length, 3);
     for (let i = 0; i < maxToSend; i++) {
       const prop = formattedProperties[i];
-      const caption = formatConsultativeProperty(prop, i, formattedProperties.length);
+      const aiCaption = await generatePropertyCaption(prop, agentName);
+      const caption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
       if (prop.foto_destaque) {
         await sendWhatsAppImage(phoneNumber, prop.foto_destaque, caption, tenant);
       } else {

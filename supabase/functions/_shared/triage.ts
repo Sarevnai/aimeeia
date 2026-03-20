@@ -82,9 +82,17 @@ export async function handleTriage(
   phoneNumber: string,
   conversationId: string,
   triageConfig?: TriageConfig | null,
-  contactName?: string | null
+  contactName?: string | null,
+  conversationSource?: string | null
 ): Promise<TriageResult> {
-  const stage = state?.triage_stage || 'greeting';
+  let stage = state?.triage_stage || 'greeting';
+
+  // For remarketing conversations, skip generic greeting (template already introduced the agent)
+  // Jump straight to the VIP pitch stage on first contact
+  if (stage === 'greeting' && conversationSource === 'remarketing') {
+    await updateTriageStage(supabase, tenant.id, phoneNumber, 'remarketing_vip_pitch');
+    stage = 'remarketing_vip_pitch';
+  }
   const agentName = config.agent_name || 'Aimee';
 
   // Helper to replace triage template variables

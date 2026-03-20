@@ -27,6 +27,9 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+
+# MCP config (contains access tokens)
+.mcp.json
 docs/AIMEE-AUDIT-REPORT.md
 src/contexts/TenantContext.tsx
 src/pages/admin/AdminDashboardPage.tsx

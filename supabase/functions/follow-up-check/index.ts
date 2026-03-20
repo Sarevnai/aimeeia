@@ -11,9 +11,9 @@ import { Tenant } from '../_shared/types.ts';
 const INACTIVITY_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
 const FOLLOW_UP_MESSAGES = [
-  'Oi! Ainda está por aí? 😊 Estou aqui caso precise de algo!',
-  'Ei, tudo bem? Se precisar de mais informações, é só me chamar!',
-  'Oi! Vi que ficamos sem conversar. Posso te ajudar com mais alguma coisa?',
+  'Ainda está por aí? Estou aqui caso precise de algo.',
+  'Tudo bem? Se precisar de mais informações, é só me chamar.',
+  'Vi que ficamos sem conversar. Posso te ajudar com mais alguma coisa?',
 ];
 
 serve(async (req: Request) => {

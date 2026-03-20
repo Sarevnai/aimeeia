@@ -374,6 +374,18 @@ export async function callLLMWithToolExecution(
         });
       }
     }
+
+    // C5 bypass: if any tool returned a SISTEMA CRÍTICA instruction (property cards already sent),
+    // extract the example phrase and return directly — do NOT make another LLM call that may list properties.
+    const sistemaMsg = messages
+      .filter((m: any) => m.role === 'tool')
+      .map((m: any) => m.content as string)
+      .find((c: string) => typeof c === 'string' && c.startsWith('[SISTEMA — INSTRUÇÃO CRÍTICA]'));
+
+    if (sistemaMsg) {
+      const exampleMatch = sistemaMsg.match(/Exemplo:\s*"([^"]+)"/);
+      return exampleMatch ? exampleMatch[1] : 'Enviei algumas opções. Dá uma olhada e me conta o que achou.';
+    }
   }
 
   // Final call without tools

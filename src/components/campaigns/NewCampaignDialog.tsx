@@ -120,18 +120,21 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
   const handleSend = async () => {
-    if (!tenantId) return;
+    if (!tenantId || !selectedTemplate) return;
     setSending(true);
 
+    const templateName = selectedTemplate.name;
+
+    // 1. Create campaign with status 'sending'
     const { data: campaign, error } = await supabase
       .from('campaigns')
       .insert({
         tenant_id: tenantId,
         name,
         department_code: (deptCode || null) as any,
-        template_name: selectedTemplate?.name || null,
-        status: 'sent',
-        sent_count: selected.size,
+        template_name: templateName,
+        status: 'sending',
+        sent_count: 0,
       })
       .select('id')
       .single();
@@ -143,20 +146,57 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
     }
 
     const selectedContacts = contacts.filter((c) => selected.has(c.id));
+
+    // 2. Create campaign_results with status 'pending'
     const results = selectedContacts.map((c) => ({
       tenant_id: tenantId,
       campaign_id: campaign.id,
       contact_id: c.id,
       phone: c.phone,
-      status: 'sent',
+      status: 'pending',
     }));
 
     if (results.length > 0) {
       await supabase.from('campaign_results').insert(results);
     }
 
+    // 3. Dispatch templates via Edge Function
+    let sentCount = 0;
+    for (const contact of selectedContacts) {
+      try {
+        const { error: fnError } = await supabase.functions.invoke('send-wa-template', {
+          body: {
+            tenant_id: tenantId,
+            phone_number: contact.phone,
+            template_name: templateName,
+            language_code: 'pt_BR',
+            campaign_id: campaign.id,
+            contact_id: contact.id,
+          },
+        });
+
+        if (!fnError) {
+          sentCount++;
+        } else {
+          console.error(`Falha ao enviar para ${contact.phone}:`, fnError);
+        }
+      } catch (err) {
+        console.error(`Falha ao enviar para ${contact.phone}:`, err);
+      }
+    }
+
+    // 4. Update campaign status
+    await supabase.from('campaigns').update({
+      status: 'sent',
+      sent_count: sentCount,
+    }).eq('id', campaign.id);
+
     setSending(false);
-    toast({ title: 'Campanha enviada', description: `${results.length} destinatários` });
+    toast({
+      title: 'Campanha enviada',
+      description: `${sentCount} de ${selectedContacts.length} mensagens enviadas`,
+      variant: sentCount === 0 ? 'destructive' : 'default',
+    });
     onOpenChange(false);
     onCreated();
   };

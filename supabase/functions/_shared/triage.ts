@@ -206,12 +206,12 @@ export async function handleTriage(
     const rmkConfig = triageConfig?.remarketing;
 
     // Build VIP pitch messages (configurable or default)
+    // NOTE: The remarketing template already introduces the agent, so skip self-introduction here.
     const pitchMessages = rmkConfig?.vip_pitch?.map(msg => replaceTvars(msg, contactName || undefined)) || [
       replaceTvars(
-        `Olá, {{NAME}}! Eu sou a {{AGENT_NAME}}, consultora imobiliária da {{COMPANY_NAME}}.\n\n` +
         `Meu trabalho é diferente dos corretores tradicionais. Trabalho com *consultoria imobiliária personalizada* — ` +
         `atendo no máximo 2 a 3 clientes por vez, pra garantir que cada um tenha um atendimento exclusivo e dedicado.\n\n` +
-        `Vou buscar o imóvel ideal como se fosse pra mim ou pra minha família.`,
+        `Vou buscar o imóvel ideal pra você com todo o empenho e dedicação.`,
         contactName || undefined
       ),
       replaceTvars(
@@ -219,7 +219,7 @@ export async function handleTriage(
         `- Custo zero — quem paga é o proprietário\n` +
         `- A {{COMPANY_NAME}} tem uma das maiores pautas de {{CITY}}. Se não tiver na nossa pauta, fazemos parceria com outras imobiliárias\n` +
         `- Centraliza tudo em uma consultora dedicada a você\n\n` +
-        `Se você enxerga valor nesse tipo de atendimento exclusivo, me sinaliza que eu vou te colocar como meu cliente!`,
+        `Se você enxerga valor nesse tipo de atendimento exclusivo, me sinaliza que eu vou te colocar como meu *cliente vip*!`,
         contactName || undefined
       ),
     ];

@@ -395,8 +395,24 @@ serve(async (req: Request) => {
         supabase,
       };
 
-      const systemPrompt = agent.buildSystemPrompt(ctx);
+      let systemPrompt = agent.buildSystemPrompt(ctx);
       const tools = agent.getTools(ctx);
+
+      // Inject audio-awareness instructions when TTS is enabled
+      if (aiConfig.audio_enabled && aiConfig.audio_mode !== 'text_only') {
+        systemPrompt += `\n\n🎙️ MODO DE RESPOSTA POR ÁUDIO:
+Sua resposta será convertida em áudio e enviada como mensagem de voz no WhatsApp.
+REGRAS OBRIGATÓRIAS PARA ÁUDIO:
+- Você está FALANDO, não escrevendo. Escreva como se estivesse conversando naturalmente.
+- NÃO use emojis, asteriscos, bullet points, listas numeradas ou qualquer formatação visual.
+- NÃO use abreviações como "apt", "dorm", "m²" — fale por extenso: "apartamento", "dormitórios", "metros quadrados".
+- NÃO inclua links ou URLs no texto — eles não funcionam em áudio.
+- Use frases curtas e naturais. Evite parágrafos longos.
+- Dê pausas naturais usando pontuação (vírgulas, pontos).
+- Se precisar listar opções, apresente de forma conversacional: "Temos uma opção no bairro X, e outra no bairro Y".
+- Mantenha o tom acolhedor e humano, como uma consultora falando ao telefone.
+- Limite sua resposta a no máximo ${aiConfig.audio_max_chars || 500} caracteres para não ficar longo demais.`;
+      }
 
       const aiResponse = await callLLMWithToolExecution(
         systemPrompt,
@@ -419,12 +435,28 @@ serve(async (req: Request) => {
       // === LEGACY: Monolithic Path (fallback) ===
       console.log(`🔧 Legacy mode | dept: ${effectiveDepartment} | source: ${conversationSource}`);
 
-      const systemPrompt = await buildSystemPrompt(
+      let systemPrompt = await buildSystemPrompt(
         supabase, aiConfig, tenant, effectiveDepartment, regions,
         contact_name, mergedQual, history, behaviorConfig as AIBehaviorConfig | null,
         directive, conversationSource, remarketingContext,
         isReturningLead, isReturningLead ? qualData : null
       );
+
+      // Inject audio-awareness instructions when TTS is enabled
+      if (aiConfig.audio_enabled && aiConfig.audio_mode !== 'text_only') {
+        systemPrompt += `\n\n🎙️ MODO DE RESPOSTA POR ÁUDIO:
+Sua resposta será convertida em áudio e enviada como mensagem de voz no WhatsApp.
+REGRAS OBRIGATÓRIAS PARA ÁUDIO:
+- Você está FALANDO, não escrevendo. Escreva como se estivesse conversando naturalmente.
+- NÃO use emojis, asteriscos, bullet points, listas numeradas ou qualquer formatação visual.
+- NÃO use abreviações como "apt", "dorm", "m²" — fale por extenso: "apartamento", "dormitórios", "metros quadrados".
+- NÃO inclua links ou URLs no texto — eles não funcionam em áudio.
+- Use frases curtas e naturais. Evite parágrafos longos.
+- Dê pausas naturais usando pontuação (vírgulas, pontos).
+- Se precisar listar opções, apresente de forma conversacional: "Temos uma opção no bairro X, e outra no bairro Y".
+- Mantenha o tom acolhedor e humano, como uma consultora falando ao telefone.
+- Limite sua resposta a no máximo ${aiConfig.audio_max_chars || 500} caracteres para não ficar longo demais.`;
+      }
 
       const tools = getToolsForDepartment(effectiveDepartment, structuredConfig?.skills);
 

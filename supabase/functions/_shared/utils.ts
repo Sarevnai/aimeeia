@@ -73,24 +73,33 @@ export async function isDuplicateMessage(
 }
 
 /**
- * Fragment a long message into multiple chunks at sentence boundaries.
+ * Fragment a long message into multiple chunks.
+ * First splits on explicit ___ separators, then splits long chunks at sentence boundaries.
  */
 export function fragmentMessage(message: string, maxChars = 800): string[] {
-  if (message.length <= maxChars) return [message];
+  // Step 1: Split on explicit ___ separators (used by AI agent for multi-message responses)
+  const explicitParts = message.split(/\n?_{3,}\n?/).map(p => p.trim()).filter(Boolean);
 
-  const sentences = message.split(/(?<=[.!?])\s+/);
+  // Step 2: For each part, split further at sentence boundaries if too long
   const fragments: string[] = [];
-  let current = '';
-
-  for (const sentence of sentences) {
-    if ((current + ' ' + sentence).trim().length > maxChars && current) {
-      fragments.push(current.trim());
-      current = sentence;
-    } else {
-      current = current ? current + ' ' + sentence : sentence;
+  for (const part of explicitParts) {
+    if (part.length <= maxChars) {
+      fragments.push(part);
+      continue;
     }
+
+    const sentences = part.split(/(?<=[.!?])\s+/);
+    let current = '';
+    for (const sentence of sentences) {
+      if ((current + ' ' + sentence).trim().length > maxChars && current) {
+        fragments.push(current.trim());
+        current = sentence;
+      } else {
+        current = current ? current + ' ' + sentence : sentence;
+      }
+    }
+    if (current.trim()) fragments.push(current.trim());
   }
-  if (current.trim()) fragments.push(current.trim());
 
   return fragments.length > 0 ? fragments : [message];
 }

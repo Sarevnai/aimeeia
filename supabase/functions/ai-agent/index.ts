@@ -497,6 +497,9 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 
     // Prefixar com nome do agente para identificação no WhatsApp
     const agentName = aiConfig.agent_name || 'Aimee';
+    // Strip any agent name prefix the AI may have already included to avoid duplication
+    // e.g. "*Helena*\n\n..." or "*Helena Smolka*\n\n..."
+    finalResponse = finalResponse.replace(/^\*[^*]+\*\s*\n+/, '');
     finalResponse = `*${agentName}*\n\n${finalResponse}`;
 
     const audioConfig: AudioConfig = {

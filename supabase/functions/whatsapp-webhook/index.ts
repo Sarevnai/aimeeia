@@ -474,6 +474,18 @@ async function processInboundMessage(
       .eq('phone_number', phoneNumber);
   }
 
+  // 6.6 MC-4: Acquire processing lock BEFORE invoking ai-agent to close the race window.
+  // Previously the lock was only set inside ai-agent, leaving a gap where a second
+  // webhook could pass the is_processing check before the first ai-agent invocation set it.
+  await supabase
+    .from('conversation_states')
+    .upsert({
+      tenant_id: tenant.id,
+      phone_number: phoneNumber,
+      is_processing: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'tenant_id,phone_number' });
+
   // 7. Invoke ai-agent
   try {
     const aiResponse = await supabase.functions.invoke('ai-agent', {
@@ -499,6 +511,12 @@ async function processInboundMessage(
 
   } catch (error) {
     console.error('❌ Error invoking ai-agent:', error);
+    // Release the processing lock on failure so the next message isn't blocked
+    await supabase
+      .from('conversation_states')
+      .update({ is_processing: false, updated_at: new Date().toISOString() })
+      .eq('tenant_id', tenant.id)
+      .eq('phone_number', phoneNumber);
     await logError(supabase, tenant.id, 'whatsapp-webhook', error, { phoneNumber });
     return { action: 'error' };
   }

@@ -243,30 +243,13 @@ export async function handleTriage(
     const negativePatterns = /\b(não|nao|sem interesse|agora não|agora nao|depois|paro|obrigado mas|dispenso|sem tempo|ocupado)\b/i;
 
     if (positivePatterns.test(lower)) {
-      // Buy-in confirmed! Send honesty contract + anamnese intro
-      const honestyMessages = rmkConfig?.honesty_contract?.map(msg => replaceTvars(msg, contactName || undefined)) || [
-        replaceTvars(
-          `Fico feliz, {{NAME}}! Vou te colocar como meu cliente.\n\n` +
-          `Peço apenas uma coisa em troca: *seja completamente honesto(a) comigo*.\n\n` +
-          `Não tenha nenhum receio de me dizer se não gostou de algo. Se a vaga é pequena, se precisa de churrasqueira a carvão, ` +
-          `se tem que bater sol o dia inteiro, se não pode ser face sul...\n\n` +
-          `Quanto mais sincero(a) você for sobre o que é imprescindível, melhor eu consigo trabalhar pra encontrar o imóvel perfeito.`,
-          contactName || undefined
-        ),
-        replaceTvars(
-          rmkConfig?.anamnese_intro || `Agora vou fazer algumas perguntas rápidas pra entender exatamente o que você procura. Vamos lá?`,
-          contactName || undefined
-        ),
-      ];
-
-      // Complete triage with vendas department
+      // Buy-in confirmed! Complete triage and let the remarketing AI agent
+      // generate a personalized partnership contract (instead of hardcoded text)
       await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'vendas');
 
-      return {
-        shouldContinue: true,
-        responseMessages: honestyMessages,
-        department: 'vendas',
-      };
+      // Return shouldContinue: false so the flow continues to the AI agent,
+      // which will generate the partnership contract dynamically
+      return { shouldContinue: false };
     }
 
     if (negativePatterns.test(lower) && !positivePatterns.test(lower)) {

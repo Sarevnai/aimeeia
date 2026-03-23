@@ -289,7 +289,8 @@ export async function executePropertySearch(
     }
 
     const aiCaption = await generatePropertyCaption(prop, agentName, clientNeeds, nearbyPlacesText);
-    const caption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
+    const rawCaption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
+    const caption = `*${agentName}*\n\n${rawCaption}`;
     let sentCount = 0;
     if (prop.foto_destaque) {
       const imgResult = await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
@@ -306,6 +307,45 @@ export async function executePropertySearch(
     }
 
     console.log(`📤 Property sent: ${sentCount}/1 delivered | ${formattedProperties.length - 1} remaining in queue`);
+
+    // Track shown property and advance index
+    if (sentCount > 0) {
+      const { data: currentState } = await ctx.supabase
+        .from('conversation_states')
+        .select('shown_property_ids')
+        .eq('tenant_id', ctx.tenantId)
+        .eq('phone_number', ctx.phoneNumber)
+        .maybeSingle();
+
+      const shownIds = currentState?.shown_property_ids || [];
+      if (prop.codigo && !shownIds.includes(prop.codigo)) {
+        shownIds.push(prop.codigo);
+      }
+
+      await ctx.supabase
+        .from('conversation_states')
+        .upsert({
+          tenant_id: ctx.tenantId,
+          phone_number: ctx.phoneNumber,
+          shown_property_ids: shownIds,
+          current_property_index: 1,
+          last_property_shown_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'tenant_id,phone_number' });
+    }
+
+    // Persist lead qualification data
+    await ctx.supabase
+      .from('lead_qualification')
+      .upsert({
+        tenant_id: ctx.tenantId,
+        phone_number: ctx.phoneNumber,
+        detected_property_type: args.tipo_imovel || null,
+        detected_budget_max: args.preco_max || null,
+        detected_interest: args.finalidade || null,
+        detected_neighborhood: semanticQuery,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,phone_number' });
 
     // Construir resumo dos imóveis para o LLM poder responder perguntas do cliente
     const propertySummaries = formattedProperties.map((p, i) => {

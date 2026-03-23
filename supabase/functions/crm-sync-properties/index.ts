@@ -65,22 +65,28 @@ serve(async (req: Request) => {
     let isDeltaSync = false;
 
     if (!full_sync) {
+      // Usar vista_updated_at (data do Vista) em vez de updated_at (data local)
+      // Isso evita que o delta sync perca imoveis quando updated_at local e resetado
       const { data: latestProp } = await supabase
         .from('properties')
-        .select('updated_at')
+        .select('vista_updated_at')
         .eq('tenant_id', tenant_id)
-        .order('updated_at', { ascending: false })
+        .not('vista_updated_at', 'is', null)
+        .order('vista_updated_at', { ascending: false })
         .limit(1)
         .single();
 
-      if (latestProp && latestProp.updated_at) {
-        const dateObj = new Date(latestProp.updated_at);
+      if (latestProp && latestProp.vista_updated_at) {
+        const dateObj = new Date(latestProp.vista_updated_at);
         syncStartDate = dateObj.toISOString().split('T')[0];
         isDeltaSync = true;
       }
     }
 
     console.log(`Starting Vista Sync for tenant ${tenant_id}. Delta: ${isDeltaSync ? syncStartDate : 'Full Sync'}`);
+
+    // Track synced external_ids for deactivation logic on full sync
+    const allSyncedExternalIds = new Set<string>();
 
     while (currentPage <= totalPages) {
       console.log(`Fetching page ${currentPage} of ${totalPages}...`);
@@ -103,12 +109,12 @@ serve(async (req: Request) => {
         }
       };
 
-      if (isDeltaSync && syncStartDate) {
-        const today = new Date().toISOString().split('T')[0];
-        pesquisaData.filter = {
-          "DataAtualizacao": [syncStartDate, today]
-        };
-      }
+      // Filtrar apenas imóveis à Venda ou Aluguel que estão exibidos no site
+      pesquisaData.filter = {
+        "Status": ["Venda", "Aluguel"],
+        "ExibirNoSite": "Sim",
+        ...(isDeltaSync && syncStartDate ? { "DataAtualizacao": [">=", syncStartDate] } : {})
+      };
 
       const encodedPesquisa = encodeURIComponent(JSON.stringify(pesquisaData));
       const fetchUrl = `${vistaUrl}?key=${vistaKey}&pesquisa=${encodedPesquisa}&showtotal=1`;
@@ -168,6 +174,7 @@ serve(async (req: Request) => {
           const lat = latStr ? parseFloat(latStr) : null;
           const lng = lngStr ? parseFloat(lngStr) : null;
 
+          allSyncedExternalIds.add(codigo);
           propertiesBatch.push({
             tenant_id,
             external_id: codigo,
@@ -185,6 +192,7 @@ serve(async (req: Request) => {
             is_active: true,
             latitude: (lat && !isNaN(lat) && lat !== 0) ? lat : null,
             longitude: (lng && !isNaN(lng) && lng !== 0) ? lng : null,
+            vista_updated_at: imovel.DataAtualizacao || null,
             updated_at: new Date().toISOString(),
           });
         }
@@ -212,9 +220,45 @@ serve(async (req: Request) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
+    // Para full sync, desativar imóveis que não vieram no resultado
+    // (não estão mais à Venda/Aluguel ou não estão ExibirNoSite)
+    let deactivatedCount = 0;
+    if (full_sync && totalProcessed > 0) {
+      const syncedIds = allSyncedExternalIds;
+      if (syncedIds.size > 0) {
+        // Buscar todos os external_ids ativos do tenant
+        const { data: activeProps } = await supabase
+          .from('properties')
+          .select('external_id')
+          .eq('tenant_id', tenant_id)
+          .eq('is_active', true);
+
+        if (activeProps) {
+          const toDeactivate = activeProps
+            .filter(p => !syncedIds.has(p.external_id))
+            .map(p => p.external_id);
+
+          if (toDeactivate.length > 0) {
+            const { error: deactErr } = await supabase
+              .from('properties')
+              .update({ is_active: false, updated_at: new Date().toISOString() })
+              .eq('tenant_id', tenant_id)
+              .in('external_id', toDeactivate);
+
+            if (deactErr) {
+              console.error('Error deactivating old properties:', deactErr);
+            } else {
+              deactivatedCount = toDeactivate.length;
+              console.log(`Deactivated ${deactivatedCount} properties no longer matching filters.`);
+            }
+          }
+        }
+      }
+    }
+
     return new Response(JSON.stringify({
       success: true,
-      message: `Successfully synced ${totalProcessed} properties.`
+      message: `Successfully synced ${totalProcessed} properties.${deactivatedCount > 0 ? ` Deactivated ${deactivatedCount} properties.` : ''}`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,

@@ -47,6 +47,7 @@ serve(async (req: Request) => {
           'ValorVenda', 'ValorLocacao', 'Dormitorios', 'Suites', 'Vagas',
           'AreaUtil', 'AreaTotal', 'DescricaoWeb', 'FotoDestaque', 'Fotos',
           'ValorCondominio', 'ValorIPTU', 'Caracteristicas', 'Status',
+          'Latitude', 'Longitude'
         ],
       }),
     });

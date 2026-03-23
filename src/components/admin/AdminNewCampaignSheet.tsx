@@ -335,6 +335,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
         template?: WhatsappTemplate,
     ) => {
         const paramNames = extractNamedParamNames(template?.components ?? null);
+        let sentOk = 0;
 
         for (const contact of contactList) {
             try {
@@ -342,7 +343,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                     ? buildNamedParams(paramNames, contact)
                     : undefined;
 
-                await supabase.functions.invoke('send-wa-template', {
+                const { data, error: fnError } = await supabase.functions.invoke('send-wa-template', {
                     body: {
                         tenant_id: tenantId,
                         phone_number: contact.phone,
@@ -353,13 +354,18 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                         ...(named_body_params ? { named_body_params } : {}),
                     },
                 });
+                if (fnError || data?.error) {
+                    console.error(`Failed to send to ${contact.phone}:`, fnError || data.error);
+                } else {
+                    sentOk++;
+                }
             } catch (err) {
                 console.error(`Failed to send to ${contact.phone}:`, err);
             }
         }
 
         // Update campaign status
-        await supabase.from('campaigns').update({ status: 'sent' }).eq('id', campaignId);
+        await supabase.from('campaigns').update({ status: 'sent', sent_count: sentOk }).eq('id', campaignId);
     };
 
     return (

@@ -141,6 +141,8 @@ export interface PropertyResult {
   valor_condominio?: number;
   valor_iptu?: number;
   finalidade?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 // ========== DEVELOPMENT (Portal Leads) ==========

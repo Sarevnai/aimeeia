@@ -499,7 +499,7 @@ const AdminTenantDetailPage: React.FC = () => {
         let sentCount = 0;
         for (const contact of selectedContacts) {
             try {
-                await supabase.functions.invoke('send-wa-template', {
+                const { data, error: fnError } = await supabase.functions.invoke('send-wa-template', {
                     body: {
                         tenant_id: id!,
                         phone_number: contact.phone,
@@ -509,7 +509,11 @@ const AdminTenantDetailPage: React.FC = () => {
                         contact_id: contact.id,
                     },
                 });
-                sentCount++;
+                if (fnError || data?.error) {
+                    console.error(`Failed to send to ${contact.phone}:`, fnError || data.error);
+                } else {
+                    sentCount++;
+                }
             } catch (err) {
                 console.error(`Failed to send to ${contact.phone}:`, err);
             }

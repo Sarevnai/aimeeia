@@ -57,6 +57,7 @@ async function searchVistaProperties(
     'Codigo', 'TipoImovel', 'Categoria', 'Bairro', 'Cidade', 'Endereco',
     'ValorVenda', 'ValorLocacao', 'Dormitorios', 'Suites', 'Vagas',
     'AreaUtil', 'DescricaoWeb', 'FotoDestaque', 'ValorCondominio', 'ValorIPTU',
+    'Latitude', 'Longitude'
   ];
 
   const filter: string[] = [];
@@ -183,5 +184,7 @@ function mapVistaToProperty(item: any, tenant: Tenant, isLocacao: boolean): Prop
     valor_condominio: parseFloat(item.ValorCondominio || '0') || undefined,
     valor_iptu: parseFloat(item.ValorIPTU || '0') || undefined,
     finalidade: isLocacao ? 'locacao' : 'venda',
+    latitude: item.Latitude ? parseFloat(item.Latitude) : undefined,
+    longitude: item.Longitude ? parseFloat(item.Longitude) : undefined,
   };
 }

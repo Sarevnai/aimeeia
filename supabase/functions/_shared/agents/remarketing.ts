@@ -3,7 +3,7 @@
 // VIP consultora persona, structured anamnese, enriched handoff dossier.
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
-import { executePropertySearch, executeLeadHandoff } from './tool-executors.ts';
+import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
 import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
@@ -174,6 +174,25 @@ function getRemarketingTools(ctx: AgentContext): any[] {
         },
       },
     },
+    {
+      type: "function",
+      function: {
+        name: "buscar_pontos_de_interesse_proximos",
+        description: "Use esta ferramenta QUANDO O CLIENTE PERGUNTAR especificamente sobre a localização, raio, o que tem perto, escolas, mercados ou infraestrutura. Retorna dados reais e distâncias.",
+        parameters: {
+          type: "object",
+          properties: {
+            external_id: { type: "string", description: "O CÓDIGO (external_id) do imóvel que você quer analisar. Exemplo: 'CA0012'" },
+            type: {
+              type: "string",
+              description: "Tipo de local desejado",
+              enum: ["supermarket", "school", "hospital", "pharmacy", "park", "restaurant", "gym"]
+            }
+          },
+          required: ["external_id", "type"],
+        },
+      },
+    },
   ];
 
   if (!skills || skills.length === 0) return baseTools;
@@ -202,6 +221,7 @@ export const remarketingAgent: AgentModule = {
     console.log(`🔧 [Remarketing] Executing tool: ${toolName}`, args);
     if (toolName === 'buscar_imoveis') return await executePropertySearch(ctx, args);
     if (toolName === 'enviar_lead_c2s') return await executeLeadHandoff(ctx, args);
+    if (toolName === 'buscar_pontos_de_interesse_proximos') return await executeGetNearbyPlaces(ctx, args);
     return `Ferramenta desconhecida: ${toolName}`;
   },
 

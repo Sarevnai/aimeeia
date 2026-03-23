@@ -95,6 +95,8 @@ serve(async (req: Request) => {
         const location = listing.Location || listing;
         const neighborhood = getTextValue(location.Neighborhood) || location.Bairro || '';
         const city = getTextValue(location.City) || location.Cidade || '';
+        const latitude = parseFloat(String(getTextValue(location.Latitude) || location.Latitude || 0)) || null;
+        const longitude = parseFloat(String(getTextValue(location.Longitude) || location.Longitude || 0)) || null;
 
         // Build property URL from listing data
         const propertyUrl = listing.VirtualTourLink || listing.DetailViewUrl || listing.PropertyLink || '';
@@ -160,6 +162,8 @@ serve(async (req: Request) => {
         const embedding = await generateEmbedding(semanticText);
 
         // 4. Upsert into Properties
+        // Schema real: parking_spaces (não parking), raw_data (jsonb), is_active (não status)
+        // Colunas que NÃO existem: type, url, images, status, parking
         const { error: upsertError } = await supabaseClient
             .from('properties')
             .upsert({
@@ -168,17 +172,17 @@ serve(async (req: Request) => {
                 title: title || 'Imóvel sem título',
                 description,
                 price: price || null,
-                type: type || 'Indefinido',
                 bedrooms,
                 bathrooms,
-                parking,
+                parking_spaces: parking,
                 area,
                 neighborhood,
                 city,
-                images,
-                url: propertyUrl,
-                status: 'ativo',
+                raw_data: { type, url: propertyUrl, images, ...queueItem.raw_data },
+                is_active: true,
                 embedding,
+                latitude,
+                longitude,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'tenant_id, external_id' });
 

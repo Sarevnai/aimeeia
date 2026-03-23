@@ -164,7 +164,7 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
     let sentCount = 0;
     for (const contact of selectedContacts) {
       try {
-        const { error: fnError } = await supabase.functions.invoke('send-wa-template', {
+        const { data, error: fnError } = await supabase.functions.invoke('send-wa-template', {
           body: {
             tenant_id: tenantId,
             phone_number: contact.phone,
@@ -175,10 +175,12 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
           },
         });
 
-        if (!fnError) {
-          sentCount++;
-        } else {
+        if (fnError) {
           console.error(`Falha ao enviar para ${contact.phone}:`, fnError);
+        } else if (data?.error) {
+          console.error(`Falha ao enviar para ${contact.phone}:`, data.error);
+        } else {
+          sentCount++;
         }
       } catch (err) {
         console.error(`Falha ao enviar para ${contact.phone}:`, err);

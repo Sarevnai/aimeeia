@@ -85,13 +85,13 @@ serve(async (req: Request) => {
         }
 
         // Body parameters — named params take precedence over positional
-        // NOTE: We send named params as positional (without parameter_name) for
-        // compatibility with Meta Cloud API v21.0 which doesn't support parameter_name.
+        // Meta Cloud API requires parameter_name for named-param templates.
         if (named_body_params && named_body_params.length > 0) {
             components.push({
                 type: 'body',
                 parameters: named_body_params.map(({ name, value }: { name: string; value: string }) => ({
                     type: 'text',
+                    parameter_name: name,
                     text: value,
                 })),
             });
@@ -149,6 +149,7 @@ serve(async (req: Request) => {
 
                     const autoParams = namedParams.map((p) => ({
                         type: 'text',
+                        parameter_name: p.param_name,
                         text: paramResolvers[p.param_name] || p.example || '',
                     }));
 

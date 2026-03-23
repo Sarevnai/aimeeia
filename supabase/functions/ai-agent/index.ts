@@ -13,7 +13,7 @@ import { extractQualificationFromText, mergeQualificationData, saveQualification
 import { loadRegions } from '../_shared/regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState } from '../_shared/anti-loop.ts';
 import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } from '../_shared/property.ts';
-import { fragmentMessage, logError, logActivity, sleep } from '../_shared/utils.ts';
+import { fragmentMessage, logError, logActivity, sleep, formatCurrency } from '../_shared/utils.ts';
 import { Tenant, AIAgentConfig, AIBehaviorConfig, ConversationState, ConversationMessage, PropertyResult, StructuredConfig, TriageConfig } from '../_shared/types.ts';
 
 // Multi-agent imports
@@ -21,7 +21,7 @@ import { AgentModule, AgentContext, AgentType } from '../_shared/agents/agent-in
 import { comercialAgent } from '../_shared/agents/comercial.ts';
 import { adminAgent } from '../_shared/agents/admin.ts';
 import { remarketingAgent } from '../_shared/agents/remarketing.ts';
-import { decryptApiKey, loadConversationHistory, loadRemarketingContext, sendAndSave, generateEmbedding, executeLeadHandoff, generatePropertyCaption } from '../_shared/agents/tool-executors.ts';
+import { decryptApiKey, loadConversationHistory, loadRemarketingContext, sendAndSave, generateEmbedding, executeLeadHandoff, generatePropertyCaption, executeAdminHandoff, executeGetNearbyPlaces } from '../_shared/agents/tool-executors.ts';
 
 // ========== AGENT SELECTION (Deterministic — no LLM call) ==========
 
@@ -316,6 +316,30 @@ serve(async (req: Request) => {
     // Load conversation history
     const history = await loadConversationHistory(supabase, tenant_id, conversation_id, aiConfig.max_history_messages || 10, effectiveDepartment);
 
+    // Inject pending_properties context so the LLM can answer property questions on subsequent turns
+    if (state?.pending_properties && Array.isArray(state.pending_properties) && state.pending_properties.length > 0) {
+      const propSummaries = state.pending_properties.slice(0, 5).map((prop: any, i: number) => {
+        const descResumo = prop.descricao ? prop.descricao.slice(0, 500) : 'Sem descrição disponível';
+        const details = [
+          `Tipo: ${prop.tipo}`,
+          `Bairro: ${prop.bairro}`,
+          prop.preco ? `Preço: ${prop.preco_formatado || formatCurrency(prop.preco)}` : null,
+          prop.quartos ? `Quartos: ${prop.quartos}` : null,
+          prop.suites ? `Suítes: ${prop.suites}` : null,
+          prop.vagas ? `Vagas: ${prop.vagas}` : null,
+          prop.area_util ? `Área útil: ${prop.area_util}m²` : null,
+          prop.valor_condominio && prop.valor_condominio > 1 ? `Condomínio: ${formatCurrency(prop.valor_condominio)}` : null,
+          `Descrição: ${descResumo}`,
+        ].filter(Boolean).join(', ');
+        return `Imóvel ${i + 1}: ${details}`;
+      }).join('\n');
+
+      history.push({
+        role: 'assistant',
+        content: `[SISTEMA — CONTEXTO DE IMÓVEIS ENVIADOS ANTERIORMENTE]\nOs imóveis abaixo já foram enviados ao cliente como cards. Use estas informações para responder perguntas sobre detalhes dos imóveis. Responda de forma natural e consultiva, montando um texto fluido. NÃO repita a lista completa.\n\n${propSummaries}`,
+      });
+    }
+
     // Load remarketing context if applicable
     let remarketingContext: string | null = null;
     if (conversationSource === 'remarketing') {
@@ -502,6 +526,14 @@ async function legacyExecuteToolCall(
   if (toolName === 'encaminhar_humano') {
     return await legacyExecuteAdminHandoff(supabase, tenantId, phoneNumber, conversationId, args);
   }
+  if (toolName === 'buscar_pontos_de_interesse_proximos') {
+    // Wrap arguments to simulate AgentContext for the shared tool executor
+    const mockCtx = {
+      tenantId,
+      supabase,
+    } as any;
+    return await executeGetNearbyPlaces(mockCtx, args);
+  }
   return `Ferramenta desconhecida: ${toolName}`;
 }
 
@@ -577,9 +609,25 @@ async function legacyExecutePropertySearch(
       if (i < maxToSend - 1) await sleep(1500);
     }
     const remaining = formattedProperties.length - maxToSend;
-    return remaining > 0
-      ? `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. Restam ${remaining} opções não enviadas ainda. PROIBIDO: listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Sua resposta deve ser SOMENTE uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou de cada uma." — aguarde a resposta do cliente antes de enviar mais.`
-      : `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. PROIBIDO: listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Sua resposta deve ser SOMENTE uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
+
+    // Construir resumo dos imóveis enviados para o LLM poder responder perguntas do cliente
+    const propertySummaries = formattedProperties.slice(0, maxToSend).map((prop, i) => {
+      const descResumo = prop.descricao ? prop.descricao.slice(0, 500) : 'Sem descrição disponível';
+      const details = [
+        `Tipo: ${prop.tipo}`,
+        `Bairro: ${prop.bairro}`,
+        prop.preco ? `Preço: ${prop.preco_formatado || formatCurrency(prop.preco)}` : null,
+        prop.quartos ? `Quartos: ${prop.quartos}` : null,
+        prop.area_util ? `Área útil: ${prop.area_util}m²` : null,
+        `Descrição: ${descResumo}`,
+      ].filter(Boolean).join(', ');
+      return `Imóvel ${i + 1}: ${details}`;
+    }).join('\n');
+
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. NÃO repita a lista completa. Responda com uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
+    const detailHint = `\n\n[DADOS DOS IMÓVEIS ENVIADOS — use para responder perguntas do cliente sobre detalhes]\n${propertySummaries}`;
+    const remainingHint = remaining > 0 ? `\nRestam ${remaining} opções não enviadas. Aguarde a resposta do cliente antes de enviar mais.` : '';
+    return baseHint + detailHint + remainingHint;
 
   } catch (error) {
     console.error('❌ Property search execution error:', error);

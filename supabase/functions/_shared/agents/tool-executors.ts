@@ -249,11 +249,30 @@ export async function executePropertySearch(
       }
     }
 
-    // C5: Retorna instrução para o LLM NÃO gerar lista de texto — os cards já foram enviados
+    // C5: Retorna instrução para o LLM + dados dos imóveis para que possa responder perguntas
     const remaining = formattedProperties.length - maxToSend;
-    const hint = remaining > 0
-      ? `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. Restam ${remaining} opções não enviadas ainda. PROIBIDO: listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Sua resposta deve ser SOMENTE uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou de cada uma." — aguarde a resposta do cliente antes de enviar mais.`
-      : `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. PROIBIDO: listar, numerar, descrever, mencionar bairro, preço, quartos ou qualquer detalhe dos imóveis no texto. Sua resposta deve ser SOMENTE uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
+
+    // Construir resumo dos imóveis enviados para o LLM poder responder perguntas do cliente
+    const propertySummaries = formattedProperties.slice(0, maxToSend).map((prop, i) => {
+      const descResumo = prop.descricao ? prop.descricao.slice(0, 500) : 'Sem descrição disponível';
+      const details = [
+        `Tipo: ${prop.tipo}`,
+        `Bairro: ${prop.bairro}`,
+        prop.preco ? `Preço: ${prop.preco_formatado || formatCurrency(prop.preco)}` : null,
+        prop.quartos ? `Quartos: ${prop.quartos}` : null,
+        prop.suites ? `Suítes: ${prop.suites}` : null,
+        prop.vagas ? `Vagas: ${prop.vagas}` : null,
+        prop.area_util ? `Área útil: ${prop.area_util}m²` : null,
+        prop.valor_condominio && prop.valor_condominio > 1 ? `Condomínio: ${formatCurrency(prop.valor_condominio)}` : null,
+        `Descrição: ${descResumo}`,
+      ].filter(Boolean).join(', ');
+      return `Imóvel ${i + 1}: ${details}`;
+    }).join('\n');
+
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. NÃO repita a lista completa. Responda com uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
+    const detailHint = `\n\n[DADOS DOS IMÓVEIS ENVIADOS — use para responder perguntas do cliente sobre detalhes]\n${propertySummaries}`;
+    const remainingHint = remaining > 0 ? `\nRestam ${remaining} opções não enviadas. Aguarde a resposta do cliente antes de enviar mais.` : '';
+    const hint = baseHint + detailHint + remainingHint;
     return hint;
 
   } catch (error) {
@@ -263,6 +282,63 @@ export async function executePropertySearch(
 }
 
 // ========== LEAD HANDOFF (C2S CRM) ==========
+// ========== GOOGLE MAPS POI SEARCH ==========
+
+export async function executeGetNearbyPlaces(
+  ctx: AgentContext,
+  args: { external_id: string; type?: string }
+): Promise<string> {
+  try {
+    const { tenantId, supabase } = ctx;
+    const { external_id, type = 'supermarket' } = args;
+
+    // 1. Encontrar o imóvel no banco para pegar Lat/Lng
+    const { data: property } = await supabase
+      .from('properties')
+      .select('latitude, longitude, title, neighborhood')
+      .eq('tenant_id', tenantId)
+      .eq('external_id', external_id)
+      .single();
+
+    if (!property || !property.latitude || !property.longitude) {
+      return `[RESULTADO] Não foi possível encontrar a localização exata no mapa para o imóvel ${external_id}. Use seu conhecimento geral sobre o bairro ${property?.neighborhood || ''} para responder.`;
+    }
+
+    // 2. Chamar a Edge Function get-nearby-places
+    const { data: responseData, error } = await supabase.functions.invoke('get-nearby-places', {
+      body: {
+        latitude: property.latitude,
+        longitude: property.longitude,
+        radius: 2000, // 2km radius
+        type: type,
+      }
+    });
+
+    if (error || !responseData?.places) {
+      console.error('❌ Error calling get-nearby-places:', error || responseData);
+      return `[RESULTADO] Falha ao buscar pontos de interesse próximos no mapa. Use seu conhecimento geral para responder.`;
+    }
+
+    const places = responseData.places as any[];
+    if (places.length === 0) {
+      return `[RESULTADO] Nenhum local do tipo '${type}' encontrado num raio de 2km do imóvel.`;
+    }
+
+    const lines = places.slice(0, 3).map((p: any) => {
+      const distStr = p.distance_meters > 1000 
+        ? `${(p.distance_meters / 1000).toFixed(1)}km` 
+        : `${p.distance_meters}m`;
+      return `- ${p.name} (${distStr} de distância)`;
+    });
+
+    return `[RESULTADO] Pontos de interesse (${type}) próximos ao imóvel:\n${lines.join('\n')}\nBaseado nisso, formule uma resposta natural ao cliente destacando a proximidade.`;
+
+  } catch (err: any) {
+    console.error('❌ executeGetNearbyPlaces error:', err);
+    return `[ERRO] ${err.message}`;
+  }
+}
+
 
 export async function executeLeadHandoff(
   ctx: AgentContext,

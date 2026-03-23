@@ -44,6 +44,9 @@ export function formatWhatsAppMarkdown(text: string): string {
   formatted = formatted.replace(/^##\s+(.*)$/gm, '*$1*');
   formatted = formatted.replace(/^#\s+(.*)$/gm, '*$1*');
 
+  // Sanitizar travessões (em-dash e en-dash) — substituir por vírgula
+  formatted = formatted.replace(/[—–]/g, ',');
+
   return formatted;
 }
 

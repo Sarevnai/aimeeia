@@ -131,6 +131,11 @@ export interface AgentConfig {
   custom_instructions: string | null;
   audio_enabled: boolean;
   audio_mode: string;
+  audio_voice_id: string;
+  audio_voice_stability: number;
+  audio_voice_similarity: number;
+  audio_max_chars: number;
+  audio_channel_mirroring: boolean;
   emoji_intensity: string;
   has_api_key?: boolean;
 }
@@ -147,6 +152,11 @@ export const defaultAgentConfig: Omit<AgentConfig, 'id' | 'tenant_id'> = {
   custom_instructions: null,
   audio_enabled: false,
   audio_mode: 'text_only',
+  audio_voice_id: '',
+  audio_voice_stability: 0.5,
+  audio_voice_similarity: 0.75,
+  audio_max_chars: 500,
+  audio_channel_mirroring: false,
   emoji_intensity: 'low',
   has_api_key: false,
 };

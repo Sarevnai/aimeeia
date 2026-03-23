@@ -3,7 +3,7 @@ import {
   Bot, Save, RotateCcw, Loader2, Key, Eye, EyeOff,
   CheckCircle2, XCircle, Cpu, TestTube, Trash2,
   Brain, MessageSquare, Smile, Settings, Mic, Zap,
-  ArrowLeft,
+  ArrowLeft, RefreshCw, Volume2,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -14,11 +14,20 @@ import { Label } from '@/components/ui/label';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAdminTenants } from '@/hooks/useAdminTenants';
 import { PROVIDERS, AgentConfig, defaultAgentConfig } from '@/lib/agent-constants';
 import TenantAgentSelector from '@/components/admin/agents/TenantAgentSelector';
+
+interface ElevenLabsVoice {
+  voice_id: string;
+  name: string;
+  category: string | null;
+  labels: Record<string, string>;
+  preview_url: string | null;
+}
 
 const AgentGlobalSettingsPage: React.FC = () => {
   const { toast } = useToast();
@@ -34,6 +43,35 @@ const AgentGlobalSettingsPage: React.FC = () => {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [testingKey, setTestingKey] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
+  const [voices, setVoices] = useState<ElevenLabsVoice[]>([]);
+  const [loadingVoices, setLoadingVoices] = useState(false);
+  const [voicesError, setVoicesError] = useState(false);
+  const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
+
+  const fetchVoices = async () => {
+    setLoadingVoices(true);
+    setVoicesError(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('elevenlabs-voices');
+      if (error) throw error;
+      setVoices(data?.voices || []);
+    } catch {
+      setVoicesError(true);
+    } finally {
+      setLoadingVoices(false);
+    }
+  };
+
+  const playVoicePreview = (previewUrl: string | null, voiceId: string) => {
+    if (!previewUrl) return;
+    setPreviewingVoice(voiceId);
+    const audio = new Audio(previewUrl);
+    audio.onended = () => setPreviewingVoice(null);
+    audio.onerror = () => setPreviewingVoice(null);
+    audio.play();
+  };
+
+  useEffect(() => { fetchVoices(); }, []);
 
   useEffect(() => {
     if (!selectedTenantId) return;
@@ -78,6 +116,11 @@ const AgentGlobalSettingsPage: React.FC = () => {
       custom_instructions: config.custom_instructions,
       audio_enabled: config.audio_enabled,
       audio_mode: config.audio_mode,
+      audio_voice_id: config.audio_voice_id || null,
+      audio_voice_stability: config.audio_voice_stability,
+      audio_voice_similarity: config.audio_voice_similarity,
+      audio_max_chars: config.audio_max_chars,
+      audio_channel_mirroring: config.audio_channel_mirroring,
       emoji_intensity: config.emoji_intensity,
       updated_at: new Date().toISOString(),
     };
@@ -397,13 +440,6 @@ const AgentGlobalSettingsPage: React.FC = () => {
               </div>
               <div className="flex items-center justify-between p-3 rounded-lg border border-border/50">
                 <div className="flex items-center gap-2">
-                  <Mic className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-xs font-medium text-foreground">Áudio</span>
-                </div>
-                <Switch checked={config.audio_enabled} onCheckedChange={(v) => setConfig({ ...config, audio_enabled: v })} />
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50">
-                <div className="flex items-center gap-2">
                   <Zap className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs font-medium text-foreground">Triage Config</span>
                 </div>
@@ -412,6 +448,136 @@ const AgentGlobalSettingsPage: React.FC = () => {
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Voz (ElevenLabs) */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'hsl(250 70% 60%)', color: 'white' }}>
+                <Mic className="h-4 w-4" />
+              </div>
+              <h2 className="text-sm font-semibold text-foreground">Voz (ElevenLabs)</h2>
+              <div className="ml-auto flex items-center gap-2">
+                <Switch checked={config.audio_enabled} onCheckedChange={(v) => setConfig({ ...config, audio_enabled: v })} />
+                <span className="text-xs text-muted-foreground">{config.audio_enabled ? 'Ativado' : 'Desativado'}</span>
+              </div>
+            </div>
+
+            {config.audio_enabled && (
+              <div className="space-y-4">
+                {/* Voice + Mode */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Voz do Agente</Label>
+                    {loadingVoices ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Carregando vozes...
+                      </div>
+                    ) : voicesError || voices.length === 0 ? (
+                      <div className="space-y-2">
+                        <Input
+                          value={config.audio_voice_id}
+                          onChange={(e) => setConfig({ ...config, audio_voice_id: e.target.value })}
+                          placeholder="Cole o Voice ID do ElevenLabs"
+                          className="h-9"
+                        />
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-muted-foreground">
+                            {voicesError ? 'Erro ao carregar vozes.' : 'Nenhuma voz encontrada.'}
+                          </span>
+                          <Button variant="ghost" size="sm" onClick={fetchVoices} className="h-6 px-2 text-xs">
+                            <RefreshCw className="h-3 w-3 mr-1" /> Tentar novamente
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Select value={config.audio_voice_id} onValueChange={(v) => setConfig({ ...config, audio_voice_id: v })}>
+                          <SelectTrigger className="h-9 flex-1"><SelectValue placeholder="Selecione uma voz" /></SelectTrigger>
+                          <SelectContent>
+                            {voices.map((v) => (
+                              <SelectItem key={v.voice_id} value={v.voice_id}>
+                                {v.name} {v.category ? `(${v.category})` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {(() => {
+                          const sel = voices.find((v) => v.voice_id === config.audio_voice_id);
+                          if (!sel?.preview_url) return null;
+                          return (
+                            <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => playVoicePreview(sel.preview_url, sel.voice_id)} disabled={previewingVoice === sel.voice_id} title="Ouvir preview">
+                              {previewingVoice === sel.voice_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Volume2 className="h-3.5 w-3.5" />}
+                            </Button>
+                          );
+                        })()}
+                        <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={fetchVoices} disabled={loadingVoices} title="Recarregar vozes">
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Modo de Áudio</Label>
+                    <Select value={config.audio_mode} onValueChange={(v) => setConfig({ ...config, audio_mode: v })}>
+                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="text_only">Apenas Texto</SelectItem>
+                        <SelectItem value="audio_only">Apenas Áudio</SelectItem>
+                        <SelectItem value="text_and_audio">Texto + Áudio</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Sliders */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">
+                      Estabilidade: {config.audio_voice_stability.toFixed(2)}
+                    </Label>
+                    <Slider
+                      value={[config.audio_voice_stability]}
+                      onValueChange={([v]) => setConfig({ ...config, audio_voice_stability: v })}
+                      min={0} max={1} step={0.05}
+                    />
+                    <p className="text-[11px] text-muted-foreground">Mais alto = voz mais consistente, menos expressiva.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">
+                      Similaridade: {config.audio_voice_similarity.toFixed(2)}
+                    </Label>
+                    <Slider
+                      value={[config.audio_voice_similarity]}
+                      onValueChange={([v]) => setConfig({ ...config, audio_voice_similarity: v })}
+                      min={0} max={1} step={0.05}
+                    />
+                    <p className="text-[11px] text-muted-foreground">Mais alto = mais fiel à voz original.</p>
+                  </div>
+                </div>
+
+                {/* Limit + Mirroring */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Limite de Caracteres</Label>
+                    <Input
+                      type="number"
+                      value={config.audio_max_chars}
+                      onChange={(e) => setConfig({ ...config, audio_max_chars: Number(e.target.value) })}
+                      className="h-9"
+                    />
+                    <p className="text-[11px] text-muted-foreground">Textos maiores que esse limite enviam apenas texto.</p>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 self-start mt-5">
+                    <span className="text-xs font-medium text-foreground">Espelhar canal</span>
+                    <Switch checked={config.audio_channel_mirroring} onCheckedChange={(v) => setConfig({ ...config, audio_channel_mirroring: v })} />
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground -mt-2">
+                  Espelhar: responde em áudio apenas se o lead enviou áudio.
+                </p>
+              </div>
+            )}
           </div>
         </>
       ) : (

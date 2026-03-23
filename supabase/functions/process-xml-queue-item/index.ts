@@ -7,28 +7,28 @@ const corsHeaders = {
 };
 
 async function generateEmbedding(text: string): Promise<number[]> {
-    const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY');
-    if (!apiKey) throw new Error('OPENAI_API_KEY not configured for embeddings');
+    const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not configured for embeddings');
 
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                content: { parts: [{ text }] },
+                outputDimensionality: 768,
+            }),
         },
-        body: JSON.stringify({
-            model: 'text-embedding-3-small',
-            input: text,
-        }),
-    });
+    );
 
     if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Embedding API error (${response.status}): ${error}`);
+        throw new Error(`Gemini Embedding API error (${response.status}): ${error}`);
     }
 
     const data = await response.json();
-    return data.data[0].embedding;
+    return data.embedding.values;
 }
 
 serve(async (req: Request) => {

@@ -37,7 +37,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { tenant_id, full_sync } = await req.json();
+    const { tenant_id, full_sync, cleanup_only } = await req.json();
 
     if (!tenant_id) {
       return new Response(JSON.stringify({ error: 'tenant_id is required' }), {
@@ -80,6 +80,99 @@ serve(async (req: Request) => {
 
     if (!vistaUrl.endsWith('/imoveis/listar')) {
       vistaUrl = `${vistaUrl}/imoveis/listar`;
+    }
+
+    // ============================================================
+    // cleanup_only mode: fetch valid Codigos from Vista, delete orphans
+    // Does NOT process/upsert properties or generate embeddings
+    // ============================================================
+    if (cleanup_only) {
+      console.log(`Cleanup-only mode for tenant ${tenant_id}`);
+      const validCodigos = new Set<string>();
+      let cPage = 1;
+      let cTotalPages = 1;
+
+      while (cPage <= cTotalPages) {
+        const cPesquisa = {
+          fields: ["Codigo"],
+          paginacao: { pagina: cPage, quantidade: 50 },
+          filter: { "Status": ["Venda", "Aluguel"], "ExibirNoSite": "Sim" }
+        };
+        const cEncoded = encodeURIComponent(JSON.stringify(cPesquisa));
+        const cUrl = `${vistaUrl}?key=${vistaKey}&pesquisa=${cEncoded}&showtotal=1`;
+        const cResp = await fetch(cUrl, { headers: { 'Accept': 'application/json' } });
+
+        if (!cResp.ok) {
+          const errText = await cResp.text();
+          console.error(`Cleanup fetch error page ${cPage}: HTTP ${cResp.status}`, errText);
+          break;
+        }
+        const cData = await cResp.json();
+
+        // Check for Vista soft error (HTTP 200 but error in body)
+        if (cData && typeof cData === 'object' && 'status' in cData && cData.status >= 400) {
+          console.error(`Cleanup Vista soft error page ${cPage}:`, JSON.stringify(cData));
+          break;
+        }
+
+        if (cPage === 1) {
+          console.log(`Cleanup page 1 keys: ${Object.keys(cData).slice(0, 5).join(', ')}...`);
+          console.log(`Cleanup paginas: ${cData.paginas}, total: ${cData.total}`);
+        }
+        if (cData.paginas && cPage === 1) {
+          cTotalPages = cData.paginas;
+          console.log(`Cleanup: ${cTotalPages} pages, fetching valid Codigos...`);
+        }
+        for (const key of Object.keys(cData)) {
+          const item = cData[key];
+          if (typeof item === 'object' && item !== null && 'Codigo' in item) {
+            validCodigos.add(String(item.Codigo));
+          }
+        }
+        cPage++;
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      let deletedCount = 0;
+      if (validCodigos.size > 0) {
+        const { data: allProps } = await supabase
+          .from('properties')
+          .select('external_id')
+          .eq('tenant_id', tenant_id);
+
+        if (allProps) {
+          const toDelete = allProps
+            .filter(p => !validCodigos.has(p.external_id))
+            .map(p => p.external_id);
+
+          if (toDelete.length > 0) {
+            for (let i = 0; i < toDelete.length; i += 100) {
+              const batch = toDelete.slice(i, i + 100);
+              const { error: delErr } = await supabase
+                .from('properties')
+                .delete()
+                .eq('tenant_id', tenant_id)
+                .in('external_id', batch);
+              if (delErr) {
+                console.error(`Cleanup delete error batch ${i}:`, delErr);
+              } else {
+                deletedCount += batch.length;
+              }
+            }
+          }
+        }
+        console.log(`Cleanup done: ${deletedCount} orphans deleted. ${validCodigos.size} valid Codigos in Vista.`);
+      } else {
+        console.warn('Cleanup: Could not fetch valid Codigos from Vista.');
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        message: `Cleanup complete. Deleted ${deletedCount} orphan properties. ${validCodigos.size} valid in Vista.`
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      });
     }
 
     // 2. Discover if we need Delta Sync or Full Sync
@@ -263,45 +356,132 @@ serve(async (req: Request) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    // Para full sync, desativar imóveis que não vieram no resultado
-    // (não estão mais à Venda/Aluguel ou não estão ExibirNoSite)
-    let deactivatedCount = 0;
+    // ============================================================
+    // Cleanup: deletar imóveis que não estão mais no Vista
+    // com STATUS=Venda/Aluguel e ExibirNoSite=Sim
+    // Roda tanto no full sync quanto no delta sync
+    // ============================================================
+    let deletedCount = 0;
+
     if (full_sync && totalProcessed > 0) {
+      // Full sync: já temos todos os IDs válidos em allSyncedExternalIds
       const syncedIds = allSyncedExternalIds;
       if (syncedIds.size > 0) {
-        // Buscar todos os external_ids ativos do tenant
-        const { data: activeProps } = await supabase
+        const { data: allProps } = await supabase
           .from('properties')
           .select('external_id')
-          .eq('tenant_id', tenant_id)
-          .eq('is_active', true);
+          .eq('tenant_id', tenant_id);
 
-        if (activeProps) {
-          const toDeactivate = activeProps
+        if (allProps) {
+          const toDelete = allProps
             .filter(p => !syncedIds.has(p.external_id))
             .map(p => p.external_id);
 
-          if (toDeactivate.length > 0) {
-            const { error: deactErr } = await supabase
-              .from('properties')
-              .update({ is_active: false, updated_at: new Date().toISOString() })
-              .eq('tenant_id', tenant_id)
-              .in('external_id', toDeactivate);
+          if (toDelete.length > 0) {
+            // Deletar em batches de 100 para evitar limites
+            for (let i = 0; i < toDelete.length; i += 100) {
+              const batch = toDelete.slice(i, i + 100);
+              const { error: delErr } = await supabase
+                .from('properties')
+                .delete()
+                .eq('tenant_id', tenant_id)
+                .in('external_id', batch);
 
-            if (deactErr) {
-              console.error('Error deactivating old properties:', deactErr);
-            } else {
-              deactivatedCount = toDeactivate.length;
-              console.log(`Deactivated ${deactivatedCount} properties no longer matching filters.`);
+              if (delErr) {
+                console.error(`Error deleting orphan batch ${i}:`, delErr);
+              } else {
+                deletedCount += batch.length;
+              }
             }
+            console.log(`Deleted ${deletedCount} orphan properties no longer in Vista.`);
           }
         }
+      }
+    } else if (!full_sync && totalProcessed >= 0) {
+      // Delta sync: fazer query leve ao Vista para obter lista completa de Codigos válidos
+      console.log('Delta sync cleanup: fetching valid Codigos from Vista...');
+
+      const validCodigos = new Set<string>();
+      let cleanupPage = 1;
+      let cleanupTotalPages = 1;
+
+      while (cleanupPage <= cleanupTotalPages) {
+        const cleanupPesquisa = {
+          fields: ["Codigo"],
+          paginacao: { pagina: cleanupPage, quantidade: 50 },
+          filter: {
+            "Status": ["Venda", "Aluguel"],
+            "ExibirNoSite": "Sim"
+          }
+        };
+
+        const encodedCleanup = encodeURIComponent(JSON.stringify(cleanupPesquisa));
+        const cleanupUrl = `${vistaUrl}?key=${vistaKey}&pesquisa=${encodedCleanup}&showtotal=1`;
+
+        const cleanupResp = await fetch(cleanupUrl, { headers: { 'Accept': 'application/json' } });
+
+        if (!cleanupResp.ok) {
+          console.error(`Cleanup fetch error page ${cleanupPage}: HTTP ${cleanupResp.status}`);
+          break;
+        }
+
+        const cleanupData = await cleanupResp.json();
+
+        if (cleanupPage === 1 && cleanupData.paginas) {
+          cleanupTotalPages = cleanupData.paginas;
+          console.log(`Cleanup: ${cleanupTotalPages} pages of valid Codigos to fetch`);
+        }
+
+        for (const key of Object.keys(cleanupData)) {
+          const item = cleanupData[key];
+          if (typeof item === 'object' && item !== null && 'Codigo' in item) {
+            validCodigos.add(String(item.Codigo));
+          }
+        }
+
+        cleanupPage++;
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      if (validCodigos.size > 0) {
+        const { data: allProps } = await supabase
+          .from('properties')
+          .select('external_id')
+          .eq('tenant_id', tenant_id);
+
+        if (allProps) {
+          const toDelete = allProps
+            .filter(p => !validCodigos.has(p.external_id))
+            .map(p => p.external_id);
+
+          if (toDelete.length > 0) {
+            for (let i = 0; i < toDelete.length; i += 100) {
+              const batch = toDelete.slice(i, i + 100);
+              const { error: delErr } = await supabase
+                .from('properties')
+                .delete()
+                .eq('tenant_id', tenant_id)
+                .in('external_id', batch);
+
+              if (delErr) {
+                console.error(`Error deleting orphan batch ${i}:`, delErr);
+              } else {
+                deletedCount += batch.length;
+              }
+            }
+            console.log(`Delta cleanup: Deleted ${deletedCount} orphan properties.`);
+          } else {
+            console.log('Delta cleanup: No orphan properties found.');
+          }
+        }
+      } else {
+        console.warn('Delta cleanup: Could not fetch valid Codigos from Vista, skipping cleanup.');
       }
     }
 
     return new Response(JSON.stringify({
       success: true,
-      message: `Successfully synced ${totalProcessed} properties.${deactivatedCount > 0 ? ` Deactivated ${deactivatedCount} properties.` : ''}`
+      message: `Successfully synced ${totalProcessed} properties.${deletedCount > 0 ? ` Deleted ${deletedCount} orphan properties.` : ''}`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,

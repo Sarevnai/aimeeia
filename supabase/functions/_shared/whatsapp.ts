@@ -117,6 +117,48 @@ export async function sendWhatsAppImage(
   }
 }
 
+// ========== SEND AUDIO MESSAGE ==========
+
+export async function sendWhatsAppAudio(
+  phoneNumber: string,
+  audioUrl: string,
+  tenant: Tenant
+): Promise<{ success: boolean; messageId?: string }> {
+  if (!tenant.wa_phone_number_id || !tenant.wa_access_token) {
+    return { success: false };
+  }
+
+  const url = `${META_API_BASE}/${META_API_VERSION}/${tenant.wa_phone_number_id}/messages`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${tenant.wa_access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: phoneNumber,
+        type: 'audio',
+        audio: { link: audioUrl },
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      console.error('❌ WhatsApp audio error:', JSON.stringify(data));
+      return { success: false };
+    }
+
+    return { success: true, messageId: data.messages?.[0]?.id };
+  } catch (error) {
+    console.error('❌ WhatsApp audio send error:', error);
+    return { success: false };
+  }
+}
+
 // ========== SEND INTERACTIVE BUTTONS ==========
 
 export async function sendWhatsAppButtons(

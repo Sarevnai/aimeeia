@@ -3,7 +3,7 @@
 // Each function receives AgentContext instead of individual parameters.
 
 import { AgentContext } from './agent-interface.ts';
-import { sendWhatsAppMessage, sendWhatsAppImage, saveOutboundMessage } from '../whatsapp.ts';
+import { sendWhatsAppMessage, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../whatsapp.ts';
 import { logActivity, formatCurrency } from '../utils.ts';
 import { ConversationMessage, PropertyResult } from '../types.ts';
 
@@ -646,4 +646,24 @@ export async function sendAndSave(
 ) {
   const { messageId } = await sendWhatsAppMessage(phoneNumber, message, tenant);
   await saveOutboundMessage(supabase, tenantId, conversationId, phoneNumber, message, messageId, department || undefined);
+}
+
+// ========== SEND AUDIO AND SAVE HELPER ==========
+
+export async function sendAndSaveAudio(
+  supabase: any,
+  tenant: any,
+  tenantId: string,
+  conversationId: string,
+  phoneNumber: string,
+  textContent: string,
+  audioUrl: string,
+  department: string | null
+) {
+  const { messageId } = await sendWhatsAppAudio(phoneNumber, audioUrl, tenant);
+  await saveOutboundMessage(
+    supabase, tenantId, conversationId, phoneNumber,
+    textContent, messageId, department || undefined,
+    'audio', audioUrl
+  );
 }

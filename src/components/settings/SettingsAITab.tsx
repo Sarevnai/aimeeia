@@ -28,6 +28,8 @@ interface AIConfig {
   audio_enabled: boolean;
   audio_voice_id: string;
   audio_mode: string;
+  audio_channel_mirroring: boolean;
+  audio_max_chars: number;
   custom_instructions: string;
 }
 
@@ -43,6 +45,8 @@ const DEFAULT_CONFIG: AIConfig = {
   audio_enabled: false,
   audio_voice_id: '',
   audio_mode: 'text_only',
+  audio_channel_mirroring: false,
+  audio_max_chars: 500,
   custom_instructions: '',
 };
 
@@ -122,6 +126,8 @@ const SettingsAITab: React.FC = () => {
       audio_enabled: form.audio_enabled,
       audio_voice_id: form.audio_voice_id || null,
       audio_mode: form.audio_mode,
+      audio_channel_mirroring: form.audio_channel_mirroring,
+      audio_max_chars: form.audio_max_chars,
       custom_instructions: form.custom_instructions || null,
     }).eq('tenant_id', tenantId);
     setSaving(false);
@@ -289,6 +295,13 @@ ${dir.content || '(nenhuma diretiva configurada)'}
                     </SelectContent>
                   </Select>
                 </FieldGroup>
+                <FieldGroup label="Limite de caracteres" description="Textos maiores que esse limite enviam apenas texto.">
+                  <Input type="number" value={form.audio_max_chars} onChange={(e) => setForm({ ...form, audio_max_chars: Number(e.target.value) })} />
+                </FieldGroup>
+                <div className="flex items-center gap-3 sm:col-span-2">
+                  <Switch checked={form.audio_channel_mirroring} onCheckedChange={(v) => setForm({ ...form, audio_channel_mirroring: v })} />
+                  <span className="text-sm text-foreground">Espelhar canal (responde em áudio apenas se o lead enviou áudio)</span>
+                </div>
               </div>
             )}
           </Section>

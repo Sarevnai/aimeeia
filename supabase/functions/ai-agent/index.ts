@@ -21,7 +21,9 @@ import { AgentModule, AgentContext, AgentType } from '../_shared/agents/agent-in
 import { comercialAgent } from '../_shared/agents/comercial.ts';
 import { adminAgent } from '../_shared/agents/admin.ts';
 import { remarketingAgent } from '../_shared/agents/remarketing.ts';
-import { decryptApiKey, loadConversationHistory, loadRemarketingContext, sendAndSave, generateEmbedding, executeLeadHandoff, generatePropertyCaption, executeAdminHandoff, executeGetNearbyPlaces } from '../_shared/agents/tool-executors.ts';
+import { decryptApiKey, loadConversationHistory, loadRemarketingContext, sendAndSave, sendAndSaveAudio, generateEmbedding, executeLeadHandoff, generatePropertyCaption, executeAdminHandoff, executeGetNearbyPlaces } from '../_shared/agents/tool-executors.ts';
+import { shouldSendAudio, generateTTSAudio, uploadAudioToStorage } from '../_shared/tts.ts';
+import { AudioConfig } from '../_shared/types.ts';
 
 // ========== AGENT SELECTION (Deterministic — no LLM call) ==========
 
@@ -461,7 +463,39 @@ serve(async (req: Request) => {
 
     // ========== SEND RESPONSE ==========
 
-    if (aiConfig.fragment_long_messages) {
+    const audioConfig: AudioConfig = {
+      audio_enabled: aiConfig.audio_enabled,
+      audio_voice_id: aiConfig.audio_voice_id,
+      audio_voice_name: aiConfig.audio_voice_name,
+      audio_mode: aiConfig.audio_mode,
+      audio_max_chars: aiConfig.audio_max_chars || 500,
+      audio_channel_mirroring: aiConfig.audio_channel_mirroring,
+    };
+
+    const wantAudio = shouldSendAudio(audioConfig, message_type, finalResponse.length);
+
+    if (wantAudio) {
+      const elevenLabsKey = Deno.env.get('ELEVENLABS_API_KEY');
+      if (!elevenLabsKey) {
+        console.warn('⚠️ ELEVENLABS_API_KEY not set, falling back to text');
+        await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
+      } else {
+        try {
+          const audioBytes = await generateTTSAudio(finalResponse, audioConfig.audio_voice_id, elevenLabsKey);
+          const audioUrl = await uploadAudioToStorage(supabase, audioBytes, tenant_id);
+
+          if (audioConfig.audio_mode === 'text_and_audio') {
+            await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
+            await sleep(500);
+          }
+
+          await sendAndSaveAudio(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, audioUrl, effectiveDepartment);
+        } catch (ttsError) {
+          console.error('❌ TTS error, falling back to text:', ttsError);
+          await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
+        }
+      }
+    } else if (aiConfig.fragment_long_messages) {
       const fragments = fragmentMessage(finalResponse);
       for (let i = 0; i < fragments.length; i++) {
         await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, fragments[i], effectiveDepartment);

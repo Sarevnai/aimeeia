@@ -11,7 +11,9 @@ import { ConversationMessage, PropertyResult } from '../types.ts';
 
 export async function generatePropertyCaption(
   property: PropertyResult,
-  agentName: string
+  agentName: string,
+  clientNeeds?: string,
+  nearbyPlaces?: string
 ): Promise<string> {
   // Truncar descrição do Vista para evitar que o modelo copie textos longos
   const descricaoResumo = property.descricao
@@ -31,7 +33,17 @@ export async function generatePropertyCaption(
     descricaoResumo ? `Referência (NÃO copie): ${descricaoResumo}` : null,
   ].filter(Boolean).join('\n');
 
-  const systemPrompt = `Você é ${agentName}, consultora imobiliária apresentando UM imóvel para um cliente via WhatsApp. Escreva APENAS 2 a 3 frases curtas e naturais, como uma pessoa de verdade falando. Regras obrigatórias: português brasileiro, texto corrido e conversacional (nunca lista), mencione tipo, bairro e preço de forma orgânica, PROIBIDO copiar ou parafrasear a descrição do anúncio original, PROIBIDO usar travessão (— ou –), PROIBIDO usar emojis, PROIBIDO expressões de anúncio como "segue", "confira", "não perca", "oportunidade", "venha conhecer", "destaque". O texto deve soar como uma conversa curta, não como um anúncio.`;
+  const clientContext = clientNeeds ? `\nO que o cliente busca: ${clientNeeds}` : '';
+  const geoContext = nearbyPlaces ? `\nPontos próximos ao imóvel: ${nearbyPlaces}` : '';
+
+  const systemPrompt = `Você é ${agentName}, consultora imobiliária apresentando UM imóvel para um cliente via WhatsApp. Escreva 3 a 4 frases curtas e naturais, como uma pessoa de verdade falando.
+
+ESTRUTURA OBRIGATÓRIA:
+1. Comece conectando o imóvel ao que o cliente pediu (ex: "Achei esse apartamento no Centro que combina bem com o que você descreveu")
+2. Descreva brevemente o imóvel (tipo, bairro, preço, diferenciais) de forma fluida
+3. Se houver informação de pontos próximos, mencione UMA facilidade de acesso de forma natural (ex: "Fica a 500m do supermercado X" ou "Tem escola bem pertinho")
+
+Regras obrigatórias: português brasileiro, texto corrido e conversacional (nunca lista), PROIBIDO copiar ou parafrasear a descrição do anúncio original, PROIBIDO usar travessão (— ou –), PROIBIDO usar emojis, PROIBIDO expressões de anúncio como "segue", "confira", "não perca", "oportunidade", "venha conhecer", "destaque". O texto deve soar como uma conversa curta e pessoal, não como um anúncio.`;
 
   try {
     const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY') || '';
@@ -47,9 +59,9 @@ export async function generatePropertyCaption(
         model: 'google/gemini-2.0-flash-001',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Apresente este imóvel:\n${details}` },
+          { role: 'user', content: `Apresente este imóvel:\n${details}${clientContext}${geoContext}` },
         ],
-        max_tokens: 150,
+        max_tokens: 250,
         temperature: 0.7,
       }),
     });
@@ -229,71 +241,101 @@ export async function executePropertySearch(
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 
-    // C5: Enviar top 3 imóveis individualmente com foto + caption rico
+    // C5: Enviar UM imóvel por vez com foto + caption rico + contexto de geolocalização
     const agentName = (ctx.aiConfig as any).agent_name || 'Aimee';
     const { sendWhatsAppMessage: sendMsg } = await import('../whatsapp.ts');
-    const maxToSend = Math.min(formattedProperties.length, 3);
-    let sentCount = 0;
-    for (let i = 0; i < maxToSend; i++) {
-      const prop = formattedProperties[i];
-      const aiCaption = await generatePropertyCaption(prop, agentName);
-      const caption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
-      let sent = false;
-      if (prop.foto_destaque) {
-        const imgResult = await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
-        if (imgResult.success) {
-          sent = true;
-        } else {
-          // Fallback: image failed, send as text
-          console.warn(`⚠️ Image send failed for property ${prop.codigo}, falling back to text`);
-          const textResult = await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
-          sent = !!textResult?.success;
+    const prop = formattedProperties[0];
+
+    // Construir contexto do que o cliente busca para personalizar a apresentação
+    const clientNeeds = [
+      args.finalidade ? `Finalidade: ${args.finalidade}` : null,
+      args.tipo_imovel ? `Tipo: ${args.tipo_imovel}` : null,
+      args.bairro ? `Bairro desejado: ${args.bairro}` : null,
+      args.quartos ? `Quartos: ${args.quartos}` : null,
+      clientBudget ? `Orçamento: até ${formatCurrency(clientBudget)}` : null,
+    ].filter(Boolean).join(', ');
+
+    // Buscar pontos de interesse próximos para enriquecer a apresentação
+    let nearbyPlacesText = '';
+    try {
+      const { data: propGeo } = await ctx.supabase
+        .from('properties')
+        .select('latitude, longitude')
+        .eq('tenant_id', ctx.tenantId)
+        .eq('external_id', prop.codigo)
+        .maybeSingle();
+
+      if (propGeo?.latitude && propGeo?.longitude) {
+        const { data: poiData } = await ctx.supabase.functions.invoke('get-nearby-places', {
+          body: {
+            latitude: propGeo.latitude,
+            longitude: propGeo.longitude,
+            radius: 1500,
+            type: 'supermarket',
+          }
+        });
+        const places = (poiData?.places || []) as any[];
+        if (places.length > 0) {
+          nearbyPlacesText = places.slice(0, 2).map((p: any) => {
+            const distStr = p.distance_meters > 1000
+              ? `${(p.distance_meters / 1000).toFixed(1)}km`
+              : `${p.distance_meters}m`;
+            return `${p.name} a ${distStr}`;
+          }).join('; ');
         }
-      } else {
-        // Sem foto: envia como texto com link
-        const textResult = await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
-        sent = !!textResult?.success;
       }
-      if (sent) sentCount++;
-      // Pequeno delay entre envios para não sobrecarregar
-      if (i < maxToSend - 1) {
-        await new Promise(r => setTimeout(r, 1500));
-      }
+    } catch (geoErr) {
+      console.warn('⚠️ Geolocation enrichment failed, proceeding without:', (geoErr as Error).message);
     }
 
-    console.log(`📤 Properties sent: ${sentCount}/${maxToSend} delivered successfully`);
+    const aiCaption = await generatePropertyCaption(prop, agentName, clientNeeds, nearbyPlacesText);
+    const caption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
+    let sentCount = 0;
+    if (prop.foto_destaque) {
+      const imgResult = await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
+      if (imgResult.success) {
+        sentCount = 1;
+      } else {
+        console.warn(`⚠️ Image send failed for property ${prop.codigo}, falling back to text`);
+        const textResult = await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
+        sentCount = textResult?.success ? 1 : 0;
+      }
+    } else {
+      const textResult = await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
+      sentCount = textResult?.success ? 1 : 0;
+    }
 
-    // C5: Retorna instrução para o LLM + dados dos imóveis para que possa responder perguntas
-    const remaining = formattedProperties.length - maxToSend;
+    console.log(`📤 Property sent: ${sentCount}/1 delivered | ${formattedProperties.length - 1} remaining in queue`);
 
-    // Construir resumo dos imóveis enviados para o LLM poder responder perguntas do cliente
-    const propertySummaries = formattedProperties.slice(0, maxToSend).map((prop, i) => {
-      const descResumo = prop.descricao ? prop.descricao.slice(0, 500) : 'Sem descrição disponível';
+    // Construir resumo dos imóveis para o LLM poder responder perguntas do cliente
+    const propertySummaries = formattedProperties.map((p, i) => {
+      const descResumo = p.descricao ? p.descricao.slice(0, 500) : 'Sem descrição disponível';
       const details = [
-        `Código: ${prop.codigo}`,
-        `Tipo: ${prop.tipo}`,
-        `Bairro: ${prop.bairro}`,
-        prop.preco ? `Preço: ${prop.preco_formatado || formatCurrency(prop.preco)}` : null,
-        prop.quartos ? `Quartos: ${prop.quartos}` : null,
-        prop.suites ? `Suítes: ${prop.suites}` : null,
-        prop.vagas ? `Vagas: ${prop.vagas}` : null,
-        prop.area_util ? `Área útil: ${prop.area_util}m²` : null,
-        prop.valor_condominio && prop.valor_condominio > 1 ? `Condomínio: ${formatCurrency(prop.valor_condominio)}` : null,
-        prop.link ? `Link: ${prop.link}` : null,
+        `Código: ${p.codigo}`,
+        `Tipo: ${p.tipo}`,
+        `Bairro: ${p.bairro}`,
+        p.preco ? `Preço: ${p.preco_formatado || formatCurrency(p.preco)}` : null,
+        p.quartos ? `Quartos: ${p.quartos}` : null,
+        p.suites ? `Suítes: ${p.suites}` : null,
+        p.vagas ? `Vagas: ${p.vagas}` : null,
+        p.area_util ? `Área útil: ${p.area_util}m²` : null,
+        p.valor_condominio && p.valor_condominio > 1 ? `Condomínio: ${formatCurrency(p.valor_condominio)}` : null,
+        p.link ? `Link: ${p.link}` : null,
         `Descrição: ${descResumo}`,
       ].filter(Boolean).join(', ');
-      return `Imóvel ${i + 1}: ${details}`;
+      return `${i === 0 ? 'Imóvel ENVIADO' : `Imóvel na fila ${i}`}: ${details}`;
     }).join('\n');
 
+    const remaining = formattedProperties.length - 1;
+
     if (sentCount === 0) {
-      // Nenhuma mensagem enviada com sucesso — retornar dados para o LLM apresentar via texto
-      const textHint = `[SISTEMA] A busca encontrou ${formattedProperties.length} imóveis, mas houve falha no envio via WhatsApp. Apresente os imóveis ao cliente em formato de texto, um por vez, mencionando tipo, bairro, preço e link. Seja natural e consultiva.\n\n[DADOS DOS IMÓVEIS]\n${propertySummaries}`;
+      const textHint = `[SISTEMA] A busca encontrou ${formattedProperties.length} imóveis, mas houve falha no envio via WhatsApp. Apresente o primeiro imóvel ao cliente em texto corrido, conectando as necessidades dele com o imóvel, mencionando alguma facilidade de acesso se souber.\n\n[DADOS DOS IMÓVEIS]\n${propertySummaries}`;
       return textHint;
     }
 
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóveis já foram enviados ao cliente como mensagens individuais. NÃO repita a lista completa. Responda com uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
-    const detailHint = `\n\n[DADOS DOS IMÓVEIS ENVIADOS — use para responder perguntas do cliente sobre detalhes]\n${propertySummaries}`;
-    const remainingHint = remaining > 0 ? `\nRestam ${remaining} opções não enviadas. Aguarde a resposta do cliente antes de enviar mais.` : '';
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] 1 imóvel já foi enviado ao cliente com foto, descrição personalizada e link. NÃO repita os detalhes do imóvel. Responda com uma frase curta e natural perguntando o que achou, sem emoji. Exemplo: "Dá uma olhada nesse e me conta o que achou." Se o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila para enviar uma por vez.`;
+    const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
+    const remainingHint = remaining > 0 ? `\n\n[FILA] Restam ${remaining} imóvel(is) não enviados. Quando o cliente pedir mais opções ou não gostar do atual, envie o próximo chamando buscar_imoveis novamente OU apresente os dados do próximo da fila em texto.` : '';
     const hint = baseHint + detailHint + remainingHint;
     return hint;
 

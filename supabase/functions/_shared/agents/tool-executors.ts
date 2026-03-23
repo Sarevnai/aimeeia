@@ -231,23 +231,37 @@ export async function executePropertySearch(
 
     // C5: Enviar top 3 imóveis individualmente com foto + caption rico
     const agentName = (ctx.aiConfig as any).agent_name || 'Aimee';
+    const { sendWhatsAppMessage: sendMsg } = await import('../whatsapp.ts');
     const maxToSend = Math.min(formattedProperties.length, 3);
+    let sentCount = 0;
     for (let i = 0; i < maxToSend; i++) {
       const prop = formattedProperties[i];
       const aiCaption = await generatePropertyCaption(prop, agentName);
       const caption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
+      let sent = false;
       if (prop.foto_destaque) {
-        await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
+        const imgResult = await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
+        if (imgResult.success) {
+          sent = true;
+        } else {
+          // Fallback: image failed, send as text
+          console.warn(`⚠️ Image send failed for property ${prop.codigo}, falling back to text`);
+          const textResult = await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
+          sent = !!textResult?.success;
+        }
       } else {
         // Sem foto: envia como texto com link
-        const { sendWhatsAppMessage: sendMsg } = await import('../whatsapp.ts');
-        await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
+        const textResult = await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
+        sent = !!textResult?.success;
       }
+      if (sent) sentCount++;
       // Pequeno delay entre envios para não sobrecarregar
       if (i < maxToSend - 1) {
         await new Promise(r => setTimeout(r, 1500));
       }
     }
+
+    console.log(`📤 Properties sent: ${sentCount}/${maxToSend} delivered successfully`);
 
     // C5: Retorna instrução para o LLM + dados dos imóveis para que possa responder perguntas
     const remaining = formattedProperties.length - maxToSend;
@@ -256,6 +270,7 @@ export async function executePropertySearch(
     const propertySummaries = formattedProperties.slice(0, maxToSend).map((prop, i) => {
       const descResumo = prop.descricao ? prop.descricao.slice(0, 500) : 'Sem descrição disponível';
       const details = [
+        `Código: ${prop.codigo}`,
         `Tipo: ${prop.tipo}`,
         `Bairro: ${prop.bairro}`,
         prop.preco ? `Preço: ${prop.preco_formatado || formatCurrency(prop.preco)}` : null,
@@ -264,12 +279,19 @@ export async function executePropertySearch(
         prop.vagas ? `Vagas: ${prop.vagas}` : null,
         prop.area_util ? `Área útil: ${prop.area_util}m²` : null,
         prop.valor_condominio && prop.valor_condominio > 1 ? `Condomínio: ${formatCurrency(prop.valor_condominio)}` : null,
+        prop.link ? `Link: ${prop.link}` : null,
         `Descrição: ${descResumo}`,
       ].filter(Boolean).join(', ');
       return `Imóvel ${i + 1}: ${details}`;
     }).join('\n');
 
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${maxToSend} imóveis já foram enviados ao cliente como cards individuais com foto e link. NÃO repita a lista completa. Responda com uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
+    if (sentCount === 0) {
+      // Nenhuma mensagem enviada com sucesso — retornar dados para o LLM apresentar via texto
+      const textHint = `[SISTEMA] A busca encontrou ${formattedProperties.length} imóveis, mas houve falha no envio via WhatsApp. Apresente os imóveis ao cliente em formato de texto, um por vez, mencionando tipo, bairro, preço e link. Seja natural e consultiva.\n\n[DADOS DOS IMÓVEIS]\n${propertySummaries}`;
+      return textHint;
+    }
+
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóveis já foram enviados ao cliente como mensagens individuais. NÃO repita a lista completa. Responda com uma frase curta natural, sem emoji, sem exclamação. Exemplo: "Enviei algumas opções. Dá uma olhada e me conta o que achou."`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS ENVIADOS — use para responder perguntas do cliente sobre detalhes]\n${propertySummaries}`;
     const remainingHint = remaining > 0 ? `\nRestam ${remaining} opções não enviadas. Aguarde a resposta do cliente antes de enviar mais.` : '';
     const hint = baseHint + detailHint + remainingHint;

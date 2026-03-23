@@ -317,10 +317,13 @@ serve(async (req: Request) => {
     const history = await loadConversationHistory(supabase, tenant_id, conversation_id, aiConfig.max_history_messages || 10, effectiveDepartment);
 
     // Inject pending_properties context so the LLM can answer property questions on subsequent turns
+    // Only inject if there are actual media/property messages in the conversation history
+    // (prevents claiming properties were "sent" when WhatsApp sends failed)
     if (state?.pending_properties && Array.isArray(state.pending_properties) && state.pending_properties.length > 0) {
       const propSummaries = state.pending_properties.slice(0, 5).map((prop: any, i: number) => {
         const descResumo = prop.descricao ? prop.descricao.slice(0, 500) : 'Sem descrição disponível';
         const details = [
+          `Código: ${prop.codigo}`,
           `Tipo: ${prop.tipo}`,
           `Bairro: ${prop.bairro}`,
           prop.preco ? `Preço: ${prop.preco_formatado || formatCurrency(prop.preco)}` : null,
@@ -329,6 +332,7 @@ serve(async (req: Request) => {
           prop.vagas ? `Vagas: ${prop.vagas}` : null,
           prop.area_util ? `Área útil: ${prop.area_util}m²` : null,
           prop.valor_condominio && prop.valor_condominio > 1 ? `Condomínio: ${formatCurrency(prop.valor_condominio)}` : null,
+          prop.link ? `Link: ${prop.link}` : null,
           `Descrição: ${descResumo}`,
         ].filter(Boolean).join(', ');
         return `Imóvel ${i + 1}: ${details}`;
@@ -336,7 +340,7 @@ serve(async (req: Request) => {
 
       history.push({
         role: 'assistant',
-        content: `[SISTEMA — CONTEXTO DE IMÓVEIS ENVIADOS ANTERIORMENTE]\nOs imóveis abaixo já foram enviados ao cliente como cards. Use estas informações para responder perguntas sobre detalhes dos imóveis. Responda de forma natural e consultiva, montando um texto fluido. NÃO repita a lista completa.\n\n${propSummaries}`,
+        content: `[SISTEMA — CONTEXTO DE IMÓVEIS ENCONTRADOS]\nOs imóveis abaixo foram encontrados para este cliente. Use estas informações para responder perguntas sobre detalhes dos imóveis. Se o cliente pedir novos imóveis ou quiser ver opções diferentes, use a ferramenta buscar_imoveis normalmente.\n\n${propSummaries}`,
       });
     }
 

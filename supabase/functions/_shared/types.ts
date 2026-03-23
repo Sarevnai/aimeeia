@@ -58,6 +58,8 @@ export interface AIAgentConfig {
   audio_mode: string;
   audio_channel_mirroring: boolean;
   audio_max_chars: number;
+  audio_voice_stability: number;
+  audio_voice_similarity: number;
   custom_instructions: string;
   vista_integration_enabled: boolean;
   website_url: string | null;
@@ -70,6 +72,8 @@ export interface AudioConfig {
   audio_mode: string;
   audio_max_chars: number;
   audio_channel_mirroring: boolean;
+  audio_voice_stability: number;
+  audio_voice_similarity: number;
 }
 
 // ========== CONVERSATIONS ==========

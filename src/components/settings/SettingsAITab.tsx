@@ -13,8 +13,17 @@ import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { FieldGroup, Section } from './SettingsFormParts';
-import { Loader2, Save, Eye } from 'lucide-react';
+import { Loader2, Save, Eye, RefreshCw, Volume2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Label } from '@/components/ui/label';
+
+interface ElevenLabsVoice {
+  voice_id: string;
+  name: string;
+  category: string | null;
+  labels: Record<string, string>;
+  preview_url: string | null;
+}
 
 interface AIConfig {
   agent_name: string;
@@ -30,6 +39,8 @@ interface AIConfig {
   audio_mode: string;
   audio_channel_mirroring: boolean;
   audio_max_chars: number;
+  audio_voice_stability: number;
+  audio_voice_similarity: number;
   custom_instructions: string;
 }
 
@@ -47,6 +58,8 @@ const DEFAULT_CONFIG: AIConfig = {
   audio_mode: 'text_only',
   audio_channel_mirroring: false,
   audio_max_chars: 500,
+  audio_voice_stability: 0.5,
+  audio_voice_similarity: 0.75,
   custom_instructions: '',
 };
 
@@ -71,6 +84,33 @@ const SettingsAITab: React.FC = () => {
   const [savingDirective, setSavingDirective] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDept, setPreviewDept] = useState('locacao');
+  const [voices, setVoices] = useState<ElevenLabsVoice[]>([]);
+  const [loadingVoices, setLoadingVoices] = useState(false);
+  const [voicesError, setVoicesError] = useState(false);
+  const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
+
+  const fetchVoices = async () => {
+    setLoadingVoices(true);
+    setVoicesError(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('elevenlabs-voices');
+      if (error) throw error;
+      setVoices(data?.voices || []);
+    } catch {
+      setVoicesError(true);
+    } finally {
+      setLoadingVoices(false);
+    }
+  };
+
+  const playVoicePreview = (previewUrl: string | null, voiceId: string) => {
+    if (!previewUrl) return;
+    setPreviewingVoice(voiceId);
+    const audio = new Audio(previewUrl);
+    audio.onended = () => setPreviewingVoice(null);
+    audio.onerror = () => setPreviewingVoice(null);
+    audio.play();
+  };
 
   useEffect(() => {
     if (!tenantId) return;
@@ -95,6 +135,8 @@ const SettingsAITab: React.FC = () => {
           audio_enabled: d.audio_enabled || false,
           audio_voice_id: d.audio_voice_id || '',
           audio_mode: d.audio_mode || 'text_only',
+          audio_voice_stability: d.audio_voice_stability ?? 0.5,
+          audio_voice_similarity: d.audio_voice_similarity ?? 0.75,
           custom_instructions: d.custom_instructions || '',
         });
       }
@@ -109,6 +151,7 @@ const SettingsAITab: React.FC = () => {
       setLoading(false);
     };
     fetch();
+    fetchVoices();
   }, [tenantId]);
 
   const handleSaveConfig = async () => {
@@ -128,6 +171,8 @@ const SettingsAITab: React.FC = () => {
       audio_mode: form.audio_mode,
       audio_channel_mirroring: form.audio_channel_mirroring,
       audio_max_chars: form.audio_max_chars,
+      audio_voice_stability: form.audio_voice_stability,
+      audio_voice_similarity: form.audio_voice_similarity,
       custom_instructions: form.custom_instructions || null,
     }).eq('tenant_id', tenantId);
     setSaving(false);
@@ -275,30 +320,117 @@ ${dir.content || '(nenhuma diretiva configurada)'}
             </FieldGroup>
           </Section>
 
-          <Section title="Áudio">
+          <Section title="Áudio (ElevenLabs)">
             <div className="flex items-center gap-3">
               <Switch checked={form.audio_enabled} onCheckedChange={(v) => setForm({ ...form, audio_enabled: v })} />
               <span className="text-sm text-foreground">Áudio habilitado</span>
             </div>
             {form.audio_enabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
-                <FieldGroup label="Voice ID" description="ID da voz no provedor TTS.">
-                  <Input value={form.audio_voice_id} onChange={(e) => setForm({ ...form, audio_voice_id: e.target.value })} />
-                </FieldGroup>
-                <FieldGroup label="Modo de Áudio">
-                  <Select value={form.audio_mode} onValueChange={(v) => setForm({ ...form, audio_mode: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="text_only">Apenas Texto</SelectItem>
-                      <SelectItem value="audio_only">Apenas Áudio</SelectItem>
-                      <SelectItem value="text_and_audio">Texto + Áudio</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </FieldGroup>
-                <FieldGroup label="Limite de caracteres" description="Textos maiores que esse limite enviam apenas texto.">
-                  <Input type="number" value={form.audio_max_chars} onChange={(e) => setForm({ ...form, audio_max_chars: Number(e.target.value) })} />
-                </FieldGroup>
-                <div className="flex items-center gap-3 sm:col-span-2">
+              <div className="space-y-4 mt-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FieldGroup label="Voz do Agente" description="Selecione uma voz da sua conta ElevenLabs.">
+                    <div className="flex gap-2">
+                      {loadingVoices ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Carregando vozes...
+                        </div>
+                      ) : voicesError || voices.length === 0 ? (
+                        <div className="flex-1 space-y-2">
+                          <Input
+                            value={form.audio_voice_id}
+                            onChange={(e) => setForm({ ...form, audio_voice_id: e.target.value })}
+                            placeholder="Cole o Voice ID do ElevenLabs"
+                          />
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {voicesError ? 'Erro ao carregar vozes.' : 'Nenhuma voz encontrada.'}
+                            </span>
+                            <Button variant="ghost" size="sm" onClick={fetchVoices} className="h-6 px-2 text-xs">
+                              <RefreshCw className="h-3 w-3 mr-1" /> Tentar novamente
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex gap-2">
+                          <Select
+                            value={form.audio_voice_id}
+                            onValueChange={(v) => setForm({ ...form, audio_voice_id: v })}
+                          >
+                            <SelectTrigger className="flex-1">
+                              <SelectValue placeholder="Selecione uma voz" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {voices.map((v) => (
+                                <SelectItem key={v.voice_id} value={v.voice_id}>
+                                  {v.name} {v.category ? `(${v.category})` : ''}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {(() => {
+                            const selectedVoice = voices.find((v) => v.voice_id === form.audio_voice_id);
+                            if (!selectedVoice?.preview_url) return null;
+                            return (
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => playVoicePreview(selectedVoice.preview_url, selectedVoice.voice_id)}
+                                disabled={previewingVoice === selectedVoice.voice_id}
+                                title="Ouvir preview"
+                              >
+                                {previewingVoice === selectedVoice.voice_id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Volume2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            );
+                          })()}
+                          <Button variant="ghost" size="icon" onClick={fetchVoices} disabled={loadingVoices} title="Recarregar vozes">
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </FieldGroup>
+                  <FieldGroup label="Modo de Áudio">
+                    <Select value={form.audio_mode} onValueChange={(v) => setForm({ ...form, audio_mode: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="text_only">Apenas Texto</SelectItem>
+                        <SelectItem value="audio_only">Apenas Áudio</SelectItem>
+                        <SelectItem value="text_and_audio">Texto + Áudio</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FieldGroup>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FieldGroup label={`Estabilidade: ${form.audio_voice_stability.toFixed(2)}`} description="Mais alto = voz mais consistente, menos expressiva.">
+                    <Slider
+                      value={[form.audio_voice_stability]}
+                      onValueChange={([v]) => setForm({ ...form, audio_voice_stability: v })}
+                      min={0} max={1} step={0.05}
+                      className="max-w-sm"
+                    />
+                  </FieldGroup>
+                  <FieldGroup label={`Similaridade: ${form.audio_voice_similarity.toFixed(2)}`} description="Mais alto = mais fiel à voz original.">
+                    <Slider
+                      value={[form.audio_voice_similarity]}
+                      onValueChange={([v]) => setForm({ ...form, audio_voice_similarity: v })}
+                      min={0} max={1} step={0.05}
+                      className="max-w-sm"
+                    />
+                  </FieldGroup>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FieldGroup label="Limite de caracteres" description="Textos maiores que esse limite enviam apenas texto.">
+                    <Input type="number" value={form.audio_max_chars} onChange={(e) => setForm({ ...form, audio_max_chars: Number(e.target.value) })} />
+                  </FieldGroup>
+                </div>
+
+                <div className="flex items-center gap-3">
                   <Switch checked={form.audio_channel_mirroring} onCheckedChange={(v) => setForm({ ...form, audio_channel_mirroring: v })} />
                   <span className="text-sm text-foreground">Espelhar canal (responde em áudio apenas se o lead enviou áudio)</span>
                 </div>

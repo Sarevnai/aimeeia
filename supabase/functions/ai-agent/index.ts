@@ -495,6 +495,10 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 
     // ========== SEND RESPONSE ==========
 
+    // Prefixar com nome do agente para identificação no WhatsApp
+    const agentName = aiConfig.agent_name || 'Aimee';
+    finalResponse = `*${agentName}*\n\n${finalResponse}`;
+
     const audioConfig: AudioConfig = {
       audio_enabled: aiConfig.audio_enabled,
       audio_voice_id: aiConfig.audio_voice_id,
@@ -502,6 +506,8 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       audio_mode: aiConfig.audio_mode,
       audio_max_chars: aiConfig.audio_max_chars || 500,
       audio_channel_mirroring: aiConfig.audio_channel_mirroring,
+      audio_voice_stability: aiConfig.audio_voice_stability ?? 0.5,
+      audio_voice_similarity: aiConfig.audio_voice_similarity ?? 0.75,
     };
 
     const wantAudio = shouldSendAudio(audioConfig, message_type, finalResponse.length);
@@ -513,7 +519,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
         await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
       } else {
         try {
-          const audioBytes = await generateTTSAudio(finalResponse, audioConfig.audio_voice_id, elevenLabsKey);
+          const audioBytes = await generateTTSAudio(finalResponse, audioConfig.audio_voice_id, elevenLabsKey, audioConfig.audio_voice_stability, audioConfig.audio_voice_similarity);
           const audioUrl = await uploadAudioToStorage(supabase, audioBytes, tenant_id);
 
           if (audioConfig.audio_mode === 'text_and_audio') {

@@ -26,7 +26,9 @@ export function shouldSendAudio(
 export async function generateTTSAudio(
   text: string,
   voiceId: string,
-  apiKey: string
+  apiKey: string,
+  stability = 0.5,
+  similarityBoost = 0.75,
 ): Promise<Uint8Array> {
   const url = `${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}?output_format=${DEFAULT_OUTPUT_FORMAT}`;
 
@@ -40,8 +42,8 @@ export async function generateTTSAudio(
       text,
       model_id: DEFAULT_MODEL_ID,
       voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
+        stability,
+        similarity_boost: similarityBoost,
       },
     }),
   });

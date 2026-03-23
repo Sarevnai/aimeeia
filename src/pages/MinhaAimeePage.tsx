@@ -18,6 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import PerguntasTab from '@/components/settings/PerguntasTab';
 import FuncoesTab from '@/components/settings/FuncoesTab';
+import SettingsAITab from '@/components/settings/SettingsAITab';
 import MeuNegocioView from '@/components/settings/MeuNegocioView';
 import PerfilWhatsAppView from '@/components/settings/PerfilWhatsAppView';
 
@@ -136,6 +137,9 @@ const ComportamentoView: React.FC = () => {
           <TabsTrigger value="funcoes" className="text-sm pb-3 pt-2 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent shadow-none px-4">
             Funções
           </TabsTrigger>
+          <TabsTrigger value="config_ai" className="text-sm pb-3 pt-2 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent shadow-none px-4">
+            Configuração da AI
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="perguntas" className="max-w-3xl">
@@ -143,6 +147,9 @@ const ComportamentoView: React.FC = () => {
         </TabsContent>
         <TabsContent value="funcoes" className="max-w-3xl">
           <FuncoesTab />
+        </TabsContent>
+        <TabsContent value="config_ai">
+          <SettingsAITab />
         </TabsContent>
       </Tabs>
     </div>

@@ -238,7 +238,7 @@ export async function handleTriage(
     const lower = messageBody.toLowerCase().trim();
 
     // Detect positive response
-    const positivePatterns = /\b(sim|quero|ok|pode ser|bora|vamos|aceito|faz sentido|top|com certeza|gostei|interessante|claro|massa|ótimo|show|beleza|perfeito|tô dentro|to dentro|fechou|valeu|legal|bacana|demais)\b/i;
+    const positivePatterns = /\b(sim|quero|ok|pode ser|pode seguir|pode sim|pode|bora|vamos|aceito|faz sentido|top|com certeza|gostei|interessante|claro|massa|ótimo|show|beleza|perfeito|tô dentro|to dentro|fechou|valeu|legal|bacana|demais|seguir|segue|manda|manda ver|por favor|pfv|pfvr)\b/i;
     // Detect negative response
     const negativePatterns = /\b(não|nao|sem interesse|agora não|agora nao|depois|paro|obrigado mas|dispenso|sem tempo|ocupado)\b/i;
 
@@ -282,6 +282,17 @@ export async function handleTriage(
       return {
         shouldContinue: true,
         responseMessages: [declineMsg],
+      };
+    }
+
+    // Audio/media messages are engagement signals — treat as positive
+    if (lower.startsWith('[áudio]') || lower.startsWith('[audio]') || lower.startsWith('[transcrição') || lower.startsWith('[imagem]') || lower.startsWith('[documento')) {
+      // Complete triage and let the AI agent handle naturally
+      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'vendas');
+      return {
+        shouldContinue: true,
+        responseMessages: [],
+        department: 'vendas',
       };
     }
 

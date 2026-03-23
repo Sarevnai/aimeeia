@@ -6,6 +6,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+async function generateEmbedding(text: string): Promise<number[]> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY');
+  if (!apiKey) throw new Error('OPENAI_API_KEY not configured for embeddings');
+
+  const response = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'text-embedding-3-small',
+      input: text,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Embedding API error (${response.status}): ${error}`);
+  }
+
+  const data = await response.json();
+  return data.data[0].embedding;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -174,15 +199,32 @@ serve(async (req: Request) => {
           const lat = latStr ? parseFloat(latStr) : null;
           const lng = lngStr ? parseFloat(lngStr) : null;
 
+          // Gerar embedding para busca semântica
+          const statusUpper = String(imovel.Status || '').toUpperCase();
+          const transactionLabel = statusUpper.includes('ALUGUEL') ? 'para locação' : 'à venda';
+          const bathrooms = imovel.TotalBanheiros ? parseInt(imovel.TotalBanheiros, 10) : 0;
+          const descTrunc = description.length > 1000 ? description.substring(0, 1000) : description;
+          const titleText = imovel.Categoria
+            ? `${imovel.Categoria} em ${neighborhood}`.trim()
+            : `Imóvel em ${neighborhood}`.trim();
+
+          const semanticText = `Imóvel ${transactionLabel}: ${titleText}. ${imovel.TipoImovel || ''} em ${neighborhood}, ${city}. Preço: R$ ${price || 'sob consulta'}. ${bedrooms} quartos, ${isNaN(bathrooms) ? 0 : bathrooms} banheiros, ${parkingSpaces} vagas. Área: ${area}m². ${descTrunc}`;
+
+          let embedding: number[] | null = null;
+          try {
+            embedding = await generateEmbedding(semanticText);
+            await new Promise(r => setTimeout(r, 100)); // throttle OpenAI calls
+          } catch (e) {
+            console.warn(`Embedding failed for ${codigo}: ${e.message}`);
+          }
+
           allSyncedExternalIds.add(codigo);
           propertiesBatch.push({
             tenant_id,
             external_id: codigo,
             city,
             neighborhood,
-            title: imovel.Categoria
-              ? `${imovel.Categoria} em ${neighborhood}`.trim()
-              : `Imóvel em ${neighborhood}`.trim(),
+            title: titleText,
             price: isNaN(price) ? 0 : price,
             bedrooms: isNaN(bedrooms) ? 0 : bedrooms,
             parking_spaces: isNaN(parkingSpaces) ? 0 : parkingSpaces,
@@ -194,6 +236,7 @@ serve(async (req: Request) => {
             longitude: (lng && !isNaN(lng) && lng !== 0) ? lng : null,
             vista_updated_at: imovel.DataAtualizacao || null,
             updated_at: new Date().toISOString(),
+            ...(embedding ? { embedding } : {}),
           });
         }
       }

@@ -65,6 +65,7 @@ serve(async (req: Request) => {
       conversation_id,
       contact_id,
       raw_message,
+      quoted_message_body,
     } = body;
     _tenantId = tenant_id;
     _phoneNumber = phone_number;
@@ -350,6 +351,14 @@ serve(async (req: Request) => {
       remarketingContext = await loadRemarketingContext(supabase, tenant_id, contact_id);
     }
 
+    // ========== ENRICH MESSAGE WITH QUOTED CONTEXT ==========
+
+    // If the lead replied to a specific message, prepend the quoted context
+    // so the LLM understands which message the lead is responding to.
+    const enrichedMessageBody = quoted_message_body
+      ? `[Em resposta a: "${quoted_message_body}"]\n${message_body}`
+      : message_body;
+
     // ========== AGENT SELECTION & INVOCATION ==========
 
     let finalResponse: string;
@@ -390,7 +399,7 @@ serve(async (req: Request) => {
       const aiResponse = await callLLMWithToolExecution(
         systemPrompt,
         history,
-        message_body,
+        enrichedMessageBody,
         tools,
         async (toolName, args) => agent.executeToolCall(ctx, toolName, args),
         {
@@ -420,7 +429,7 @@ serve(async (req: Request) => {
       const aiResponse = await callLLMWithToolExecution(
         systemPrompt,
         history,
-        message_body,
+        enrichedMessageBody,
         tools,
         async (toolName, args) => {
           return await legacyExecuteToolCall(supabase, tenant as Tenant, aiConfig, tenant_id, phone_number, conversation_id, contact_id, toolName, args, mergedQual, effectiveDepartment);

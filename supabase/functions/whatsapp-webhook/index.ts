@@ -104,6 +104,22 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
       if (value.messages) {
         for (const message of value.messages) {
           const contactInfo = value.contacts?.[0];
+
+          // Resolve quoted message body if this is a reply
+          let quotedMessageBody: string | null = null;
+          if (message.context?.id) {
+            const { data: quotedMsg } = await supabase
+              .from('messages')
+              .select('body')
+              .eq('tenant_id', tenant.id)
+              .eq('wa_message_id', message.context.id)
+              .maybeSingle();
+            if (quotedMsg?.body) {
+              quotedMessageBody = quotedMsg.body;
+              console.log(`💬 Quoted message resolved: "${quotedMessageBody?.slice(0, 80)}"`);
+            }
+          }
+
           await processInboundMessage(supabase, tenant, {
             phoneNumber: message.from,
             messageBody: extractMessageBody(message),
@@ -113,6 +129,7 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
             waPhoneNumberId,
             rawMessage: message,
             timestamp: message.timestamp,
+            quotedMessageBody,
           });
         }
       }
@@ -179,6 +196,7 @@ interface InboundMessageParams {
   rawMessage: any;
   timestamp: string;
   department?: string;
+  quotedMessageBody?: string | null;
 }
 
 interface ProcessResult {
@@ -407,6 +425,7 @@ async function processInboundMessage(
         conversation_id: conversation.id,
         contact_id: contact.id,
         raw_message: params.rawMessage,
+        quoted_message_body: params.quotedMessageBody || null,
       },
     });
 

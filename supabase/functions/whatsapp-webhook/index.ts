@@ -8,6 +8,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
 import { resolveTenant } from '../_shared/whatsapp.ts';
 import { isDuplicateMessage, logError, logActivity } from '../_shared/utils.ts';
+import { transcribeWhatsAppAudio } from '../_shared/audio-transcription.ts';
 import { Tenant, WhatsAppWebhookEntry, MakeWebhookRequest } from '../_shared/types.ts';
 
 serve(async (req: Request) => {
@@ -93,6 +94,14 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
         continue;
       }
 
+      // Load AI config to check audio_enabled
+      const { data: aiConfig } = await supabase
+        .from('ai_agent_config')
+        .select('audio_enabled')
+        .eq('tenant_id', tenant.id)
+        .maybeSingle();
+      const audioEnabled = aiConfig?.audio_enabled === true;
+
       // Process delivery status updates (sent, delivered, read, failed)
       if (value.statuses) {
         for (const status of value.statuses) {
@@ -120,9 +129,27 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
             }
           }
 
+          // Extract message body (sync) + attempt audio transcription if enabled
+          let messageBody = extractMessageBody(message);
+          if (message.type === 'audio' && audioEnabled && message.audio?.id && tenant.wa_access_token) {
+            try {
+              const transcription = await transcribeWhatsAppAudio(
+                message.audio.id,
+                message.audio.mime_type || 'audio/ogg',
+                tenant.wa_access_token
+              );
+              if (transcription) {
+                messageBody = `[Transcrição de áudio]: ${transcription}`;
+                console.log(`🎙️ Audio transcribed (${transcription.length} chars)`);
+              }
+            } catch (err) {
+              console.error('⚠️ Audio transcription failed, keeping [Áudio]:', (err as Error).message);
+            }
+          }
+
           await processInboundMessage(supabase, tenant, {
             phoneNumber: message.from,
-            messageBody: extractMessageBody(message),
+            messageBody,
             messageType: message.type,
             contactName: contactInfo?.profile?.name || null,
             waMessageId: message.id,

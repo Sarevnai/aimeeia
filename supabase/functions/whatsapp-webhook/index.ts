@@ -131,7 +131,26 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
 
           // Extract message body (sync) + attempt audio transcription if enabled
           let messageBody = extractMessageBody(message);
+
+          // DEBUG: Log audio transcription attempt to DB
+          if (message.type === 'audio') {
+            await supabase.from('activity_logs').insert({
+              tenant_id: tenant.id,
+              action_type: 'audio_debug',
+              target_table: 'messages',
+              metadata: {
+                audioEnabled,
+                hasAudioId: !!message.audio?.id,
+                audioId: message.audio?.id,
+                hasToken: !!tenant.wa_access_token,
+                messageType: message.type,
+                willTranscribe: !!(audioEnabled && message.audio?.id && tenant.wa_access_token),
+              },
+            });
+          }
+
           if (message.type === 'audio' && audioEnabled && message.audio?.id && tenant.wa_access_token) {
+            console.log(`🎙️ Audio detected (media_id: ${message.audio.id}, mime: ${message.audio.mime_type}). Attempting transcription...`);
             try {
               const transcription = await transcribeWhatsAppAudio(
                 message.audio.id,
@@ -140,11 +159,26 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
               );
               if (transcription) {
                 messageBody = `[Transcrição de áudio]: ${transcription}`;
-                console.log(`🎙️ Audio transcribed (${transcription.length} chars)`);
+                console.log(`🎙️ Audio transcribed (${transcription.length} chars): "${transcription.slice(0, 100)}"`);
               }
             } catch (err) {
-              console.error('⚠️ Audio transcription failed, keeping [Áudio]:', (err as Error).message);
+              const errorMsg = (err as Error).message;
+              console.error(`❌ Audio transcription failed: ${errorMsg}`);
+              // Log to activity_logs (logError is broken — column mismatch with ai_error_log)
+              await supabase.from('activity_logs').insert({
+                tenant_id: tenant.id,
+                action_type: 'audio_transcription_error',
+                target_table: 'messages',
+                metadata: {
+                  error: errorMsg,
+                  stack: (err as Error).stack?.slice(0, 500),
+                  mediaId: message.audio.id,
+                  mimeType: message.audio.mime_type,
+                },
+              });
             }
+          } else if (message.type === 'audio') {
+            console.log(`🎙️ Audio received but transcription skipped (audioEnabled=${audioEnabled}, hasAudioId=${!!message.audio?.id}, hasToken=${!!tenant.wa_access_token})`);
           }
 
           await processInboundMessage(supabase, tenant, {

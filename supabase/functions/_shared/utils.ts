@@ -108,9 +108,9 @@ export async function logError(
   try {
     await supabase.from('ai_error_log').insert({
       tenant_id: tenantId,
-      function_name: functionName,
+      agent_name: functionName,
+      error_type: 'runtime',
       error_message: error?.message || String(error),
-      error_stack: error?.stack || null,
       context: context || null,
     });
   } catch (e) {

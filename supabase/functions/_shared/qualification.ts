@@ -216,18 +216,28 @@ const NEIGHBORHOOD_ALIASES: Record<string, string[]> = {
   'balneário do estreito': ['balneário estreito'],
 };
 
+// Normalize accented characters for accent-insensitive matching
+function removeAccents(str: string): string {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function detectNeighborhood(
   lower: string,
   regions: Array<{ region_name: string; neighborhoods: string[] }>
 ): string | null {
-  // 1. Direct match against neighborhoods list
+  // Normalize input for accent-insensitive comparison
+  const normalizedInput = removeAccents(lower);
+
+  // 1. Direct match against neighborhoods list (accent-insensitive)
   for (const region of regions) {
     for (const neighborhood of region.neighborhoods) {
-      if (lower.includes(neighborhood.toLowerCase())) {
+      const normalizedNeighborhood = removeAccents(neighborhood.toLowerCase());
+      if (normalizedInput.includes(normalizedNeighborhood)) {
         return neighborhood;
       }
     }
-    if (lower.includes(region.region_name.toLowerCase())) {
+    const normalizedRegion = removeAccents(region.region_name.toLowerCase());
+    if (normalizedInput.includes(normalizedRegion)) {
       return region.region_name;
     }
   }
@@ -238,7 +248,7 @@ function detectNeighborhood(
       const aliases = NEIGHBORHOOD_ALIASES[neighborhood.toLowerCase()];
       if (aliases) {
         for (const alias of aliases) {
-          if (lower.includes(alias)) {
+          if (normalizedInput.includes(removeAccents(alias))) {
             return neighborhood;
           }
         }
@@ -261,8 +271,14 @@ function detectPropertyType(lower: string): string | null {
 }
 
 function detectBedrooms(lower: string): number | null {
-  const match = lower.match(/(\d+)\s*(?:quartos?|dormit[oó]rios?|dorms?|suites?)/i);
+  // Match "3 quartos", "3 dormitórios", but also "3 quartos sendo 2 suítes"
+  // Always extract the TOTAL bedrooms count (first number before quartos/dormitórios)
+  const match = lower.match(/(\d+)\s*(?:quartos?|dormit[oó]rios?|dorms?)/i);
   if (match) return parseInt(match[1]);
+
+  // Fallback: "2 suítes" without explicit quartos count — treat suítes as bedrooms hint
+  const suitesMatch = lower.match(/(\d+)\s*su[ií]tes?/i);
+  if (suitesMatch) return parseInt(suitesMatch[1]);
 
   // Word to number
   const wordMap: Record<string, number> = {
@@ -270,7 +286,7 @@ function detectBedrooms(lower: string): number | null {
     'quatro': 4, 'cinco': 5,
   };
   for (const [word, num] of Object.entries(wordMap)) {
-    if (new RegExp(`${word}\\s*(?:quartos?|dormit)`, 'i').test(lower)) return num;
+    if (new RegExp(`${word}\\s*(?:quartos?|dormit|su[ií]tes?)`, 'i').test(lower)) return num;
   }
 
   return null;

@@ -438,6 +438,22 @@ async function processInboundMessage(
     .maybeSingle();
 
   if (state?.is_ai_active === false) {
+    // BUG-5 fix: Don't reactivate AI if handoff was less than 5 minutes ago
+    // This prevents double handoff when the client sends a follow-up message
+    // right after being transferred (e.g. "Obrigado", "Perfeito").
+    const handoffAgeMs = state?.operator_takeover_at
+      ? Date.now() - new Date(state.operator_takeover_at).getTime()
+      : Infinity;
+    const HANDOFF_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+    if (handoffAgeMs < HANDOFF_COOLDOWN_MS) {
+      console.log(`⏸️ AI reactivation skipped — handoff was ${Math.round(handoffAgeMs / 1000)}s ago (cooldown: ${HANDOFF_COOLDOWN_MS / 1000}s). Message saved but not processed by AI.`);
+      return new Response(JSON.stringify({ status: 'skipped_handoff_cooldown' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     console.log('🔄 Reactivating AI after handoff — lead sent new message');
     await supabase.from('conversation_states').upsert({
       phone_number: phoneNumber,

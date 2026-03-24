@@ -29,6 +29,7 @@ export interface AgentContext {
   tenantApiKey: string | undefined;
   tenantProvider: string;
   lastAiMessages: string[];
+  toolsExecuted: string[];               // MC-5: Track which tools were called this turn
   supabase: any;
 }
 

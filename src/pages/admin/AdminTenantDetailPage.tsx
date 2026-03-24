@@ -25,6 +25,9 @@ import {
     Plus,
     BookUser,
     Search,
+    Eye,
+    EyeOff,
+    Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -126,6 +129,13 @@ const AdminTenantDetailPage: React.FC = () => {
     const [dispatchSearch, setDispatchSearch] = useState('');
     const [dispatchLoading, setDispatchLoading] = useState(false);
     const [dispatchContactsLoading, setDispatchContactsLoading] = useState(false);
+
+    // ── C2S (Construtor de Vendas) state ───────────────────────────────
+    const [c2sForm, setC2sForm] = useState({ api_url: '', api_key: '', tags: 'Aimee' });
+    const [savingC2s, setSavingC2s] = useState(false);
+    const [c2sSettingId, setC2sSettingId] = useState<string | null>(null);
+    const [testingC2s, setTestingC2s] = useState(false);
+    const [showC2sKey, setShowC2sKey] = useState(false);
 
     // ── Invite user state ──────────────────────────────────────────────
     const [inviteOpen, setInviteOpen] = useState(false);
@@ -277,6 +287,42 @@ const AdminTenantDetailPage: React.FC = () => {
                 });
             }
 
+            // C2S (Construtor de Vendas)
+            const { data: c2sData } = await supabase
+                .from('system_settings')
+                .select('id, setting_value')
+                .eq('tenant_id', tenantId)
+                .eq('setting_key', 'c2s_config')
+                .maybeSingle();
+
+            if (c2sData) {
+                setC2sSettingId(c2sData.id);
+                const val = c2sData.setting_value as any;
+                if (val) {
+                    setC2sForm({
+                        api_url: val.api_url || '',
+                        api_key: val.api_key || '',
+                        tags: Array.isArray(val.tags) ? val.tags.join(', ') : (val.tags || 'Aimee'),
+                    });
+                }
+            }
+
+            if (c2sData?.setting_value && (c2sData.setting_value as any).api_key) {
+                intgs.push({
+                    name: 'C2S (Construtor de Vendas)',
+                    status: 'connected',
+                    icon: '🏗️',
+                    detail: 'Envio de leads ativo',
+                });
+            } else {
+                intgs.push({
+                    name: 'C2S (Construtor de Vendas)',
+                    status: 'disconnected',
+                    icon: '🏗️',
+                    detail: 'Não configurado',
+                });
+            }
+
             // Vista integration
             if (agentData?.vista_integration_enabled) {
                 intgs.push({
@@ -296,6 +342,50 @@ const AdminTenantDetailPage: React.FC = () => {
     };
 
     // ── Create user ────────────────────────────────────────────────────
+    // ── C2S handlers ──────────────────────────────────────────────────
+    const handleSaveC2s = async () => {
+        if (!tenant) return;
+        setSavingC2s(true);
+        try {
+            const tags = c2sForm.tags.split(',').map((t) => t.trim()).filter(Boolean);
+            const value = { api_url: c2sForm.api_url, api_key: c2sForm.api_key, tags };
+            if (c2sSettingId) {
+                await supabase.from('system_settings').update({ setting_value: value as any }).eq('id', c2sSettingId);
+            } else {
+                const { data } = await supabase.from('system_settings').insert({ tenant_id: tenant.id, setting_key: 'c2s_config', setting_value: value as any }).select('id').single();
+                if (data) setC2sSettingId(data.id);
+            }
+            toast({ title: 'C2S salvo com sucesso' });
+        } catch (err) {
+            toast({ title: 'Erro ao salvar C2S', variant: 'destructive' });
+        } finally {
+            setSavingC2s(false);
+        }
+    };
+
+    const handleTestC2s = async () => {
+        if (!c2sForm.api_url || !c2sForm.api_key) {
+            toast({ title: 'Preencha URL e API Key', variant: 'destructive' });
+            return;
+        }
+        setTestingC2s(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('c2s-test-connection', {
+                body: { api_url: c2sForm.api_url, api_key: c2sForm.api_key },
+            });
+            if (error) throw error;
+            if (data?.success) {
+                toast({ title: 'Conexão com C2S OK!' });
+            } else {
+                toast({ title: `Erro C2S: ${data?.status} — ${data?.error || 'Verifique as credenciais'}`, variant: 'destructive' });
+            }
+        } catch (err: any) {
+            toast({ title: 'Falha ao conectar no C2S', description: err.message, variant: 'destructive' });
+        } finally {
+            setTestingC2s(false);
+        }
+    };
+
     const handleInviteUser = async () => {
         if (!inviteForm.email || !inviteForm.full_name || inviteForm.password.length < 8) return;
         setInviteLoading(true);
@@ -987,6 +1077,69 @@ const AdminTenantDetailPage: React.FC = () => {
                                     ))}
                                 </div>
                             )}
+                        </div>
+
+                        {/* C2S (Construtor de Vendas) Config */}
+                        <div className="bg-card border border-border rounded-xl p-5">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-sm font-semibold text-foreground">C2S (Construtor de Vendas)</h3>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${c2sForm.api_url && c2sForm.api_key ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'}`}>
+                                    {c2sForm.api_url && c2sForm.api_key ? (
+                                        <><CheckCircle2 className="h-3 w-3" /> Configurado</>
+                                    ) : (
+                                        <><XCircle className="h-3 w-3" /> Não configurado</>
+                                    )}
+                                </span>
+                            </div>
+                            <div className="space-y-3">
+                                <div>
+                                    <Label className="text-xs text-muted-foreground">API URL</Label>
+                                    <Input
+                                        value={c2sForm.api_url}
+                                        onChange={(e) => setC2sForm({ ...c2sForm, api_url: e.target.value })}
+                                        placeholder="https://api.contact2sale.com/integration/leads"
+                                        className="mt-1"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-xs text-muted-foreground">API Key</Label>
+                                    <div className="relative mt-1">
+                                        <Input
+                                            type={showC2sKey ? 'text' : 'password'}
+                                            value={c2sForm.api_key}
+                                            onChange={(e) => setC2sForm({ ...c2sForm, api_key: e.target.value })}
+                                            placeholder="Token de autenticação"
+                                            className="pr-10"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowC2sKey(!showC2sKey)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            {showC2sKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <Label className="text-xs text-muted-foreground">Tags (separadas por vírgula)</Label>
+                                    <Input
+                                        value={c2sForm.tags}
+                                        onChange={(e) => setC2sForm({ ...c2sForm, tags: e.target.value })}
+                                        placeholder="Aimee"
+                                        className="mt-1"
+                                    />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <Button size="sm" variant="outline" onClick={handleTestC2s} disabled={testingC2s}>
+                                        {testingC2s ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Plug className="h-4 w-4 mr-1" />}
+                                        Testar Conexão
+                                    </Button>
+                                    <Button size="sm" onClick={handleSaveC2s} disabled={savingC2s}>
+                                        {savingC2s ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                                        Salvar C2S
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}

@@ -212,7 +212,7 @@ export async function executePropertySearch(
     // C7: Construir URL do imóvel — usa p.url do DB se disponível,
     // senão constrói a partir do website_url configurado no ai_agent_config + external_id
     const websiteBase = (ctx.aiConfig as any).website_url?.replace(/\/$/, '') || '';
-    const formattedProperties: PropertyResult[] = validProperties.map((p: any) => ({
+    const allFormattedProperties: PropertyResult[] = validProperties.map((p: any) => ({
       codigo: p.external_id,
       tipo: p.type || 'Imóvel',
       bairro: p.neighborhood || 'Região',
@@ -228,6 +228,23 @@ export async function executePropertySearch(
       descricao: p.description,
       valor_condominio: null,
     }));
+
+    // Filter out properties already shown to this lead
+    const { data: prevState } = await ctx.supabase
+      .from('conversation_states')
+      .select('shown_property_ids')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('phone_number', ctx.phoneNumber)
+      .maybeSingle();
+
+    const shownIds = new Set((prevState?.shown_property_ids || []) as string[]);
+    const formattedProperties = allFormattedProperties.filter(p => !shownIds.has(p.codigo));
+
+    if (formattedProperties.length === 0) {
+      return 'Já te mostrei todas as opções que encontrei com esses critérios. Quer que eu amplie a busca para bairros vizinhos ou ajuste algum filtro?';
+    }
+
+    console.log(`🔍 Filtered: ${allFormattedProperties.length} found, ${shownIds.size} already shown, ${formattedProperties.length} new to send`);
 
     await ctx.supabase
       .from('conversation_states')
@@ -266,23 +283,29 @@ export async function executePropertySearch(
         .maybeSingle();
 
       if (propGeo?.latitude && propGeo?.longitude) {
-        const { data: poiData } = await ctx.supabase.functions.invoke('get-nearby-places', {
-          body: {
-            latitude: propGeo.latitude,
-            longitude: propGeo.longitude,
-            radius: 1500,
-            type: 'supermarket',
-          }
-        });
-        const places = (poiData?.places || []) as any[];
-        if (places.length > 0) {
-          nearbyPlacesText = places.slice(0, 2).map((p: any) => {
-            const distStr = p.distance_meters > 1000
-              ? `${(p.distance_meters / 1000).toFixed(1)}km`
-              : `${p.distance_meters}m`;
-            return `${p.name} a ${distStr}`;
-          }).join('; ');
+        // Search multiple POI types to enrich the property description
+        const poiTypes = ['supermarket', 'school', 'restaurant'];
+        const allPlaces: string[] = [];
+        for (const poiType of poiTypes) {
+          try {
+            const { data: poiData } = await ctx.supabase.functions.invoke('get-nearby-places', {
+              body: {
+                latitude: propGeo.latitude,
+                longitude: propGeo.longitude,
+                radius: 1500,
+                type: poiType,
+              }
+            });
+            const places = (poiData?.places || []).slice(0, 1) as any[];
+            places.forEach((p: any) => {
+              const distStr = p.distance_meters > 1000
+                ? `${(p.distance_meters / 1000).toFixed(1)}km`
+                : `${p.distance_meters}m`;
+              allPlaces.push(`${p.name} a ${distStr}`);
+            });
+          } catch {}
         }
+        nearbyPlacesText = allPlaces.slice(0, 3).join('; ');
       }
     } catch (geoErr) {
       console.warn('⚠️ Geolocation enrichment failed, proceeding without:', (geoErr as Error).message);
@@ -373,9 +396,11 @@ export async function executePropertySearch(
       return textHint;
     }
 
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] 1 imóvel já foi enviado ao cliente com foto, descrição personalizada e link. NÃO repita os detalhes do imóvel. Responda com uma frase curta e natural perguntando o que achou, sem emoji. Exemplo: "Dá uma olhada nesse e me conta o que achou." Se o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila para enviar uma por vez.`;
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] 1 imóvel já foi enviado ao cliente com foto, descrição personalizada e link. NÃO liste detalhes técnicos do imóvel novamente. Responda com 1-2 frases curtas conectando o imóvel ao que o cliente pediu e destacando um diferencial relevante. Exemplo: "Achei essa casa no Itacorubi que tem a suíte e a vaga que você pediu. Dá uma olhada e me conta o que achou." Se o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
-    const remainingHint = remaining > 0 ? `\n\n[FILA] Restam ${remaining} imóvel(is) não enviados. Quando o cliente pedir mais opções ou não gostar do atual, envie o próximo chamando buscar_imoveis novamente OU apresente os dados do próximo da fila em texto.` : '';
+    const remainingHint = remaining > 0
+      ? `\n\n[FILA] Restam ${remaining} imóvel(is). Quando o cliente pedir mais opções, alterar critérios (mais quartos, outro bairro, mais suítes), ou não gostar, CHAME buscar_imoveis com os critérios atualizados. NÃO responda com texto genérico pedindo mais informações se já tem o perfil do cliente.`
+      : '\n\n[FILA VAZIA] Não há mais imóveis na fila. Se o cliente pedir mais opções, CHAME buscar_imoveis com critérios atualizados.';
     const hint = baseHint + detailHint + remainingHint;
     return hint;
 

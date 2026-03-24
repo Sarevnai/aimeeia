@@ -6,7 +6,7 @@ import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
 import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
-import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
+import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../anti-loop.ts';
 import { isQualificationComplete } from '../qualification.ts';
 import { SkillConfig, StructuredConfig } from '../types.ts';
 
@@ -247,7 +247,7 @@ function getComercialTools(ctx: AgentContext): any[] {
       type: "function",
       function: {
         name: "buscar_pontos_de_interesse_proximos",
-        description: "Use esta ferramenta QUANDO O CLIENTE PERGUNTAR especificamente sobre a localização, raio, o que tem perto, escolas, mercados ou infraestrutura. Retorna dados reais e distâncias.",
+        description: "Busca pontos de interesse próximos a um imóvel (mercados, escolas, restaurantes, etc). Use proativamente para enriquecer a apresentação de imóveis OU quando o cliente perguntar sobre infraestrutura e localização. Retorna dados reais com distâncias.",
         parameters: {
           type: "object",
           properties: {
@@ -341,19 +341,42 @@ export const comercialAgent: AgentModule = {
 
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
     let finalResponse = aiResponse;
+    const qualified = isQualificationComplete(ctx.qualificationData);
 
     if (isLoopingQuestion(finalResponse, ctx.qualificationData)) {
-      const contextSummary = buildContextSummary(ctx.qualificationData);
-      finalResponse = isQualificationComplete(ctx.qualificationData)
-        ? `Com base no que conversamos, já tenho um bom perfil. Quer que eu busque opções pra você agora?`
-        : `${contextSummary}\n\nBaseado no que já conversamos, posso te ajudar com mais alguma coisa?`;
+      console.log('🔄 [Comercial] Loop detected → rotating fallback');
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages);
     }
 
     if (isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
-      finalResponse = ctx.aiConfig.fallback_message || 'Posso te ajudar com mais alguma coisa?';
+      console.log('🔄 [Comercial] Repetition detected → rotating fallback');
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages);
     }
 
     await updateAntiLoopState(ctx.supabase, ctx.tenantId, ctx.phoneNumber, finalResponse);
+
+    // MC-5: Detect handoff promise without actual tool call
+    const handoffPromiseRegex = /\b(corretor|consultor|especialista|atendente).{0,30}(contato|entrar em contato|vai te ligar|ligar|chamar)|encaminhei|transferi|atendimento humano/i;
+    const promisedHandoff = handoffPromiseRegex.test(finalResponse);
+    const actuallyCalledC2S = (ctx.toolsExecuted || []).includes('enviar_lead_c2s');
+
+    if (promisedHandoff && !actuallyCalledC2S) {
+      console.warn('⚠️ MC-5: Agent promised handoff but did NOT call enviar_lead_c2s. Auto-triggering.');
+      try {
+        const dossierLines = [
+          ctx.contactName ? `Nome: ${ctx.contactName}` : null,
+          `Telefone: ${ctx.phoneNumber}`,
+          ctx.qualificationData?.detected_interest ? `Finalidade: ${ctx.qualificationData.detected_interest === 'locacao' ? 'Locação' : 'Venda'}` : null,
+          ctx.qualificationData?.detected_neighborhood ? `Região: ${ctx.qualificationData.detected_neighborhood}` : null,
+          ctx.qualificationData?.detected_property_type ? `Tipo: ${ctx.qualificationData.detected_property_type}` : null,
+          ctx.qualificationData?.detected_budget_max ? `Orçamento: até R$ ${Number(ctx.qualificationData.detected_budget_max).toLocaleString('pt-BR')}` : null,
+        ].filter(Boolean).join('\n');
+
+        await executeLeadHandoff(ctx, { motivo: `[MC-5 auto-handoff] ${dossierLines}` });
+      } catch (err) {
+        console.error('❌ MC-5 auto-handoff failed:', err);
+      }
+    }
 
     return finalResponse;
   },

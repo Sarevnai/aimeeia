@@ -37,6 +37,12 @@ const SettingsIntegrationsTab: React.FC = () => {
   const [savingWa, setSavingWa] = useState(false);
   const [savingCrm, setSavingCrm] = useState(false);
 
+  // C2S (Construtor de Vendas)
+  const [c2sForm, setC2sForm] = useState({ api_url: '', api_key: '', tags: 'Aimee' });
+  const [savingC2s, setSavingC2s] = useState(false);
+  const [c2sSettingId, setC2sSettingId] = useState<string | null>(null);
+  const [testingC2s, setTestingC2s] = useState(false);
+
   // Business hours
   const [hours, setHours] = useState<BusinessHours>({ days: ['mon', 'tue', 'wed', 'thu', 'fri'], start: '08:00', end: '18:00', timezone: 'America/Sao_Paulo' });
   const [savingHours, setSavingHours] = useState(false);
@@ -53,10 +59,11 @@ const SettingsIntegrationsTab: React.FC = () => {
     if (!tenantId) return;
     const fetch = async () => {
       setLoading(true);
-      const [tenantRes, hoursRes, regionsRes] = await Promise.all([
+      const [tenantRes, hoursRes, regionsRes, c2sRes] = await Promise.all([
         supabase.from('tenants').select('wa_phone_number_id, wa_access_token, wa_verify_token, waba_id, crm_type, crm_api_key, crm_api_url').eq('id', tenantId).single(),
         supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'business_hours').single(),
         supabase.from('regions').select('*').eq('tenant_id', tenantId).order('region_name'),
+        supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'c2s_config').maybeSingle(),
       ]);
 
       if (tenantRes.data) {
@@ -68,6 +75,11 @@ const SettingsIntegrationsTab: React.FC = () => {
         setHoursSettingId(hoursRes.data.id);
         const val = hoursRes.data.setting_value as any;
         if (val) setHours({ days: val.days || [], start: val.start || '08:00', end: val.end || '18:00', timezone: val.timezone || 'America/Sao_Paulo' });
+      }
+      if (c2sRes.data) {
+        setC2sSettingId(c2sRes.data.id);
+        const val = c2sRes.data.setting_value as any;
+        if (val) setC2sForm({ api_url: val.api_url || '', api_key: val.api_key || '', tags: (val.tags || ['Aimee']).join(', ') });
       }
       setRegions(regionsRes.data ?? []);
       setLoading(false);
@@ -91,6 +103,41 @@ const SettingsIntegrationsTab: React.FC = () => {
     const { error } = await supabase.from('tenants').update(crmForm).eq('id', tenantId);
     setSavingCrm(false);
     toast(error ? { title: 'Erro', description: error.message, variant: 'destructive' } : { title: 'CRM salvo' });
+  };
+
+  const saveC2s = async () => {
+    if (!tenantId) return;
+    setSavingC2s(true);
+    const tags = c2sForm.tags.split(',').map((t) => t.trim()).filter(Boolean);
+    const value: Json = { api_url: c2sForm.api_url, api_key: c2sForm.api_key, tags } as unknown as Json;
+    if (c2sSettingId) {
+      await supabase.from('system_settings').update({ setting_value: value }).eq('id', c2sSettingId);
+    } else {
+      const { data } = await supabase.from('system_settings').insert({ tenant_id: tenantId, setting_key: 'c2s_config', setting_value: value }).select('id').single();
+      if (data) setC2sSettingId(data.id);
+    }
+    setSavingC2s(false);
+    toast({ title: 'C2S salvo' });
+  };
+
+  const testC2sConnection = async () => {
+    if (!c2sForm.api_url || !c2sForm.api_key) {
+      toast({ title: 'Preencha URL e API Key', variant: 'destructive' });
+      return;
+    }
+    setTestingC2s(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('c2s-test-connection', {
+        body: { api_url: c2sForm.api_url, api_key: c2sForm.api_key },
+      });
+      if (error) throw error;
+      toast(data?.success
+        ? { title: 'Conexão OK', description: `Status: ${data.status}` }
+        : { title: 'Erro na conexão', description: `Status: ${data?.status} — ${data?.error || 'Verifique as credenciais'}`, variant: 'destructive' });
+    } catch (err: any) {
+      toast({ title: 'Falha na conexão', description: err.message, variant: 'destructive' });
+    }
+    setTestingC2s(false);
   };
 
   const saveBusinessHours = async () => {
@@ -194,6 +241,35 @@ const SettingsIntegrationsTab: React.FC = () => {
           <div className="flex justify-end">
             <Button onClick={saveCRM} disabled={savingCrm} size="sm">
               {savingCrm ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />} Salvar
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* C2S (Construtor de Vendas) */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="font-display text-lg">C2S (Construtor de Vendas)</CardTitle>
+            <Badge variant={c2sForm.api_url && c2sForm.api_key ? 'default' : 'secondary'}>
+              {c2sForm.api_url && c2sForm.api_key ? 'Configurado' : 'Não configurado'}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <FieldGroup label="API URL" description="URL da API do Construtor de Vendas para envio de leads.">
+            <Input value={c2sForm.api_url} onChange={(e) => setC2sForm({ ...c2sForm, api_url: e.target.value })} placeholder="https://api.contact2sale.com/integration/leads" />
+          </FieldGroup>
+          <MaskedField label="API Key" description="Token de autenticação do C2S." value={c2sForm.api_key} onChange={(v) => setC2sForm({ ...c2sForm, api_key: v })} show={showTokens.c2s_key} onToggle={() => toggleToken('c2s_key')} />
+          <FieldGroup label="Tags" description="Etiquetas aplicadas aos leads enviados (separadas por vírgula).">
+            <Input value={c2sForm.tags} onChange={(e) => setC2sForm({ ...c2sForm, tags: e.target.value })} placeholder="Aimee" />
+          </FieldGroup>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={testC2sConnection} disabled={testingC2s}>
+              {testingC2s ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Testar Conexão
+            </Button>
+            <Button onClick={saveC2s} disabled={savingC2s} size="sm">
+              {savingC2s ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />} Salvar
             </Button>
           </div>
         </CardContent>

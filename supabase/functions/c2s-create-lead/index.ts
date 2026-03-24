@@ -45,16 +45,16 @@ serve(async (req: Request) => {
     // Check if C2S integration is configured
     const { data: c2sConfig } = await supabase
       .from('system_settings')
-      .select('value')
+      .select('setting_value')
       .eq('tenant_id', tenant_id)
-      .eq('key', 'c2s_config')
+      .eq('setting_key', 'c2s_config')
       .maybeSingle();
 
     let c2sResult = null;
 
-    if (c2sConfig?.value?.api_url && c2sConfig?.value?.api_key) {
+    if (c2sConfig?.setting_value?.api_url && c2sConfig?.setting_value?.api_key) {
       // Send to C2S
-      c2sResult = await sendToC2S(c2sConfig.value, {
+      c2sResult = await sendToC2S(c2sConfig.setting_value, {
         name: contact?.name || 'Lead WhatsApp',
         phone: phone_number,
         email: contact?.email || null,
@@ -113,6 +113,9 @@ serve(async (req: Request) => {
 
 async function sendToC2S(config: any, leadData: any): Promise<any> {
   try {
+    const tags: string[] = config.tags || ['Aimee'];
+    const qualification = leadData.qualification || {};
+
     const response = await fetch(config.api_url, {
       method: 'POST',
       headers: {
@@ -120,13 +123,16 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
         'Authorization': `Bearer ${config.api_key}`,
       },
       body: JSON.stringify({
-        nome: leadData.name,
-        telefone: leadData.phone,
+        name: leadData.name,
+        phone: leadData.phone,
         email: leadData.email,
-        origem: leadData.origin,
-        observacao: leadData.notes,
-        empreendimento_id: leadData.development_id,
-        dados_qualificacao: leadData.qualification,
+        source: leadData.origin,
+        body: leadData.notes,
+        tags,
+        type_negotiation: qualification.detected_interest === 'locacao' ? 'Aluguel' : 'Compra',
+        neighbourhood: qualification.detected_neighborhood || null,
+        price: qualification.detected_budget_max?.toString() || null,
+        prop_ref: leadData.development_id || null,
       }),
     });
 

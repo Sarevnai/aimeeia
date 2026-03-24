@@ -1,10 +1,40 @@
 // ========== AIMEE.iA v2 - ANTI-LOOP ==========
 // Persistence in DB (fixes v1 bug where in-memory Map reset on cold start).
 // Checks last AI messages to detect repetitive behavior.
+// v2.1: Fallback rotation to prevent infinite fallback loops.
+//        Property-detail responses are never intercepted.
 
 import { QualificationData } from './types.ts';
 
 const MAX_STORED_MESSAGES = 5;
+
+// Rotating fallback pool — never send the same fallback twice in a row
+const FALLBACK_POOL_QUALIFIED = [
+  'Vou buscar novas opções pra você com base no que conversamos.',
+  'Deixa eu procurar mais alternativas com o perfil que você descreveu.',
+  'Com base no que já conversamos, vou trazer outras opções.',
+];
+
+const FALLBACK_POOL_UNQUALIFIED = [
+  'Me ajuda a entender melhor o que você procura?',
+  'Pra eu buscar algo certeiro, preciso de mais alguns detalhes.',
+  'Me conta mais sobre o que é importante pra você no imóvel?',
+];
+
+// ========== CHECK IF RESPONSE CONTAINS PROPERTY DETAILS ==========
+
+export function containsPropertyDetails(aiResponse: string): boolean {
+  const lower = aiResponse.toLowerCase();
+  // Response mentions specific property data: codes, prices, suites, area — don't intercept
+  if (/c[oó]digo\s+\d|r\$\s*[\d.,]+|su[ií]te|quartos?\s+sendo|metros?\s+quadrados?|m²|\d+\s*m²/i.test(lower)) {
+    return true;
+  }
+  // Response references a specific property the client asked about
+  if (/essa?\s+(casa|apartamento|im[oó]vel|op[çc][aã]o)|a\s+que\s+te\s+mostrei|último\s+im[oó]vel/i.test(lower)) {
+    return true;
+  }
+  return false;
+}
 
 // ========== CHECK IF AI IS LOOPING ==========
 
@@ -13,6 +43,9 @@ export function isLoopingQuestion(
   qualificationData: QualificationData | null
 ): boolean {
   if (!qualificationData) return false;
+
+  // Never intercept responses with property details
+  if (containsPropertyDetails(aiResponse)) return false;
 
   const lower = aiResponse.toLowerCase();
 
@@ -55,6 +88,9 @@ export function isRepetitiveMessage(
 ): boolean {
   if (!lastAiMessages || lastAiMessages.length === 0) return false;
 
+  // Never intercept responses with property details
+  if (containsPropertyDetails(aiResponse)) return false;
+
   const normalized = aiResponse.toLowerCase().trim().slice(0, 200);
 
   for (const prev of lastAiMessages) {
@@ -75,6 +111,27 @@ export function isRepetitiveMessage(
   }
 
   return false;
+}
+
+// ========== GET ROTATING FALLBACK (never same as last) ==========
+
+export function getRotatingFallback(
+  isQualified: boolean,
+  lastAiMessages: string[]
+): string {
+  const pool = isQualified ? FALLBACK_POOL_QUALIFIED : FALLBACK_POOL_UNQUALIFIED;
+  const lastMsg = lastAiMessages.length > 0
+    ? lastAiMessages[lastAiMessages.length - 1]?.toLowerCase().trim() || ''
+    : '';
+
+  // Pick a fallback that doesn't match the last message
+  for (const fb of pool) {
+    if (fb.toLowerCase().trim() !== lastMsg.slice(0, 200)) {
+      return fb;
+    }
+  }
+  // Ultimate fallback: pick the first from the pool
+  return pool[0];
 }
 
 // ========== UPDATE ANTI-LOOP STATE ==========

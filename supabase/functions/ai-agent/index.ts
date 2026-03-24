@@ -11,7 +11,7 @@ import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
 import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete } from '../_shared/qualification.ts';
 import { loadRegions } from '../_shared/regions.ts';
-import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState } from '../_shared/anti-loop.ts';
+import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../_shared/anti-loop.ts';
 import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } from '../_shared/property.ts';
 import { fragmentMessage, logError, logActivity, sleep, formatCurrency } from '../_shared/utils.ts';
 import { Tenant, AIAgentConfig, AIBehaviorConfig, ConversationState, ConversationMessage, PropertyResult, StructuredConfig, TriageConfig } from '../_shared/types.ts';
@@ -237,7 +237,7 @@ serve(async (req: Request) => {
         contactName: contact_name, qualificationData: qualData, conversationHistory: [],
         directive: null, structuredConfig: null, remarketingContext: null,
         isReturningLead: false, previousQualificationData: null,
-        tenantApiKey, tenantProvider, supabase, lastAiMessages: [],
+        tenantApiKey, tenantProvider, supabase, lastAiMessages: [], toolsExecuted: [],
       };
 
       await executeLeadHandoff(mc1Ctx, { motivo: dossierLines });
@@ -282,10 +282,30 @@ serve(async (req: Request) => {
     const qualData = qualRow || {};
 
     // Load AI directive + structured_config
+    // For remarketing source, try to load a 'remarketing' directive first;
+    // fall back to the effective department directive if not found.
     let directive: any = null;
     let structuredConfig: StructuredConfig | null = null;
-    if (effectiveDepartment) {
+    const directiveDepartment = conversationSource === 'remarketing' ? 'remarketing' : effectiveDepartment;
+
+    if (directiveDepartment) {
       const { data: directiveRow } = await supabase
+        .from('ai_directives')
+        .select('directive_content, structured_config')
+        .eq('tenant_id', tenant_id)
+        .eq('department', directiveDepartment)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (directiveRow) {
+        directive = directiveRow;
+        structuredConfig = directiveRow.structured_config as StructuredConfig | null;
+      }
+    }
+
+    // Fallback: if remarketing directive not found, try the effective department
+    if (!directive && conversationSource === 'remarketing' && effectiveDepartment && effectiveDepartment !== 'remarketing') {
+      const { data: fallbackRow } = await supabase
         .from('ai_directives')
         .select('directive_content, structured_config')
         .eq('tenant_id', tenant_id)
@@ -293,9 +313,9 @@ serve(async (req: Request) => {
         .eq('is_active', true)
         .maybeSingle();
 
-      if (directiveRow) {
-        directive = directiveRow;
-        structuredConfig = directiveRow.structured_config as StructuredConfig | null;
+      if (fallbackRow) {
+        directive = fallbackRow;
+        structuredConfig = fallbackRow.structured_config as StructuredConfig | null;
       }
     }
 
@@ -392,6 +412,7 @@ serve(async (req: Request) => {
         tenantApiKey,
         tenantProvider,
         lastAiMessages: state?.last_ai_messages || [],
+        toolsExecuted: [],
         supabase,
       };
 
@@ -401,9 +422,10 @@ serve(async (req: Request) => {
       // Inject audio-awareness instructions when TTS is enabled
       if (aiConfig.audio_enabled && aiConfig.audio_mode !== 'text_only') {
         systemPrompt += `\n\n🎙️ MODO DE RESPOSTA POR ÁUDIO:
+IMPORTANTE: Você ENVIA suas respostas por áudio (o sistema converte seu texto em voz). Porém o CLIENTE te escreve por TEXTO. NUNCA diga que o cliente mandou áudio. NUNCA diga que você está "em áudio" e por isso não consegue ver algo. Você lê texto normalmente.
 Sua resposta será convertida em áudio e enviada como mensagem de voz no WhatsApp.
 REGRAS OBRIGATÓRIAS PARA ÁUDIO:
-- Você está FALANDO, não escrevendo. Escreva como se estivesse conversando naturalmente.
+- Escreva como se estivesse conversando naturalmente.
 - NÃO use emojis, asteriscos, bullet points, listas numeradas ou qualquer formatação visual.
 - NÃO use abreviações como "apt", "dorm", "m²" — fale por extenso: "apartamento", "dormitórios", "metros quadrados".
 - NÃO inclua links ou URLs no texto — eles não funcionam em áudio.
@@ -419,7 +441,10 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
         history,
         enrichedMessageBody,
         tools,
-        async (toolName, args) => agent.executeToolCall(ctx, toolName, args),
+        async (toolName, args) => {
+          ctx.toolsExecuted.push(toolName);
+          return agent.executeToolCall(ctx, toolName, args);
+        },
         {
           model: aiConfig.ai_model || 'gpt-4o-mini',
           provider: tenantProvider,
@@ -445,9 +470,10 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       // Inject audio-awareness instructions when TTS is enabled
       if (aiConfig.audio_enabled && aiConfig.audio_mode !== 'text_only') {
         systemPrompt += `\n\n🎙️ MODO DE RESPOSTA POR ÁUDIO:
+IMPORTANTE: Você ENVIA suas respostas por áudio (o sistema converte seu texto em voz). Porém o CLIENTE te escreve por TEXTO. NUNCA diga que o cliente mandou áudio. NUNCA diga que você está "em áudio" e por isso não consegue ver algo. Você lê texto normalmente.
 Sua resposta será convertida em áudio e enviada como mensagem de voz no WhatsApp.
 REGRAS OBRIGATÓRIAS PARA ÁUDIO:
-- Você está FALANDO, não escrevendo. Escreva como se estivesse conversando naturalmente.
+- Escreva como se estivesse conversando naturalmente.
 - NÃO use emojis, asteriscos, bullet points, listas numeradas ou qualquer formatação visual.
 - NÃO use abreviações como "apt", "dorm", "m²" — fale por extenso: "apartamento", "dormitórios", "metros quadrados".
 - NÃO inclua links ou URLs no texto — eles não funcionam em áudio.
@@ -478,16 +504,17 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       );
 
       finalResponse = aiResponse;
+      const lastMsgs = state?.last_ai_messages || [];
+      const legacyQualified = isQualificationComplete(mergedQual);
 
       if (isLoopingQuestion(finalResponse, mergedQual)) {
-        const contextSummary = buildContextSummary(mergedQual);
-        finalResponse = isQualificationComplete(mergedQual)
-          ? `Com base no que conversamos, já tenho um bom perfil. Quer que eu busque opções pra você agora?`
-          : `${contextSummary}\n\nBaseado no que já conversamos, posso te ajudar com mais alguma coisa?`;
+        console.log('🔄 [Legacy] Loop detected → rotating fallback');
+        finalResponse = getRotatingFallback(legacyQualified, lastMsgs);
       }
 
-      if (isRepetitiveMessage(finalResponse, state?.last_ai_messages || [])) {
-        finalResponse = aiConfig.fallback_message || 'Posso te ajudar com mais alguma coisa?';
+      if (isRepetitiveMessage(finalResponse, lastMsgs)) {
+        console.log('🔄 [Legacy] Repetition detected → rotating fallback');
+        finalResponse = getRotatingFallback(legacyQualified, lastMsgs);
       }
 
       await updateAntiLoopState(supabase, tenant_id, phone_number, finalResponse);

@@ -6,7 +6,8 @@ import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
 import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
-import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
+import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../anti-loop.ts';
+import { isQualificationComplete } from '../qualification.ts';
 import { SkillConfig } from '../types.ts';
 
 // ========== SYSTEM PROMPT ==========
@@ -14,41 +15,96 @@ import { SkillConfig } from '../types.ts';
 function buildRemarketingPrompt(ctx: AgentContext): string {
   const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext } = ctx;
 
+  // Priority 1: Structured config from DB (editable via Admin UI)
+  if (ctx.structuredConfig) {
+    return buildStructuredRemarketingPrompt(ctx);
+  }
+
+  // Priority 2: Legacy directive_content from DB
+  if (ctx.directive?.directive_content && ctx.directive.directive_content.trim()) {
+    return buildLegacyRemarketingPrompt(ctx);
+  }
+
+  // Priority 3: Hardcoded fallback (below)
   const sections: string[] = [];
 
-  // Identity: VIP Consultora
-  sections.push(`# IDENTIDADE E PAPEL
+  sections.push(`<character>
 
-Você é ${config.agent_name || 'Aimee'}, consultora imobiliária VIP da ${tenant.company_name}, em ${tenant.city}/${tenant.state}.
+Nome: ${config.agent_name || 'Aimee'}
 
-**Essência:** Você é uma *consultora imobiliária*, NÃO uma corretora tradicional. Atende poucos clientes por vez com dedicação total. Vai buscar o imóvel como se fosse pra você ou pra sua família.
-**Proposta de valor:** Atendimento exclusivo, custo zero pro cliente, foco total nas necessidades reais.
-${config.use_customer_name && contactName ? `\nChame o cliente de ${contactName}.` : ''}`);
+Papel: Consultora Imobiliária VIP da ${tenant.company_name}, em ${tenant.city}/${tenant.state}.
 
-  // Remarketing mode instructions
-  sections.push(`
-# MODO REMARKETING — ATENDIMENTO VIP
+Essência: Você não atua como uma corretora tradicional. Você presta uma consultoria imobiliária exclusiva, com atenção individual, profundidade de entendimento e foco total nas necessidades reais do cliente. Você busca imóveis com o mesmo rigor de quem buscaria para si mesma ou para a própria família.
 
-Você está atendendo um lead re-engajado via campanha de remarketing.
-O cliente acabou de aceitar seu atendimento VIP de consultoria imobiliária.
+Proposta de valor: Atendimento exclusivo, custo zero para o cliente, foco absoluto em aderência real ao perfil buscado.
 
-## REGRA DE APRESENTAÇÃO
-Você JÁ foi apresentada ao cliente via template de campanha. NÃO se apresente novamente. NÃO diga seu nome, NÃO diga "sou a X da Y", NÃO dê saudações de introdução.
+Tom: Sóbrio, elegante, humano, direto, consultivo e pessoal. Caloroso, porém contido. Demonstra empatia real, sem bajulação.
 
-## PRIMEIRA MENSAGEM — CONTRATO DE PARCERIA
-Quando o histórico de conversa mostrar que o cliente ACABOU de aceitar o atendimento VIP (última mensagem do cliente é uma resposta positiva como "sim", "quero", "pode", "bora", "ok", "vamos", etc.), você DEVE iniciar com o CONTRATO DE PARCERIA antes da anamnese.
+Restrições de tom:
+- USO ZERO DE EMOJIS.
+- NUNCA seja pedante.
+- NUNCA seja excessivamente entusiasmada.
+- NUNCA use expressões como "Uau", "Perfeito", "Excelente", "Que gosto refinado" ou equivalentes.
+- NUNCA elogie cada resposta do cliente.
+- Transmita exclusividade, segurança e foco no cliente pela substância da conversa, não por exclamações.
 
-Siga este roteiro comportamental, mas CRIE VARIAÇÕES ÚNICAS e naturais para cada cliente — nunca repita a mesma frase:
+</character>
 
-1. **Felicidade e animação** — Demonstre genuína alegria por ter o cliente. Faça-o se sentir especial e bem-vindo. Use o nome dele.
-2. **Contrato de parceria** — Peça que o cliente aja com total sinceridade. Explique que para um atendimento consultivo de verdade, precisa de honestidade completa.
-3. **Convite à intimidade** — Convide o cliente a compartilhar sem receio quando não gostar de algo.
-4. **Citação de casos concretos** — Dê exemplos práticos e variados do tipo de feedback que espera. Exemplos possíveis: vaga pequena pro carro, precisa de churrasqueira a carvão pra receber a família, precisa de sol o dia inteiro, não pode ser face sul, barulho de vizinhos, distância de escola, precisa de home office, precisa de área de serviço grande, animal de estimação precisa de espaço, etc. Escolha 2-3 exemplos diferentes a cada vez.
-5. **Fechamento do contrato** — Reforce que quanto mais o cliente compartilhar suas necessidades reais, melhor será o resultado da consultoria.
+<request>
 
-FORMATO DE SAÍDA OBRIGATÓRIO: Separe cada fase com uma linha contendo apenas ___ (três underscores). Isso fará cada fase ser enviada como mensagem separada no WhatsApp. Exemplo:
+Conduza o atendimento de um lead de remarketing via WhatsApp. Seu objetivo é:
+1. Engajar o cliente de forma elegante e natural.
+2. Estabelecer o contrato de parceria, quando aplicável.
+3. Executar uma anamnese objetiva e consultiva.
+4. Acionar a ferramenta buscar_imoveis no momento exato, sem enrolação.
+5. Encaminhar o lead ao corretor com um dossiê completo quando necessário.
 
-Que bom te ter como cliente, Hallef!
+${config.use_customer_name && contactName ? `O cliente deve ser chamado de ${contactName}.` : ''}
+
+</request>
+
+<conversation_state>
+
+Antes de responder, avalie o histórico da conversa:
+
+- Se o cliente ACABOU de aceitar o atendimento VIP e esta for a sua primeira resposta real, execute o [CONTRATO DE PARCERIA].
+- Se o histórico já tiver mensagens suas anteriores ou o contrato já tiver sido realizado, pule o contrato e siga para o [FLUXO DE ANAMNESE] ou para a continuidade natural da conversa.
+- Se já houver dados no histórico ou em <lead_data>, CONFIRME em vez de perguntar de novo.
+- Se já houver no mínimo 3 dados coletados (operação + localização + tipo OU quartos), acione buscar_imoveis imediatamente antes de fazer novas perguntas.
+- Se o cliente pedir para ver imóveis ou mais opções, acione buscar_imoveis no mesmo turno.
+
+Exemplo de confirmação:
+"Vi que antes você buscava algo no Itacorubi. Ainda é essa a região ideal pra você?"
+
+</conversation_state>
+
+<protocols>
+
+[CONTRATO DE PARCERIA]
+
+Quando aplicável, sua primeira resposta deve seguir esta lógica comportamental, com redação natural e variável, sem repetir fórmula engessada:
+
+1. Demonstre felicidade genuína e contida por atender o cliente. Use o nome dele.
+2. Explique que, para fazer uma consultoria imobiliária de verdade, você precisa de sinceridade total.
+3. Convide o cliente a dizer sem receio tudo o que não gosta ou não aceita.
+4. Traga 2 ou 3 exemplos concretos e variados do tipo de feedback útil, como:
+   - vaga apertada para o carro
+   - face sem sol
+   - barulho de rua ou vizinhos
+   - falta de espaço para home office
+   - churrasqueira importante para a rotina
+   - pouca área para pet
+   - distância ruim de escola, mercado ou serviços
+5. Feche reforçando que quanto mais verdade o cliente trouxer, melhor será a qualidade da busca.
+
+Regra de formatação do contrato:
+- Separe cada bloco com uma linha contendo apenas ___
+- Cada bloco deve soar como uma mensagem independente de WhatsApp.
+- Depois do contrato de parceria, faça a primeira pergunta da anamnese em um novo bloco, também separado por ___
+
+Exemplo visual da estrutura esperada:
+
+Que bom te ter como cliente, Ian!
 ___
 Pra eu conseguir te ajudar de verdade, preciso que...
 ___
@@ -57,61 +113,105 @@ ___
 Por exemplo, se a vaga...
 ___
 Quanto mais eu souber do que é importante pra você...
+___
+Me conta: é pra comprar ou alugar?
 
-Após o contrato de parceria, inicie a anamnese naturalmente na sequência (após outro ___).
+[FLUXO DE ANAMNESE]
 
-Se o histórico já contém mensagens anteriores suas (não é a primeira interação), PULE o contrato de parceria e vá direto para a anamnese ou continuidade da conversa.
+Conduza uma anamnese estruturada para entender exatamente o que o cliente busca.
 
-## FLUXO DE ANAMNESE
-Conduza uma anamnese estruturada para entender EXATAMENTE o que o cliente busca.
-Pergunte UMA coisa por vez, de forma natural e consultiva:
+Regras:
+- Faça UMA pergunta por vez.
+- Pergunte apenas o que ainda não constar no histórico ou em <lead_data>.
+- Priorize linguagem natural, curta e consultiva.
+- Máximo de 3 parágrafos curtos por resposta.
 
-1. **Finalidade**: "É pra comprar ou alugar?"
-2. **Tipo**: "Que tipo de imóvel? Casa, apartamento, terreno?"
-3. **Localização**: "Tem preferência de bairro ou região? Pode citar 2 ou 3 de sua preferência."
-4. **Orçamento**: "Qual faixa de valor você considera?" (Ex: até 500 mil, de 500 a 1 milhão, de 1 a 2.5 milhões)
-5. **Prazo de decisão**: "Qual seu prazo? Nos próximos 3 meses, de 3 a 6, ou acima de 6 meses?"
+Ordem da anamnese:
+1. Operação: compra ou locação
+2. Tipo de imóvel: casa, apartamento, terreno, comercial, etc.
+3. Localização: bairros ou regiões preferidas
+4. Orçamento: faixa de valor
+5. Prazo de decisão: imediato, 3 a 6 meses, mais de 6 meses
+6. Uso pretendido: moradia ou investimento, se isso ainda não estiver claro
+7. Características essenciais: quartos, suítes, vagas, home office, insolação, vista, área externa, proximidade de serviços, etc.
 
-## REGRA CRÍTICA — BUSCA DE IMÓVEIS (OBRIGATÓRIO)
-- Após coletar no mínimo 3 dados (finalidade + localização + tipo OU quartos), CHAME buscar_imoveis IMEDIATAMENTE. Não faça mais perguntas — chame a ferramenta.
-- NUNCA diga "vou buscar", "deixa eu buscar", "vou verificar" ou qualquer promessa de busca sem CHAMAR a ferramenta buscar_imoveis no mesmo turno. Se você escreveu que vai buscar, DEVE chamar a tool. Caso contrário, NÃO mencione busca.
-- Se ainda falta algum dado essencial, pergunte ANTES de prometer buscar. Não prometa busca e faça pergunta no mesmo turno.
-- Se o cliente pedir para ver imóveis, CHAME buscar_imoveis AGORA MESMO, mesmo com poucos dados.
-- Se a busca NÃO retornar resultados adequados, diga: "Vou acionar minha rede de parceiros pra encontrar algo ideal pra você"
-- NÃO diga "não encontrei" — reformule positivamente
-- LEMBRE-SE: a ferramenta buscar_imoveis é o seu diferencial. Use-a cedo e com frequência.
-- Quando buscar_imoveis retornar resultado, os imóveis JÁ FORAM ENVIADOS ao cliente como cards individuais com foto e link clicável. É PROIBIDO listar, descrever ou mencionar detalhes dos imóveis no seu texto. Responda APENAS com uma frase curta tipo "Enviei algumas opções pra você, dá uma olhada e me conta o que achou."
+</protocols>
 
-## REFERÊNCIA A IMÓVEIS ENVIADOS
-- Quando o cliente disser "essa aqui", "a que você mandou", "a primeira", "essa mesma" ou qualquer referência direta após você ter enviado um imóvel, entenda que ele está se referindo ao ÚLTIMO imóvel enviado (o primeiro da fila).
-- Consulte os dados do imóvel já enviado que estão no seu contexto para responder sobre ele. NÃO peça código ao cliente quando ele claramente está se referindo ao imóvel recém-enviado.
-- Se o cliente fizer uma citação/reply a uma mensagem anterior (indicado por "[Em resposta a: ...]"), use o conteúdo citado para entender a qual mensagem ele se refere.
-- NUNCA diga que recebeu um áudio se o cliente não enviou áudio. Se não entender a referência, peça educadamente que explique qual imóvel, sem inventar o formato da mensagem.
+<tool_rules>
 
-## REGRAS ESPECIAIS REMARKETING
-- ADAPTE as perguntas baseado no contexto anterior do lead (se disponível abaixo)
-- Se já sabe alguma informação do histórico, CONFIRME ao invés de perguntar de novo
-  (ex: "Vi que antes você buscava algo no Campeche. Ainda é essa a região ideal?")
+Ferramenta principal: buscar_imoveis
 
-## DOSSIÊ DE HANDOFF
-Ao transferir para corretor (enviar_lead_c2s), inclua no campo motivo TODOS os dados:
-- Prazo de compra (imediato / 3-6m / +6m)
-- Finalidade (moradia / investimento)
-- Tipo (residencial / comercial)
-- Características coletadas (dormitórios, vagas, insolação, vista, etc.)
-- Localização desejada
-- Contexto: "Lead re-engajado via remarketing. Atendimento VIP. [dados do histórico se houver]"`);
+Regras obrigatórias:
+- Após coletar no mínimo 3 dados úteis, acione buscar_imoveis imediatamente.
+- Exemplos válidos de combinação mínima:
+  - operação + localização + tipo
+  - operação + localização + dormitórios
+  - tipo + localização + característica central, quando o cliente pedir imóveis diretamente
+- Se o cliente pedir para ver imóveis, acione buscar_imoveis no mesmo turno, mesmo com poucos dados.
+- NUNCA diga "vou buscar", "deixa eu buscar", "vou verificar" ou equivalente sem acionar a ferramenta no mesmo turno.
+- NUNCA prometa busca e faça pergunta no mesmo turno.
+- Se faltar dado essencial, pergunte antes. Só mencione busca quando realmente for chamar a tool.
 
-  // Tone & Style — VIP sober tone, no emojis
-  sections.push(`
-# TOM E ESTILO
-- NÃO use emojis. Nenhum. Zero. Este é um atendimento pessoal e VIP — sóbrio, elegante e humano.
-- Tom: caloroso mas contido, consultivo, pessoal. Como uma conversa entre pessoas que se respeitam.
-- Seja emocional quando fizer sentido (empatia real, não bajulação). Não seja pedante nem exagerada.
-- NUNCA use expressões exageradas como "Uau!", "Que gosto refinado!", "Excelente!", "Perfeito!". Prefira respostas naturais e genuínas.
-- Não valide cada resposta do cliente com elogios. Apenas siga a conversa de forma fluida e objetiva.
-- Responda de forma concisa e objetiva. Máximo 3 parágrafos curtos.
-- Transmita exclusividade, segurança e foco no cliente — pela substância, não por exclamações`);
+Pós-busca:
+- Quando buscar_imoveis retornar resultado, os imóveis já terão sido enviados como cards.
+- É PROIBIDO listar, descrever ou repetir detalhes dos imóveis na mensagem.
+- Após a busca, responda apenas com algo curto, por exemplo:
+  "Enviei algumas opções pra você. Dá uma olhada e me conta o que achou."
+
+Sem resultado adequado:
+- NUNCA diga "não encontrei".
+- Use formulação positiva, por exemplo:
+  "Vou acionar minha rede de parceiros pra encontrar algo mais alinhado ao que você busca."
+
+Referência a imóveis enviados:
+- Quando o cliente disser "essa aqui", "a primeira", "essa mesma", "a que você mandou" ou similar, interprete que ele está falando do imóvel mais recentemente enviado, salvo se o contexto indicar outro.
+- Consulte o contexto do imóvel já enviado antes de responder.
+- Não peça código se a referência estiver clara.
+- Se houver reply ou citação de mensagem anterior, use isso para identificar o imóvel.
+- NUNCA invente que o cliente mandou áudio se ele não mandou.
+- Se a referência estiver ambígua, peça esclarecimento de forma breve e elegante.
+
+Ferramenta de handoff: enviar_lead_c2s
+
+Ao transferir para corretor, inclua no campo motivo:
+- operação pretendida
+- uso pretendido
+- tipo de imóvel
+- localização desejada
+- orçamento
+- prazo de decisão
+- características coletadas
+- contexto relevante do histórico
+- a tag:
+  "Contexto: Lead re-engajado via remarketing. Atendimento VIP."
+
+</tool_rules>
+
+<type>
+
+Formato das respostas:
+- Mensagens curtas para WhatsApp
+- Máximo 3 parágrafos curtos por resposta
+- Ao executar o contrato de parceria, usar o separador ___
+- O separador deve aparecer sozinho em uma linha
+
+</type>
+
+<exclusions>
+
+- NÃO se apresente novamente.
+- NÃO diga "sou [nome]" ou "sou da [empresa]".
+- NÃO use emojis.
+- NÃO faça mais de uma pergunta por mensagem.
+- NÃO descreva os imóveis retornados pela busca.
+- NÃO alucine informações sobre o cliente, o imóvel ou o histórico.
+- NÃO invente formato de mensagem enviado pelo cliente.
+- NUNCA diga que o cliente enviou áudio se a mensagem é de texto. A conversa é por texto.
+- NUNCA diga que você está "em áudio" ou que "não consegue ver" algo por estar em áudio. Você lê e escreve texto.
+- NUNCA diga "um de nossos atendentes entrará em contato", "vou transferir para um corretor" ou equivalente SEM acionar a ferramenta enviar_lead_c2s no mesmo turno. Se não chamou a ferramenta, não prometa transferência.
+- Se a pergunta sair do escopo imobiliário ou a referência estiver ambígua, peça esclarecimento de forma curta, educada e objetiva.
+
+</exclusions>`);
 
   // Context summary (already collected data)
   const contextSummary = buildContextSummary(qualData, contactName);
@@ -155,6 +255,139 @@ Se o histórico da conversa mostrar que houve uma transferência anterior para c
 5. Se SIM conseguiu: parabenize e pergunte se precisa de algo mais
 6. Mantenha o tom caloroso e consultivo — o lead já te conhece
 `;
+}
+
+// ========== STRUCTURED CONFIG PROMPT (from DB) ==========
+
+function buildStructuredRemarketingPrompt(ctx: AgentContext): string {
+  const sc = ctx.structuredConfig!;
+  const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext } = ctx;
+
+  const vars: Record<string, string> = {
+    '{{AGENT_NAME}}': config.agent_name || 'Aimee',
+    '{{COMPANY_NAME}}': tenant.company_name || '',
+    '{{CITY}}': tenant.city || '',
+    '{{CONTACT_NAME}}': contactName || 'cliente',
+  };
+
+  const replaceVars = (text: string): string => {
+    let result = text;
+    for (const [k, v] of Object.entries(vars)) {
+      result = result.replaceAll(k, v);
+    }
+    return result;
+  };
+
+  const sections: string[] = [];
+
+  // Identity
+  sections.push(`# IDENTIDADE E PAPEL`);
+  sections.push(replaceVars(sc.role.identity));
+  sections.push(`\n**Essência:** ${replaceVars(sc.role.essence)}`);
+  sections.push(`**Proposta de valor:** ${replaceVars(sc.role.value_proposition)}`);
+  if (sc.role.not_allowed?.length > 0) {
+    sections.push(`\n**Você NÃO é:**`);
+    sc.role.not_allowed.forEach(item => sections.push(`- ${replaceVars(item)}`));
+  }
+
+  // Directives
+  if (sc.directives?.length > 0) {
+    sections.push(`\n# DIRETIVAS FUNDAMENTAIS`);
+    sc.directives.forEach(d => {
+      sections.push(`**${d.code} - ${d.title}:** ${replaceVars(d.instruction)}`);
+    });
+  }
+
+  // Phases
+  if (sc.phases?.length > 0) {
+    sections.push(`\n# FASES DA CONVERSA`);
+    sc.phases.forEach(phase => {
+      sections.push(`\n## Fase ${phase.phase_number}: ${phase.name}`);
+      sections.push(`**Objetivo:** ${phase.objective}`);
+      sections.push(replaceVars(phase.instructions));
+      sections.push(`**Transição:** ${replaceVars(phase.transition_criteria)}`);
+    });
+  }
+
+  // Handoff
+  if (sc.handoff) {
+    sections.push(`\n# PROTOCOLO DE HANDOFF`);
+    sections.push(`- Máximo de ${sc.handoff.max_curation_rounds} rodadas de curadoria`);
+    sections.push(`- Máximo de ${sc.handoff.max_properties_per_round} imóveis por rodada`);
+    sections.push(`**Gatilho:** ${replaceVars(sc.handoff.handoff_trigger)}`);
+    sections.push(`**Mensagem de handoff:** ${replaceVars(sc.handoff.handoff_message)}`);
+    if (sc.handoff.dossier_fields?.length > 0) {
+      sections.push(`\nAo fazer handoff, inclua no campo motivo:`);
+      sc.handoff.dossier_fields.forEach(f => sections.push(`- ${f}`));
+    }
+  }
+
+  // Skills
+  if (sc.skills && sc.skills.length > 0) {
+    sections.push(`\n# SKILLS (FERRAMENTAS)`);
+    sc.skills.forEach(skill => {
+      sections.push(`\n**${skill.skill_name}** (ferramenta: ${skill.tool_name}):`);
+      sections.push(replaceVars(skill.usage_instructions));
+    });
+  }
+
+  // Guardrails
+  if (sc.guardrails?.length > 0) {
+    sections.push(`\n# GUARDRAILS (RESTRIÇÕES OPERACIONAIS)`);
+    sc.guardrails.forEach(g => sections.push(`- ${replaceVars(g)}`));
+  }
+
+  // Tone & Style
+  sections.push(`\n# TOM E ESTILO`);
+  sections.push(`- NÃO use emojis. Nenhum. Zero. Atendimento pessoal e VIP — sóbrio, elegante e humano.`);
+  sections.push(`- Tom: caloroso mas contido, consultivo, pessoal.`);
+  sections.push(`- Responda de forma concisa e objetiva. Máximo 3 parágrafos curtos.`);
+
+  // Dynamic sections
+  const contextSummary = buildContextSummary(qualData, contactName);
+  if (contextSummary) sections.push(contextSummary);
+
+  const regionKnowledge = generateRegionKnowledge(regions);
+  if (regionKnowledge) sections.push(regionKnowledge);
+
+  if (config.custom_instructions) {
+    sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+  }
+
+  if (ctx.isReturningLead) {
+    sections.push(buildReturningLeadContext(ctx.previousQualificationData));
+  }
+
+  if (remarketingContext) {
+    sections.push(`\n${remarketingContext}`);
+  }
+
+  sections.push(buildPostHandoffFollowup());
+
+  return sections.join('\n');
+}
+
+// ========== LEGACY DIRECTIVE PROMPT (from DB) ==========
+
+function buildLegacyRemarketingPrompt(ctx: AgentContext): string {
+  const { aiConfig: config, tenant, contactName, qualificationData: qualData, regions, remarketingContext } = ctx;
+
+  let prompt = ctx.directive.directive_content;
+  prompt = prompt.replaceAll('{{AGENT_NAME}}', config.agent_name || 'Aimee');
+  prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
+  prompt = prompt.replaceAll('{{CITY}}', tenant.city);
+  prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
+  prompt += buildContextSummary(qualData, contactName);
+  if (ctx.isReturningLead) prompt += buildReturningLeadContext(ctx.previousQualificationData);
+  prompt += generateRegionKnowledge(regions);
+  if (config.custom_instructions) {
+    prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
+  }
+  if (remarketingContext) {
+    prompt += `\n${remarketingContext}`;
+  }
+  prompt += buildPostHandoffFollowup();
+  return prompt;
 }
 
 // ========== TOOLS ==========
@@ -211,7 +444,7 @@ function getRemarketingTools(ctx: AgentContext): any[] {
       type: "function",
       function: {
         name: "buscar_pontos_de_interesse_proximos",
-        description: "Use esta ferramenta QUANDO O CLIENTE PERGUNTAR especificamente sobre a localização, raio, o que tem perto, escolas, mercados ou infraestrutura. Retorna dados reais e distâncias.",
+        description: "Busca pontos de interesse próximos a um imóvel (mercados, escolas, restaurantes, etc). Use proativamente para enriquecer a apresentação de imóveis OU quando o cliente perguntar sobre infraestrutura e localização. Retorna dados reais com distâncias.",
         parameters: {
           type: "object",
           properties: {
@@ -260,13 +493,41 @@ export const remarketingAgent: AgentModule = {
 
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
     let finalResponse = aiResponse;
+    const qualified = isQualificationComplete(ctx.qualificationData);
 
-    // Remarketing uses relaxed anti-loop: no isLoopingQuestion (anamnese may confirm prior data)
+    // Detect loop: AI re-asking questions already answered
+    if (isLoopingQuestion(finalResponse, ctx.qualificationData)) {
+      console.log('🔄 [Remarketing] Loop detected → rotating fallback');
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages);
+    }
+
+    // Detect repetition: AI sending same/similar message multiple times
     if (isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
-      // Use a remarketing-specific fallback instead of the generic handoff message.
-      // The generic fallback_message ("Um atendente entrará em contato") breaks the VIP
-      // consultora persona and confuses clients mid-qualification.
-      finalResponse = 'Me conta um pouco mais do que você procura pra eu te ajudar melhor.';
+      console.log('🔄 [Remarketing] Repetition detected → rotating fallback');
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages);
+    }
+
+    // MC-5: Detect handoff promise without actual tool call
+    const handoffPromiseRegex = /\b(corretor|consultor|especialista|atendente).{0,30}(contato|entrar em contato|vai te ligar|ligar|chamar)|encaminhei|transferi|atendimento humano/i;
+    const promisedHandoff = handoffPromiseRegex.test(finalResponse);
+    const actuallyCalledC2S = (ctx.toolsExecuted || []).includes('enviar_lead_c2s');
+
+    if (promisedHandoff && !actuallyCalledC2S) {
+      console.warn('⚠️ MC-5: Agent promised handoff but did NOT call enviar_lead_c2s. Auto-triggering.');
+      try {
+        const dossierLines = [
+          ctx.contactName ? `Nome: ${ctx.contactName}` : null,
+          `Telefone: ${ctx.phoneNumber}`,
+          ctx.qualificationData?.detected_interest ? `Finalidade: ${ctx.qualificationData.detected_interest === 'locacao' ? 'Locação' : 'Venda'}` : null,
+          ctx.qualificationData?.detected_neighborhood ? `Região: ${ctx.qualificationData.detected_neighborhood}` : null,
+          ctx.qualificationData?.detected_property_type ? `Tipo: ${ctx.qualificationData.detected_property_type}` : null,
+          ctx.qualificationData?.detected_budget_max ? `Orçamento: até R$ ${Number(ctx.qualificationData.detected_budget_max).toLocaleString('pt-BR')}` : null,
+        ].filter(Boolean).join('\n');
+
+        await executeLeadHandoff(ctx, { motivo: `[MC-5 auto-handoff] ${dossierLines}` });
+      } catch (err) {
+        console.error('❌ MC-5 auto-handoff failed:', err);
+      }
     }
 
     await updateAntiLoopState(ctx.supabase, ctx.tenantId, ctx.phoneNumber, finalResponse);

@@ -51,6 +51,7 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     let c2sResult = null;
+    let c2sSent = false;
 
     if (c2sConfig?.setting_value?.api_url && c2sConfig?.setting_value?.api_key) {
       // Send to C2S
@@ -63,19 +64,27 @@ serve(async (req: Request) => {
         qualification: qualification_data || {},
         development_id: development_id || null,
       });
+      // Only consider sent if no error in response
+      c2sSent = c2sResult && !c2sResult.error;
     }
 
-    // Log the lead
-    await supabase.from('portal_leads_log').insert({
+    // Log the lead to portal_leads_log
+    const { error: logError_ } = await supabase.from('portal_leads_log').insert({
       tenant_id,
-      source: 'whatsapp_ai',
-      phone: phone_number,
+      portal_origin: 'whatsapp_ai',
+      lead_source_type: 'ai_handoff',
+      contact_phone: phone_number,
       contact_name: contact?.name || null,
+      contact_email: contact?.email || null,
       development_id: development_id || null,
-      qualification_data: qualification_data || null,
-      c2s_response: c2sResult || null,
+      message: reason || null,
+      status: c2sSent ? 'sent' : 'pending',
+      crm_status: c2sSent ? 'sent' : 'failed',
+      crm_sent_at: c2sSent ? new Date().toISOString() : null,
+      transaction_type: qualification_data?.detected_interest === 'locacao' ? 'locacao' : 'venda',
       created_at: new Date().toISOString(),
     });
+    if (logError_) console.error('⚠️ portal_leads_log insert error:', logError_.message);
 
     // Disable AI for this conversation (operator takeover)
     await supabase
@@ -91,15 +100,16 @@ serve(async (req: Request) => {
     // Log activity
     await logActivity(supabase, tenant_id, 'lead_handoff', 'conversations', conversation_id, {
       reason,
-      c2s_sent: !!c2sResult,
+      c2s_sent: c2sSent,
+      c2s_error: c2sResult?.error || null,
       qualification_score: qualification_data?.qualification_score,
     });
 
-    console.log(`✅ Lead handoff complete: ${phone_number} → ${c2sResult ? 'C2S' : 'operator'}`);
+    console.log(`✅ Lead handoff complete: ${phone_number} → ${c2sSent ? 'C2S' : 'operator only'}`);
 
     return jsonResponse({
       success: true,
-      c2s_sent: !!c2sResult,
+      c2s_sent: c2sSent,
       c2s_response: c2sResult,
     });
 
@@ -129,28 +139,44 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
     }
     const tags = [...configTags, ...qualTags];
 
+    // C2S API requires JSON API format: { data: { type, attributes } }
+    const payload = {
+      data: {
+        type: 'lead',
+        attributes: {
+          name: leadData.name,
+          phone: leadData.phone,
+          email: leadData.email,
+          source: leadData.origin,
+          body: leadData.notes,
+          tags,
+          type_negotiation: qualification.detected_interest === 'locacao' ? 'Aluguel' : 'Compra',
+          neighbourhood: qualification.detected_neighborhood || null,
+          price: qualification.detected_budget_max?.toString() || null,
+          prop_ref: leadData.development_id || null,
+        },
+      },
+    };
+
+    console.log('📤 C2S payload:', JSON.stringify(payload).slice(0, 500));
+
     const response = await fetch(config.api_url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${config.api_key}`,
       },
-      body: JSON.stringify({
-        name: leadData.name,
-        phone: leadData.phone,
-        email: leadData.email,
-        source: leadData.origin,
-        body: leadData.notes,
-        tags,
-        type_negotiation: qualification.detected_interest === 'locacao' ? 'Aluguel' : 'Compra',
-        neighbourhood: qualification.detected_neighborhood || null,
-        price: qualification.detected_budget_max?.toString() || null,
-        prop_ref: leadData.development_id || null,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
-    console.log('✅ C2S response:', JSON.stringify(data).slice(0, 300));
+    console.log(`📥 C2S response [${response.status}]:`, JSON.stringify(data).slice(0, 500));
+
+    if (!response.ok) {
+      console.error(`❌ C2S API returned ${response.status}`);
+      return { error: `C2S API ${response.status}`, details: data };
+    }
+
     return data;
 
   } catch (error) {

@@ -176,8 +176,9 @@ serve(async (req: Request) => {
     const tenantApiKey = await decryptApiKey((aiConfig as any)?.api_key_encrypted);
     const tenantProvider = (aiConfig as any)?.ai_provider || 'openai';
 
-    // Select agent
-    const { agentType, agent } = selectAgent(effectiveDepartment, 'simulation');
+    // Select agent — when department is 'remarketing', use it as source to route to remarketing agent
+    const agentSource = effectiveDepartment === 'remarketing' ? 'remarketing' : 'simulation';
+    const { agentType, agent } = selectAgent(effectiveDepartment, agentSource);
 
     // Build context
     const ctx: AgentContext = {

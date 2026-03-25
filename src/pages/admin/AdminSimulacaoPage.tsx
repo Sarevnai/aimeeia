@@ -223,6 +223,7 @@ export default function AdminSimulacaoPage() {
                   <SelectContent>
                     <SelectItem value="vendas">Vendas</SelectItem>
                     <SelectItem value="locacao">Locação</SelectItem>
+                    <SelectItem value="remarketing">Remarketing</SelectItem>
                     <SelectItem value="administrativo">Administrativo</SelectItem>
                   </SelectContent>
                 </Select>

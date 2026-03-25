@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquareText, Send, RotateCcw, Brain, Tag, Wrench, Loader2 } from 'lucide-react';
+import { useSessionState, clearSimulationSession } from '@/hooks/useSessionState';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,22 +51,22 @@ interface Tenant {
 export default function AdminSimulacaoPage() {
   const { toast } = useToast();
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
+  const [selectedTenantId, setSelectedTenantId] = useSessionState<string>('admin_tenantId', '');
   const [loadingTenants, setLoadingTenants] = useState(true);
 
-  const [messages, setMessages] = useState<SimMessage[]>([]);
+  const [messages, setMessages] = useSessionState<SimMessage[]>('admin_messages', []);
   const [input, setInput] = useState('');
-  const [department, setDepartment] = useState('vendas');
+  const [department, setDepartment] = useSessionState('admin_department', 'vendas');
   const [loading, setLoading] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState<SimMetadata>({
+  const [conversationId, setConversationId] = useSessionState<string | null>('admin_conversationId', null);
+  const [metadata, setMetadata] = useSessionState<SimMetadata>('admin_metadata', {
     active_module: null,
     qualification: {},
     tags: [],
     tools_executed: [],
     agent_type: 'comercial',
   });
-  const [moduleHistory, setModuleHistory] = useState<Array<{ slug: string; name: string }>>([]);
+  const [moduleHistory, setModuleHistory] = useSessionState<Array<{ slug: string; name: string }>>('admin_moduleHistory', []);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Fetch tenants list
@@ -168,6 +169,7 @@ export default function AdminSimulacaoPage() {
     setConversationId(null);
     setMetadata({ active_module: null, qualification: {}, tags: [], tools_executed: [], agent_type: 'comercial' });
     setModuleHistory([]);
+    clearSimulationSession('sim_admin_');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

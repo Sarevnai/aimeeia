@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquareText, Send, RotateCcw, Brain, Tag, Wrench, Loader2 } from 'lucide-react';
+import { useSessionState, clearSimulationSession } from '@/hooks/useSessionState';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,19 +49,19 @@ const QUAL_LABELS: Record<string, string> = {
 export default function SimulacaoPage() {
   const { toast } = useToast();
   const { tenantId } = useTenant();
-  const [messages, setMessages] = useState<SimMessage[]>([]);
+  const [messages, setMessages] = useSessionState<SimMessage[]>('messages', []);
   const [input, setInput] = useState('');
-  const [department, setDepartment] = useState('vendas');
+  const [department, setDepartment] = useSessionState('department', 'vendas');
   const [loading, setLoading] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState<SimMetadata>({
+  const [conversationId, setConversationId] = useSessionState<string | null>('conversationId', null);
+  const [metadata, setMetadata] = useSessionState<SimMetadata>('metadata', {
     active_module: null,
     qualification: {},
     tags: [],
     tools_executed: [],
     agent_type: 'comercial',
   });
-  const [moduleHistory, setModuleHistory] = useState<Array<{ slug: string; name: string }>>([]);
+  const [moduleHistory, setModuleHistory] = useSessionState<Array<{ slug: string; name: string }>>('moduleHistory', []);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -146,6 +147,7 @@ export default function SimulacaoPage() {
     setConversationId(null);
     setMetadata({ active_module: null, qualification: {}, tags: [], tools_executed: [], agent_type: 'comercial' });
     setModuleHistory([]);
+    clearSimulationSession();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

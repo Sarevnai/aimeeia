@@ -7,43 +7,136 @@ import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } fro
 import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../anti-loop.ts';
-import { isQualificationComplete } from '../qualification.ts';
+import { isQualificationComplete, calculateQualificationScore } from '../qualification.ts';
 import { SkillConfig, AiModule } from '../types.ts';
+
+// ========== SERVER-SIDE MODULE RESOLUTION ==========
+// Decides which module to activate based on conversation state,
+// instead of delegating to the LLM.
+
+function resolveActiveModule(ctx: AgentContext, modules: AiModule[]): AiModule | null {
+  const { qualificationData: qualData, conversationHistory: history, isReturningLead } = ctx;
+  const find = (slug: string) => modules.find(m => m.slug === slug) || null;
+
+  // Check if there was a previous handoff in conversation history
+  const hadHandoff = history?.some(
+    msg => msg.role === 'assistant' && msg.content?.includes('Lead transferido para atendimento humano via CRM')
+  ) || false;
+
+  // Check if there are previous assistant messages (i.e., contract already done)
+  const assistantMessages = history?.filter(msg => msg.role === 'assistant') || [];
+  const hasAssistantHistory = assistantMessages.length > 0;
+
+  // Priority 1: Post-handoff follow-up (lead returns after broker transfer)
+  if (hadHandoff) {
+    console.log('🧩 [resolve] Post-handoff follow-up detected');
+    return find('follow-up-pos-handoff');
+  }
+
+  // Priority 2: Returning lead revalidation
+  if (isReturningLead && !hasAssistantHistory) {
+    console.log('🧩 [resolve] Returning lead detected');
+    return find('lead-retornante');
+  }
+
+  // Priority 3: First interaction — partnership contract
+  if (!hasAssistantHistory) {
+    console.log('🧩 [resolve] First interaction → contrato-parceria');
+    return find('contrato-parceria');
+  }
+
+  // Priority 4: Qualification complete → property search or handoff
+  const qualScore = calculateQualificationScore(qualData);
+  if (qualScore >= 60) {
+    // If tools already executed handoff, stay on handoff
+    if (ctx.toolsExecuted?.includes('enviar_lead_c2s')) {
+      console.log('🧩 [resolve] Handoff already executed');
+      return find('handoff');
+    }
+    console.log(`🧩 [resolve] Qualification complete (score=${qualScore}) → busca-imoveis`);
+    return find('busca-imoveis');
+  }
+
+  // Priority 5: Default — anamnesis (qualification in progress)
+  console.log(`🧩 [resolve] Qualification in progress (score=${qualScore}) → anamnese`);
+  return find('anamnese');
+}
 
 // ========== MODULE-BASED PROMPT ==========
 
 function buildModularRemarketingPrompt(ctx: AgentContext, modules: AiModule[]): string {
-  const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext, currentModuleSlug } = ctx;
+  const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext } = ctx;
 
   const sections: string[] = [];
 
+  // ===== SYSTEM PROMPT (fixed, ~40 lines) =====
+
   sections.push(`<identity>
 Você é ${config.agent_name || 'Aimee'}, consultora virtual VIP de remarketing da ${tenant.company_name}, em ${tenant.city}/${tenant.state}.
-Tom: exclusivo, consultivo e personalizado.
+Essência: Consultoria imobiliária exclusiva, atenção individual, foco total nas necessidades reais do cliente.
+Proposta de valor: Atendimento exclusivo, custo zero para o cliente, foco absoluto em aderência real ao perfil buscado.
 ${contactName ? `Chame o cliente de ${contactName}.` : 'Seja cordial.'}
-</identity>`);
+</identity>
 
-  const moduleList = modules.map(mod => {
-    const criteria = mod.activation_criteria ? ` | Ativar quando: ${mod.activation_criteria}` : '';
-    return `  - ${mod.slug}: ${mod.name}${criteria}`;
-  }).join('\n');
+<tone>
+Tom: Sóbrio, elegante, humano, direto, consultivo e pessoal. Caloroso, porém contido.
+- ZERO emojis. Nenhum. Nunca.
+- NUNCA pedante ou excessivamente entusiasmada.
+- NUNCA use "Uau", "Perfeito", "Excelente", "Que gosto refinado" ou equivalentes.
+- NUNCA elogie cada resposta do cliente.
+- Transmita exclusividade pela substância da conversa, não por exclamações.
+</tone>
 
-  sections.push(`<modules>
-SISTEMA DE MÓDULOS DE INTELIGÊNCIA
-Analise o contexto e DECLARE o módulo ativo: [MODULO: slug-do-modulo]
+<mission>
+1. Engajar o cliente de forma elegante e natural.
+2. Estabelecer o contrato de parceria, quando aplicável.
+3. Executar uma anamnese objetiva e consultiva.
+4. Acionar buscar_imoveis no momento exato, sem enrolação.
+5. Encaminhar o lead ao corretor com dossiê completo quando necessário.
+</mission>
 
-Módulos disponíveis:
-${moduleList}
-</modules>`);
+<format>
+- Mensagens curtas para WhatsApp.
+- Máximo 3 parágrafos curtos por resposta.
+- Ao executar o contrato de parceria, usar o separador ___ entre blocos.
+</format>
 
-  const activeModule = currentModuleSlug ? modules.find(m => m.slug === currentModuleSlug) : modules[0];
+<guardrails>
+- NÃO se apresente novamente ("sou [nome]" ou "sou da [empresa]").
+- NÃO faça mais de uma pergunta por mensagem.
+- NÃO descreva os imóveis retornados pela busca.
+- NÃO alucine informações sobre o cliente, o imóvel ou o histórico.
+- NÃO invente formato de mensagem enviado pelo cliente.
+- NUNCA diga que o cliente enviou áudio se a mensagem é de texto.
+- NUNCA diga que você está "em áudio" ou que "não consegue ver" algo.
+- NUNCA prometa transferência sem acionar enviar_lead_c2s no mesmo turno.
+- Fora do escopo imobiliário: peça esclarecimento curto e objetivo.
+</guardrails>`);
+
+  // ===== ACTIVE MODULE (resolved server-side) =====
+
+  const activeModule = resolveActiveModule(ctx, modules);
   if (activeModule) {
+    // Update currentModuleSlug on context for downstream persistence
+    ctx.currentModuleSlug = activeModule.slug;
+
     sections.push(`<active_module name="${activeModule.name}" slug="${activeModule.slug}">
 ${activeModule.prompt_instructions}
 </active_module>`);
   }
 
-  // Dynamic sections (XML format)
+  // Also inject handoff rules if we're in busca-imoveis (they're complementary)
+  if (activeModule?.slug === 'busca-imoveis') {
+    const handoffModule = modules.find(m => m.slug === 'handoff');
+    if (handoffModule) {
+      sections.push(`<complementary_module name="${handoffModule.name}">
+${handoffModule.prompt_instructions}
+</complementary_module>`);
+    }
+  }
+
+  // ===== DYNAMIC CONTEXT =====
+
   const contextSummary = buildContextSummary(qualData, contactName);
   if (contextSummary) sections.push(contextSummary);
   const regionKnowledge = generateRegionKnowledge(regions);

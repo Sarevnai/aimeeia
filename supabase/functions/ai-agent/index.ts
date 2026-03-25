@@ -480,6 +480,16 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 
       finalResponse = await agent.postProcess(ctx, aiResponse);
 
+      // Persist server-resolved module slug if it changed
+      if (ctx.currentModuleSlug && ctx.currentModuleSlug !== currentModuleSlug) {
+        await supabase
+          .from('conversation_states')
+          .update({ current_module_slug: ctx.currentModuleSlug, updated_at: new Date().toISOString() })
+          .eq('tenant_id', tenant_id)
+          .eq('phone_number', phone_number);
+        console.log(`🧩 Module persisted: ${ctx.currentModuleSlug}`);
+      }
+
     } else {
       // === LEGACY: Monolithic Path (fallback) ===
       console.log(`🔧 Legacy mode | dept: ${effectiveDepartment} | source: ${conversationSource}`);
@@ -544,31 +554,10 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       await updateAntiLoopState(supabase, tenant_id, phone_number, finalResponse);
     }
 
-    // ========== PARSE MODULE TAG ==========
-    // Strip [MODULO: slug] from response and update conversation_states
-    // Regex tolerates extra spaces: [ MODULO : slug ] and case-insensitive
-    const moduleMatch = finalResponse.match(/\[\s*MODULO\s*:\s*([^\]\n]+?)\s*\]/i);
-    if (moduleMatch) {
-      const newModuleSlug = moduleMatch[1].trim().toLowerCase().replace(/\s+/g, '-');
-      // Always strip ALL module tags from the response (even multiple)
-      finalResponse = finalResponse.replace(/\[\s*MODULO\s*:\s*[^\]\n]*?\s*\]\s*/gi, '').trim();
-
-      // Validate slug against known active modules before saving
-      const validModule = (activeModules as AiModule[])?.find(m => m.slug === newModuleSlug);
-      if (validModule) {
-        await supabase
-          .from('conversation_states')
-          .update({ current_module_slug: newModuleSlug, updated_at: new Date().toISOString() })
-          .eq('tenant_id', tenant_id)
-          .eq('phone_number', phone_number);
-        console.log(`🧩 Module switched to: ${newModuleSlug} (${validModule.name})`);
-      } else if ((activeModules as AiModule[])?.length > 0) {
-        console.warn(`⚠️ LLM declared invalid module slug: "${newModuleSlug}" — ignoring`);
-      }
-    } else {
-      // Even if no module tag found, strip any malformed attempts
-      finalResponse = finalResponse.replace(/\[\s*MODULO\s*[:\s][^\]]*\]\s*/gi, '').trim();
-    }
+    // ========== STRIP MODULE TAGS ==========
+    // LLM no longer needs to declare [MODULO: slug] — resolved server-side.
+    // Strip any tags the LLM may still emit for backward compat.
+    finalResponse = finalResponse.replace(/\[\s*MODULO\s*:\s*[^\]\n]*?\s*\]\s*/gi, '').trim();
 
     // ========== SEND RESPONSE ==========
 

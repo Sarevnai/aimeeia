@@ -13,6 +13,11 @@ export function useSessionState<T>(key: string, initialValue: T): [T, React.Disp
       const stored = sessionStorage.getItem(storageKey);
       if (stored !== null) {
         const parsed = JSON.parse(stored);
+        // Restore Date objects if initialValue is a Date
+        if (initialValue instanceof Date && typeof parsed === 'string') {
+          const restored = new Date(parsed);
+          return (isNaN(restored.getTime()) ? initialValue : restored) as T;
+        }
         // Restore Date objects in messages array
         if (Array.isArray(parsed)) {
           return parsed.map((item: any) => {

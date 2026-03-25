@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
+import { useSessionState } from '@/hooks/useSessionState';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -29,7 +30,7 @@ const CaptacaoPage: React.FC = () => {
     const navigate = useNavigate();
     const [notifications, setNotifications] = useState<CaptacaoNotification[]>([]);
     const [loading, setLoading] = useState(true);
-    const [search, setSearch] = useState('');
+    const [search, setSearch] = useSessionState('captacao_search', '');
 
     useEffect(() => {
         if (!tenantId) return;

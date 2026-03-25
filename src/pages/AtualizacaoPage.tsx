@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSessionState } from '@/hooks/useSessionState';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -79,7 +80,7 @@ const AtualizacaoPage: React.FC = () => {
     const { user } = useAuth();
     const { toast } = useToast();
 
-    const [tab, setTab] = useState<TabValue>('campaigns');
+    const [tab, setTab] = useSessionState<TabValue>('atualizacao_tab', 'campaigns');
     const [loading, setLoading] = useState(true);
 
     // Campaigns state
@@ -90,8 +91,8 @@ const AtualizacaoPage: React.FC = () => {
 
     // Owners state
     const [owners, setOwners] = useState<OwnerContact[]>([]);
-    const [ownerSearch, setOwnerSearch] = useState('');
-    const [ownerPage, setOwnerPage] = useState(0);
+    const [ownerSearch, setOwnerSearch] = useSessionState('atualizacao_ownerSearch', '');
+    const [ownerPage, setOwnerPage] = useSessionState('atualizacao_ownerPage', 0);
     const [ownerTotal, setOwnerTotal] = useState(0);
     const [checkedOwners, setCheckedOwners] = useState<Set<string>>(new Set());
     const [selectedOwner, setSelectedOwner] = useState<OwnerContact | null>(null);

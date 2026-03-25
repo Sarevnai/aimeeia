@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useSessionState } from '@/hooks/useSessionState';
 import { useTenant } from '@/contexts/TenantContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

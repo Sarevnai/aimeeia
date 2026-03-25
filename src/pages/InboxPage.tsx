@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
+import { useSessionState } from '@/hooks/useSessionState';
 import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2, MessageSquare, Globe, Phone, Facebook, Home, Tag } from 'lucide-react';
@@ -59,8 +60,8 @@ const InboxPage: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationWithContact[]>([]);
   const [states, setStates] = useState<Record<string, ConversationState>>({});
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [tab, setTab] = useState<TabValue>('all');
+  const [search, setSearch] = useSessionState('inbox_search', '');
+  const [tab, setTab] = useSessionState<TabValue>('inbox_tab', 'all');
 
   const fetchConversations = async () => {
     if (!tenantId) return;

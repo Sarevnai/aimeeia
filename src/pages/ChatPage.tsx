@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useSessionState } from '@/hooks/useSessionState';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -97,7 +98,7 @@ const ChatPage: React.FC = () => {
   const [convState, setConvState] = useState<ConversationState | null>(null);
   const [leadQual, setLeadQual] = useState<LeadQualification | null>(null);
   const [loading, setLoading] = useState(true);
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useSessionState(`chat_input_${id}`, '');
   const [sending, setSending] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
   const [operatorName, setOperatorName] = useState<string | null>(null);

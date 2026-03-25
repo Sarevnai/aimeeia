@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useSessionState } from '@/hooks/useSessionState';
 import {
   Tabs, TabsContent, TabsList, TabsTrigger
 } from '@/components/ui/tabs';
@@ -154,7 +155,7 @@ const ComportamentoView: React.FC = () => {
    MAIN PAGE CONTROLLER
 ========================================= */
 const MinhaAimeePage: React.FC = () => {
-  const [view, setView] = useState<ViewType>('overview');
+  const [view, setView] = useSessionState<ViewType>('minhaaimee_view', 'overview');
 
   return (
     <div className="flex flex-col h-full bg-background min-h-screen relative">

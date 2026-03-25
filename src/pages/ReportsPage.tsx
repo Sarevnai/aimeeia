@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { format, eachDayOfInterval, startOfDay, endOfDay, subDays } from 'date-fns';
+import { useSessionState } from '@/hooks/useSessionState';
 import { ptBR } from 'date-fns/locale';
 import { CalendarIcon, MessageSquare, UserCheck, Percent, ArrowRightCircle } from 'lucide-react';
 import {
@@ -43,8 +44,8 @@ const ReportsPage: React.FC = () => {
   const { tenantId } = useTenant();
   const { department } = useDepartmentFilter();
 
-  const [dateFrom, setDateFrom] = useState<Date>(subDays(new Date(), 30));
-  const [dateTo, setDateTo] = useState<Date>(new Date());
+  const [dateFrom, setDateFrom] = useSessionState<Date>('reports_dateFrom', subDays(new Date(), 30));
+  const [dateTo, setDateTo] = useSessionState<Date>('reports_dateTo', new Date());
 
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [qualifiedLeads, setQualifiedLeads] = useState(0);

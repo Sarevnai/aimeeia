@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useSessionState } from '@/hooks/useSessionState';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -103,10 +104,10 @@ const TicketDetailPage: React.FC = () => {
   const [stages, setStages] = useState<TicketStage[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; full_name: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newComment, setNewComment] = useState('');
+  const [newComment, setNewComment] = useSessionState(`ticket_comment_${id}`, '');
   const [isInternal, setIsInternal] = useState(false);
   const [sending, setSending] = useState(false);
-  const [activeTab, setActiveTab] = useState<'comments' | 'conversation'>('comments');
+  const [activeTab, setActiveTab] = useSessionState<'comments' | 'conversation'>(`ticket_tab_${id}`, 'comments');
 
   const fetchTicket = useCallback(async () => {
     if (!tenantId || !id) return;

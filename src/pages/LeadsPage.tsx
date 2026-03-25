@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
+import { useSessionState } from '@/hooks/useSessionState';
 import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -98,8 +99,8 @@ const LeadsPage: React.FC = () => {
 
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
+  const [search, setSearch] = useSessionState('leads_search', '');
+  const [page, setPage] = useSessionState('leads_page', 0);
   const [total, setTotal] = useState(0);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [summaryLead, setSummaryLead] = useState<LeadRow | null>(null);

@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSessionState } from '@/hooks/useSessionState';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -207,10 +208,10 @@ const TicketsPage: React.FC = () => {
   const [stages, setStages] = useState<TicketStage[]>([]);
   const [categories, setCategories] = useState<TicketCategory[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [filterPriority, setFilterPriority] = useState<string>('all');
+  const [viewMode, setViewMode] = useSessionState<'kanban' | 'list'>('tickets_viewMode', 'kanban');
+  const [searchQuery, setSearchQuery] = useSessionState('tickets_search', '');
+  const [filterCategory, setFilterCategory] = useSessionState('tickets_filterCategory', 'all');
+  const [filterPriority, setFilterPriority] = useSessionState('tickets_filterPriority', 'all');
   const [activeCard, setActiveCard] = useState<Ticket | null>(null);
 
   // New ticket dialog

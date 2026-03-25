@@ -566,6 +566,8 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
     // Strip any agent name prefix the AI may have already included to avoid duplication
     // e.g. "*Helena*\n\n..." or "*Helena Smolka*\n\n..."
     finalResponse = finalResponse.replace(/^\*[^*]+\*\s*\n+/, '');
+    // Keep clean text (without agent name prefix) for TTS — so ElevenLabs doesn't speak the name
+    const ttsText = finalResponse;
     finalResponse = `*${agentName}*\n\n${finalResponse}`;
 
     const audioConfig: AudioConfig = {
@@ -579,7 +581,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       audio_voice_similarity: aiConfig.audio_voice_similarity ?? 0.75,
     };
 
-    const wantAudio = shouldSendAudio(audioConfig, message_type, finalResponse.length);
+    const wantAudio = shouldSendAudio(audioConfig, message_type, ttsText.length);
 
     if (wantAudio) {
       const elevenLabsKey = Deno.env.get('ELEVENLABS_API_KEY');
@@ -588,7 +590,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
         await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
       } else {
         try {
-          const audioBytes = await generateTTSAudio(finalResponse, audioConfig.audio_voice_id, elevenLabsKey, audioConfig.audio_voice_stability, audioConfig.audio_voice_similarity);
+          const audioBytes = await generateTTSAudio(ttsText, audioConfig.audio_voice_id, elevenLabsKey, audioConfig.audio_voice_stability, audioConfig.audio_voice_similarity);
           const audioUrl = await uploadAudioToStorage(supabase, audioBytes, tenant_id);
 
           if (audioConfig.audio_mode === 'text_and_audio') {

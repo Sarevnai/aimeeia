@@ -13,6 +13,8 @@ import {
     ScrollText,
     Database,
     Megaphone,
+    MessageSquareText,
+    Brain,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -59,6 +61,8 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
             label: 'Produto',
             items: [
                 { label: 'Agentes IA', icon: Bot, path: '/admin/agents' },
+                { label: 'Módulos', icon: Brain, path: '/admin/modulos' },
+                { label: 'Simulação', icon: MessageSquareText, path: '/admin/simulacao' },
                 { label: 'Planos', icon: ScrollText, path: '/admin/billing' },
             ],
         },

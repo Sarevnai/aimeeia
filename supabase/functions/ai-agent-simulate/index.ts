@@ -222,7 +222,7 @@ serve(async (req: Request) => {
         return agent.executeToolCall(ctx, toolName, args);
       },
       {
-        model: aiConfig.ai_model || 'google/gemini-2.0-flash-001',
+        model: aiConfig.ai_model || 'google/gemini-2.5-flash',
         provider: tenantProvider,
         apiKey: tenantApiKey,
         temperature: 0.7,

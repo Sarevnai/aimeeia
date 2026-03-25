@@ -56,7 +56,7 @@ Regras obrigatórias: português brasileiro, texto corrido e conversacional (nun
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
+        model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Apresente este imóvel:\n${details}${clientContext}${geoContext}` },

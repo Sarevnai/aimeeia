@@ -103,16 +103,15 @@ export const PROVIDERS = [
   },
   {
     value: 'anthropic', label: 'Anthropic Claude', models: [
-      { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku — Rápido' },
-      { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet — Balanceado' },
-      { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus — Alta capacidade' },
+      { value: 'claude-haiku-4-5-20251001', label: 'Claude 4.5 Haiku — Rápido' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 — Balanceado' },
+      { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 — Alta capacidade' },
     ]
   },
   {
     value: 'google', label: 'Google Gemini', models: [
-      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash — Rápido' },
-      { value: 'gemini-2.0-flash-thinking-exp', label: 'Gemini 2.0 Flash Thinking — Raciocínio' },
-      { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro — Alta capacidade' },
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash — Rápido' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro — Alta capacidade' },
     ]
   },
 ];

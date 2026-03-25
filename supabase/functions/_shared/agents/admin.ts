@@ -5,11 +5,49 @@
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executeCreateTicket, executeAdminHandoff } from './tool-executors.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
+import { AiModule } from '../types.ts';
+
+// ========== MODULE-BASED PROMPT ==========
+
+function buildModularAdminPrompt(ctx: AgentContext, modules: AiModule[]): string {
+  const { aiConfig: config, tenant, contactName, currentModuleSlug } = ctx;
+
+  const sections: string[] = [];
+  sections.push(`Você é ${config.agent_name || 'Aimee'}, assistente virtual do setor administrativo da ${tenant.company_name}.`);
+  sections.push(`Tom: profissional, empático e resolutivo.`);
+  if (contactName) sections.push(`Chame o cliente de ${contactName}.`);
+
+  sections.push(`\n# MÓDULOS DE INTELIGÊNCIA`);
+  sections.push(`Analise o contexto e DECLARE o módulo ativo: [MODULO: slug-do-modulo]`);
+  sections.push(`\nMódulos disponíveis:`);
+  for (const mod of modules) {
+    sections.push(`- **${mod.slug}** — ${mod.name}`);
+    if (mod.activation_criteria) sections.push(`  Ativar quando: ${mod.activation_criteria}`);
+  }
+
+  const activeModule = currentModuleSlug ? modules.find(m => m.slug === currentModuleSlug) : modules[0];
+  if (activeModule) {
+    sections.push(`\n# MÓDULO ATIVO: ${activeModule.name}`);
+    sections.push(activeModule.prompt_instructions);
+  }
+
+  if (config.custom_instructions) {
+    sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+  }
+
+  return sections.join('\n');
+}
 
 // ========== SYSTEM PROMPT ==========
 
 function buildAdminPrompt(ctx: AgentContext): string {
   const { aiConfig: config, tenant, contactName } = ctx;
+
+  // Priority 0: Intelligence Modules (if tenant has active modules for admin category)
+  const adminModules = ctx.activeModules?.filter(m => m.category === 'admin' || m.category === 'general') || [];
+  if (adminModules.length > 0) {
+    return buildModularAdminPrompt(ctx, adminModules);
+  }
 
   // Priority 1: Legacy directive_content (structured_config is less common for admin)
   if (ctx.directive?.directive_content) {

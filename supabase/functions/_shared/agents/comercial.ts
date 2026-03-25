@@ -8,12 +8,86 @@ import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../anti-loop.ts';
 import { isQualificationComplete } from '../qualification.ts';
-import { SkillConfig, StructuredConfig } from '../types.ts';
+import { SkillConfig, StructuredConfig, AiModule } from '../types.ts';
+
+// ========== MODULE-BASED PROMPT ==========
+
+function buildModularPrompt(ctx: AgentContext): string {
+  const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, activeModules, currentModuleSlug, behaviorConfig } = ctx;
+
+  const sections: string[] = [];
+
+  // Identity
+  sections.push(`Você é ${config.agent_name || 'Aimee'}, assistente virtual da ${tenant.company_name}, em ${tenant.city}/${tenant.state}.`);
+
+  // Tone & Style
+  const emojiRule = config.emoji_intensity === 'none'
+    ? 'NÃO use emojis.'
+    : config.emoji_intensity === 'low'
+    ? 'Use emojis com moderação (máximo 1-2 por mensagem).'
+    : 'Use emojis de forma amigável.';
+  sections.push(`Tom: ${config.tone || 'friendly'}. ${emojiRule}`);
+  sections.push(`Responda de forma concisa e objetiva. Máximo 3 parágrafos curtos.`);
+  if (config.use_customer_name && contactName) {
+    sections.push(`Chame o cliente de ${contactName}.`);
+  }
+
+  // Module menu — tells the LLM which modules are available
+  sections.push(`\n# MÓDULOS DE INTELIGÊNCIA`);
+  sections.push(`Você opera em módulos especializados. Analise o contexto da conversa e DECLARE qual módulo está ativo.`);
+  sections.push(`Inclua SEMPRE no início da sua resposta: [MODULO: slug-do-modulo]`);
+  sections.push(`\nMódulos disponíveis:`);
+
+  for (const mod of activeModules) {
+    sections.push(`- **${mod.slug}** — ${mod.name}`);
+    if (mod.activation_criteria) {
+      sections.push(`  Ativar quando: ${mod.activation_criteria}`);
+    }
+  }
+
+  // Active module instructions — inject ONLY the current module's full instructions
+  const activeModule = currentModuleSlug
+    ? activeModules.find(m => m.slug === currentModuleSlug)
+    : activeModules[0]; // Default to first module on first turn
+
+  if (activeModule) {
+    sections.push(`\n# MÓDULO ATIVO: ${activeModule.name}`);
+    sections.push(activeModule.prompt_instructions);
+  }
+
+  // Dynamic sections (same as structured/legacy prompts)
+  const contextSummary = buildContextSummary(qualData, contactName);
+  if (contextSummary) sections.push(contextSummary);
+
+  const regionKnowledge = generateRegionKnowledge(regions);
+  if (regionKnowledge) sections.push(regionKnowledge);
+
+  const behaviorInstr = buildBehaviorInstructionsLocal(ctx);
+  if (behaviorInstr) sections.push(behaviorInstr);
+
+  if (config.custom_instructions) {
+    sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+  }
+
+  // Returning lead context
+  if (ctx.isReturningLead) {
+    sections.push(buildReturningLeadContext(ctx.previousQualificationData));
+  }
+
+  sections.push(buildPostHandoffFollowup());
+
+  return sections.join('\n');
+}
 
 // ========== SYSTEM PROMPT ==========
 
 function buildComercialPrompt(ctx: AgentContext): string {
   const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, department, behaviorConfig, structuredConfig: sc } = ctx;
+
+  // Priority 0: Intelligence Modules (if tenant has active modules)
+  if (ctx.activeModules && ctx.activeModules.length > 0) {
+    return buildModularPrompt(ctx);
+  }
 
   // Priority 1: Structured config (Consultora VIP pattern)
   if (sc) {

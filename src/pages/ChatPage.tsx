@@ -819,11 +819,27 @@ const ChatPage: React.FC = () => {
             <div className="p-4">
               <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tags</h4>
               <div className="flex flex-wrap gap-1.5">
-                {contact.tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-[10px]">
-                    {tag}
-                  </Badge>
-                ))}
+                {contact.tags.map((tag) => {
+                  // Color-code auto-generated qualification tags
+                  const tagColors: Record<string, string> = {
+                    'Interesse:': 'bg-blue-100 text-blue-800 border-blue-200',
+                    'Tipo:': 'bg-purple-100 text-purple-800 border-purple-200',
+                    'Bairro:': 'bg-green-100 text-green-800 border-green-200',
+                    'Quartos:': 'bg-orange-100 text-orange-800 border-orange-200',
+                    'Orçamento:': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+                    'Prazo:': 'bg-pink-100 text-pink-800 border-pink-200',
+                  };
+                  const colorClass = Object.entries(tagColors).find(([prefix]) => tag.startsWith(prefix))?.[1];
+                  return (
+                    <Badge
+                      key={tag}
+                      variant={colorClass ? "outline" : "secondary"}
+                      className={`text-[10px] ${colorClass || ''}`}
+                    >
+                      {tag}
+                    </Badge>
+                  );
+                })}
               </div>
             </div>
           )}

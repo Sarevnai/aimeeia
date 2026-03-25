@@ -113,8 +113,21 @@ serve(async (req: Request) => {
 
 async function sendToC2S(config: any, leadData: any): Promise<any> {
   try {
-    const tags: string[] = config.tags || ['Aimee'];
+    const configTags: string[] = config.tags || ['Aimee'];
     const qualification = leadData.qualification || {};
+
+    // Enrich with auto-generated qualification tags
+    const qualTags: string[] = [];
+    if (qualification.detected_interest) {
+      qualTags.push(qualification.detected_interest === 'locacao' ? 'Interesse: Locação' : 'Interesse: Venda');
+    }
+    if (qualification.detected_property_type) {
+      qualTags.push(`Tipo: ${qualification.detected_property_type.charAt(0).toUpperCase() + qualification.detected_property_type.slice(1)}`);
+    }
+    if (qualification.detected_neighborhood) {
+      qualTags.push(`Bairro: ${qualification.detected_neighborhood}`);
+    }
+    const tags = [...configTags, ...qualTags];
 
     const response = await fetch(config.api_url, {
       method: 'POST',

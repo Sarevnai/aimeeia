@@ -18,6 +18,8 @@ import {
   Radar,
   RefreshCw,
   Ticket,
+  Brain,
+  MessageSquareText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/contexts/TenantContext';
@@ -48,10 +50,10 @@ interface AppSidebarProps {
 const ROLE_PATHS: Record<string, string[]> = {
   super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao',
-    '/financeiro', '/minha-aimee', '/acessos', '/guia', '/admin'],
+    '/financeiro', '/minha-aimee', '/modulos', '/simulacao', '/acessos', '/guia', '/admin'],
   admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao',
-    '/financeiro', '/minha-aimee', '/acessos', '/guia'],
+    '/financeiro', '/minha-aimee', '/modulos', '/simulacao', '/acessos', '/guia'],
   operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/chamados', '/empreendimentos', '/guia'],
   viewer: ['/', '/relatorios', '/guia'],
 };
@@ -117,6 +119,13 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
         { label: 'Empreendimentos', icon: Building2, path: '/empreendimentos' },
         { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
         { label: 'Atualização', icon: RefreshCw, path: '/atualizacao' },
+      ],
+    },
+    {
+      label: 'Inteligência',
+      items: [
+        { label: 'Módulos', icon: Brain, path: '/modulos' },
+        { label: 'Simulação', icon: MessageSquareText, path: '/simulacao' },
       ],
     },
     {

@@ -332,6 +332,100 @@ function countAnswered(data: QualificationData): number {
   return count;
 }
 
+// ========== AUTO-TAGGING ==========
+
+// Known prefixes for auto-generated tags (used to identify and replace them)
+const AUTO_TAG_PREFIXES = ['Interesse:', 'Tipo:', 'Bairro:', 'Quartos:', 'Orçamento:', 'Prazo:'];
+
+function capitalize(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function formatBudgetBucket(value: number): string {
+  if (value <= 100000) return 'até 100k';
+  if (value <= 300000) return '100k-300k';
+  if (value <= 500000) return '300k-500k';
+  if (value <= 1000000) return '500k-1M';
+  if (value <= 2500000) return '1M-2.5M';
+  if (value <= 5000000) return '2.5M-5M';
+  return 'acima de 5M';
+}
+
+function formatTimeline(timeline: string): string {
+  if (timeline === '0-3m') return 'Curto prazo';
+  if (timeline === '3-6m') return 'Médio prazo';
+  if (timeline === '6m+') return 'Longo prazo';
+  return timeline;
+}
+
+/**
+ * Converts qualification data into human-readable tags.
+ * Tags use known prefixes (e.g., "Interesse:", "Bairro:") so they can be
+ * identified and replaced on subsequent updates without touching manual tags.
+ */
+export function generateTagsFromQualification(data: QualificationData | null): string[] {
+  if (!data) return [];
+
+  const tags: string[] = [];
+  if (data.detected_interest) {
+    tags.push(`Interesse: ${data.detected_interest === 'locacao' ? 'Locação' : 'Venda'}`);
+  }
+  if (data.detected_property_type) {
+    tags.push(`Tipo: ${capitalize(data.detected_property_type)}`);
+  }
+  if (data.detected_neighborhood) {
+    tags.push(`Bairro: ${data.detected_neighborhood}`);
+  }
+  if (data.detected_bedrooms) {
+    tags.push(`Quartos: ${data.detected_bedrooms}`);
+  }
+  if (data.detected_budget_max) {
+    tags.push(`Orçamento: ${formatBudgetBucket(data.detected_budget_max)}`);
+  }
+  if (data.detected_timeline) {
+    tags.push(`Prazo: ${formatTimeline(data.detected_timeline)}`);
+  }
+  return tags;
+}
+
+/**
+ * Syncs auto-generated tags to contacts.tags without overwriting manual tags.
+ * Removes old auto-tags (identified by known prefixes), merges new ones, preserves manual tags.
+ */
+export async function syncContactTags(
+  supabase: any,
+  contactId: string,
+  newAutoTags: string[]
+): Promise<void> {
+  try {
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('tags')
+      .eq('id', contactId)
+      .single();
+
+    const existingTags: string[] = contact?.tags || [];
+
+    // Keep only manual tags (those that DON'T start with a known auto-prefix)
+    const manualTags = existingTags.filter(
+      (t: string) => !AUTO_TAG_PREFIXES.some(prefix => t.startsWith(prefix))
+    );
+
+    // Merge manual + new auto tags
+    const mergedTags = [...manualTags, ...newAutoTags];
+
+    await supabase
+      .from('contacts')
+      .update({ tags: mergedTags, updated_at: new Date().toISOString() })
+      .eq('id', contactId);
+
+    console.log(`🏷️ Tags synced for contact ${contactId}: [${newAutoTags.join(', ')}]`);
+  } catch (err) {
+    console.error(`⚠️ Failed to sync tags for contact ${contactId}:`, err);
+    // Non-blocking: tag sync failure should not break the conversation
+  }
+}
+
 // C3: Detecta prazo de decisão/compra do cliente
 function detectTimeline(lower: string): string | null {
   // Imediato / urgente / até 3 meses

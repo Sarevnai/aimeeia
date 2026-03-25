@@ -23,6 +23,8 @@ import DevelopmentFormPage from "@/pages/DevelopmentFormPage";
 import AcessosPage from "@/pages/AcessosPage";
 import CaptacaoPage from "@/pages/CaptacaoPage";
 import GuiaPage from "@/pages/GuiaPage";
+import ModulosPage from "@/pages/ModulosPage";
+import SimulacaoPage from "@/pages/SimulacaoPage";
 import AtualizacaoPage from "@/pages/AtualizacaoPage";
 import FinancePage from "@/pages/FinancePage";
 import TicketsPage from "@/pages/TicketsPage";
@@ -75,6 +77,8 @@ const App = () => (
                   <Route path="/financeiro" element={<FinancePage />} />
                   <Route path="/chamados" element={<TicketsPage />} />
                   <Route path="/chamados/:id" element={<TicketDetailPage />} />
+                  <Route path="/modulos" element={<ModulosPage />} />
+                  <Route path="/simulacao" element={<SimulacaoPage />} />
                   <Route path="/guia" element={<GuiaPage />} />
                 </Route>
                 {/* Admin Central — super_admin only */}

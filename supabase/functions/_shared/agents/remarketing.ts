@@ -8,12 +8,54 @@ import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../anti-loop.ts';
 import { isQualificationComplete } from '../qualification.ts';
-import { SkillConfig } from '../types.ts';
+import { SkillConfig, AiModule } from '../types.ts';
+
+// ========== MODULE-BASED PROMPT ==========
+
+function buildModularRemarketingPrompt(ctx: AgentContext, modules: AiModule[]): string {
+  const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext, currentModuleSlug } = ctx;
+
+  const sections: string[] = [];
+  sections.push(`Você é ${config.agent_name || 'Aimee'}, consultora virtual VIP de remarketing da ${tenant.company_name}.`);
+  sections.push(`Tom: exclusivo, consultivo e personalizado.`);
+  if (contactName) sections.push(`Chame o cliente de ${contactName}.`);
+
+  sections.push(`\n# MÓDULOS DE INTELIGÊNCIA`);
+  sections.push(`Analise o contexto e DECLARE o módulo ativo: [MODULO: slug-do-modulo]`);
+  sections.push(`\nMódulos disponíveis:`);
+  for (const mod of modules) {
+    sections.push(`- **${mod.slug}** — ${mod.name}`);
+    if (mod.activation_criteria) sections.push(`  Ativar quando: ${mod.activation_criteria}`);
+  }
+
+  const activeModule = currentModuleSlug ? modules.find(m => m.slug === currentModuleSlug) : modules[0];
+  if (activeModule) {
+    sections.push(`\n# MÓDULO ATIVO: ${activeModule.name}`);
+    sections.push(activeModule.prompt_instructions);
+  }
+
+  // Dynamic sections
+  const contextSummary = buildContextSummary(qualData, contactName);
+  if (contextSummary) sections.push(contextSummary);
+  const regionKnowledge = generateRegionKnowledge(regions);
+  if (regionKnowledge) sections.push(regionKnowledge);
+  if (remarketingContext) sections.push(`\n# CONTEXTO DE REMARKETING\n${remarketingContext}`);
+  if (config.custom_instructions) sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+  if (ctx.isReturningLead) sections.push(buildReturningLeadContext(ctx.previousQualificationData));
+
+  return sections.join('\n');
+}
 
 // ========== SYSTEM PROMPT ==========
 
 function buildRemarketingPrompt(ctx: AgentContext): string {
   const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext } = ctx;
+
+  // Priority 0: Intelligence Modules
+  const remarkModules = ctx.activeModules?.filter(m => m.category === 'remarketing' || m.category === 'general') || [];
+  if (remarkModules.length > 0) {
+    return buildModularRemarketingPrompt(ctx, remarkModules);
+  }
 
   // Priority 1: Structured config from DB (editable via Admin UI)
   if (ctx.structuredConfig) {

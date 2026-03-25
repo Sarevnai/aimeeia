@@ -9,12 +9,12 @@ import { callLLMWithToolExecution } from '../_shared/ai-call.ts';
 import { sendWhatsAppMessage, sendWhatsAppButtons, sendWhatsAppImage, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
-import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete } from '../_shared/qualification.ts';
+import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags } from '../_shared/qualification.ts';
 import { loadRegions } from '../_shared/regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../_shared/anti-loop.ts';
 import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } from '../_shared/property.ts';
 import { fragmentMessage, logError, logActivity, sleep, formatCurrency } from '../_shared/utils.ts';
-import { Tenant, AIAgentConfig, AIBehaviorConfig, ConversationState, ConversationMessage, PropertyResult, StructuredConfig, TriageConfig } from '../_shared/types.ts';
+import { Tenant, AIAgentConfig, AIBehaviorConfig, ConversationState, ConversationMessage, PropertyResult, StructuredConfig, TriageConfig, AiModule } from '../_shared/types.ts';
 
 // Multi-agent imports
 import { AgentModule, AgentContext, AgentType } from '../_shared/agents/agent-interface.ts';
@@ -334,6 +334,12 @@ serve(async (req: Request) => {
 
     if (Object.keys(extracted).length > 0) {
       await saveQualificationData(supabase, tenant_id, conversation_id, contact_id, mergedQual);
+
+      // Auto-tag contact based on qualification data
+      const autoTags = generateTagsFromQualification(mergedQual);
+      if (autoTags.length > 0 && contact_id) {
+        await syncContactTags(supabase, contact_id, autoTags);
+      }
     }
 
     // Load conversation history
@@ -381,6 +387,21 @@ serve(async (req: Request) => {
       ? `[Em resposta a: "${quoted_message_body}"]\n${message_body}`
       : message_body;
 
+    // ========== LOAD INTELLIGENCE MODULES ==========
+
+    const { data: activeModules } = await supabase
+      .from('ai_modules')
+      .select('*')
+      .eq('tenant_id', tenant_id)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    const currentModuleSlug = state?.current_module_slug || null;
+
+    if (activeModules?.length > 0) {
+      console.log(`🧩 Modules loaded: ${activeModules.length} active (current: ${currentModuleSlug || 'none'})`);
+    }
+
     // ========== AGENT SELECTION & INVOCATION ==========
 
     let finalResponse: string;
@@ -413,6 +434,8 @@ serve(async (req: Request) => {
         tenantProvider,
         lastAiMessages: state?.last_ai_messages || [],
         toolsExecuted: [],
+        activeModules: (activeModules as AiModule[]) || [],
+        currentModuleSlug,
         supabase,
       };
 
@@ -518,6 +541,23 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       }
 
       await updateAntiLoopState(supabase, tenant_id, phone_number, finalResponse);
+    }
+
+    // ========== PARSE MODULE TAG ==========
+    // Strip [MODULO: slug] from response and update conversation_states
+    const moduleMatch = finalResponse.match(/\[MODULO:\s*([^\]]+)\]/i);
+    if (moduleMatch) {
+      const newModuleSlug = moduleMatch[1].trim().toLowerCase();
+      finalResponse = finalResponse.replace(/\[MODULO:\s*[^\]]+\]\s*/gi, '').trim();
+
+      // Update current module in conversation state
+      await supabase
+        .from('conversation_states')
+        .update({ current_module_slug: newModuleSlug, updated_at: new Date().toISOString() })
+        .eq('tenant_id', tenant_id)
+        .eq('phone_number', phone_number);
+
+      console.log(`🧩 Module switched to: ${newModuleSlug}`);
     }
 
     // ========== SEND RESPONSE ==========

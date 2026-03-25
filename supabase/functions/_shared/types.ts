@@ -244,6 +244,21 @@ export interface MakeWebhookRequest {
   department?: string;
 }
 
+// ========== AI MODULES (Intelligence Modules System) ==========
+
+export interface AiModule {
+  id: string;
+  tenant_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  category: string;
+  prompt_instructions: string;
+  activation_criteria: string | null;
+  is_active: boolean;
+  sort_order: number;
+}
+
 // ========== STRUCTURED CONFIG (Consultora VIP Pattern) ==========
 
 export interface StructuredConfig {

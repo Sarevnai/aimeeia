@@ -2,7 +2,7 @@
 // Common types and interface for all specialized agents.
 // Each agent implements AgentModule to provide focused behavior.
 
-import { Tenant, AIAgentConfig, AIBehaviorConfig, Region, QualificationData, ConversationMessage, StructuredConfig } from '../types.ts';
+import { Tenant, AIAgentConfig, AIBehaviorConfig, Region, QualificationData, ConversationMessage, StructuredConfig, AiModule } from '../types.ts';
 
 export type AgentType = 'comercial' | 'admin' | 'remarketing';
 
@@ -30,6 +30,8 @@ export interface AgentContext {
   tenantProvider: string;
   lastAiMessages: string[];
   toolsExecuted: string[];               // MC-5: Track which tools were called this turn
+  activeModules: AiModule[];              // Intelligence modules for this tenant
+  currentModuleSlug: string | null;       // Currently active module slug
   supabase: any;
 }
 

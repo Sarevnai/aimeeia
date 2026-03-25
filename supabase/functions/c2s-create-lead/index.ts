@@ -20,6 +20,7 @@ serve(async (req: Request) => {
       reason,
       qualification_data,
       development_id,
+      development_title,
     } = await req.json();
 
     if (!tenant_id || !phone_number) {
@@ -63,6 +64,7 @@ serve(async (req: Request) => {
         notes: reason || 'Lead qualificado via Aimee.iA',
         qualification: qualification_data || {},
         development_id: development_id || null,
+        development_title: development_title || null,
       });
       // Only consider sent if no error in response
       c2sSent = c2sResult && !c2sResult.error;
@@ -153,7 +155,9 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
           type_negotiation: qualification.detected_interest === 'locacao' ? 'Aluguel' : 'Compra',
           neighbourhood: qualification.detected_neighborhood || null,
           price: qualification.detected_budget_max?.toString() || null,
-          prop_ref: leadData.development_id || null,
+          prop_ref: leadData.development_id
+            ? (leadData.development_title ? `[${leadData.development_id}] ${leadData.development_title}` : leadData.development_id)
+            : null,
         },
       },
     };

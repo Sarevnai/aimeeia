@@ -311,6 +311,7 @@ function getComercialTools(ctx: AgentContext): any[] {
           properties: {
             motivo: { type: "string", description: "Razão da transferência com detalhes da qualificação" },
             codigo_imovel: { type: "string", description: "Código (external_id) do imóvel que o cliente escolheu. Ex: '54482'. Se o cliente não escolheu nenhum, omita." },
+            titulo_imovel: { type: "string", description: "Título descritivo do imóvel escolhido. Formato: 'Apartamento à venda com 3 dormitórios, 2 vagas, no Bairro, Cidade/UF'. Se não escolheu, omita." },
           },
           required: ["motivo"],
         },

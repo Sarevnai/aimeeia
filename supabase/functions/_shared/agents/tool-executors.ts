@@ -483,6 +483,7 @@ export async function executeLeadHandoff(
         reason: args.motivo,
         qualification_data: ctx.qualificationData,
         development_id: args.codigo_imovel || null,
+        development_title: args.titulo_imovel || null,
       },
     });
 

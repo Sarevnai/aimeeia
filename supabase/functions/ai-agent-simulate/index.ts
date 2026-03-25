@@ -173,7 +173,8 @@ serve(async (req: Request) => {
     const currentModuleSlug = state?.current_module_slug || null;
 
     // Decrypt API key
-    const { tenantApiKey, tenantProvider } = await decryptApiKey(supabase, tenant_id);
+    const tenantApiKey = await decryptApiKey((aiConfig as any)?.api_key_encrypted);
+    const tenantProvider = (aiConfig as any)?.ai_provider || 'openai';
 
     // Select agent
     const { agentType, agent } = selectAgent(effectiveDepartment, 'simulation');

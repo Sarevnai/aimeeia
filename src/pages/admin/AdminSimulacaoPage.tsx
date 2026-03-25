@@ -121,13 +121,19 @@ export default function AdminSimulacaoPage() {
 
       if (error) throw error;
 
-      const aiMessage: SimMessage = {
-        id: `ai-${Date.now()}`,
-        direction: 'outbound',
-        body: data.ai_response,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, aiMessage]);
+      // Split on ___ separator to emulate WhatsApp multi-message behavior
+      const fragments = (data.ai_response as string)
+        .split(/\n?_{3,}\n?/)
+        .map((f: string) => f.trim())
+        .filter(Boolean);
+
+      const aiMessages: SimMessage[] = fragments.map((fragment: string, i: number) => ({
+        id: `ai-${Date.now()}-${i}`,
+        direction: 'outbound' as const,
+        body: fragment,
+        timestamp: new Date(Date.now() + i), // slight offset for ordering
+      }));
+      setMessages(prev => [...prev, ...aiMessages]);
       setConversationId(data.conversation_id);
 
       setMetadata({

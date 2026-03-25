@@ -482,6 +482,7 @@ export async function executeLeadHandoff(
         contact_id: ctx.contactId,
         reason: args.motivo,
         qualification_data: ctx.qualificationData,
+        development_id: args.codigo_imovel || null,
       },
     });
 

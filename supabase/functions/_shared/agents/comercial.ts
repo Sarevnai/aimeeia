@@ -305,11 +305,12 @@ function getComercialTools(ctx: AgentContext): any[] {
       type: "function",
       function: {
         name: "enviar_lead_c2s",
-        description: "Transferir lead qualificado para corretor humano. Use quando o cliente demonstrar interesse real.",
+        description: "Transferir lead qualificado para corretor humano. Use quando o cliente demonstrar interesse real. IMPORTANTE: sempre inclua o código do imóvel de interesse se o cliente escolheu um.",
         parameters: {
           type: "object",
           properties: {
-            motivo: { type: "string", description: "Razão da transferência" },
+            motivo: { type: "string", description: "Razão da transferência com detalhes da qualificação" },
+            codigo_imovel: { type: "string", description: "Código (external_id) do imóvel que o cliente escolheu. Ex: '54482'. Se o cliente não escolheu nenhum, omita." },
           },
           required: ["motivo"],
         },

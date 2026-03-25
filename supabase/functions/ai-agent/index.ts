@@ -797,7 +797,7 @@ async function legacyExecuteLeadHandoff(
 ): Promise<string> {
   try {
     await supabase.functions.invoke('c2s-create-lead', {
-      body: { tenant_id: tenantId, phone_number: phoneNumber, conversation_id: conversationId, contact_id: contactId, reason: args.motivo, qualification_data: qualData },
+      body: { tenant_id: tenantId, phone_number: phoneNumber, conversation_id: conversationId, contact_id: contactId, reason: args.motivo, qualification_data: qualData, development_id: args.codigo_imovel || null },
     });
     await supabase.from('conversation_states').upsert({
       tenant_id: tenantId, phone_number: phoneNumber, is_ai_active: false,

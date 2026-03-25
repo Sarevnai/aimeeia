@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 
 /**
- * Drop-in replacement for useState that persists to sessionStorage.
- * State survives page navigation within the same tab/session.
- * Cleared when the browser tab is closed.
+ * Drop-in replacement for useState that persists to localStorage.
+ * State survives page navigation, tab closure, and browser restart.
+ * Use clearSimulationSession() to explicitly wipe stored state.
  */
 export function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const storageKey = `sim_${key}`;
 
   const [value, setValueRaw] = useState<T>(() => {
     try {
-      const stored = sessionStorage.getItem(storageKey);
+      // Try localStorage first (persistent), fall back to sessionStorage (migration)
+      const stored = localStorage.getItem(storageKey) ?? sessionStorage.getItem(storageKey);
       if (stored !== null) {
         const parsed = JSON.parse(stored);
         // Restore Date objects if initialValue is a Date
@@ -35,10 +36,10 @@ export function useSessionState<T>(key: string, initialValue: T): [T, React.Disp
     return initialValue;
   });
 
-  // Sync to sessionStorage whenever value changes
+  // Sync to localStorage whenever value changes
   useEffect(() => {
     try {
-      sessionStorage.setItem(storageKey, JSON.stringify(value));
+      localStorage.setItem(storageKey, JSON.stringify(value));
     } catch {
       // Ignore quota errors
     }
@@ -48,15 +49,26 @@ export function useSessionState<T>(key: string, initialValue: T): [T, React.Disp
 }
 
 /**
- * Clears all simulation session state keys.
+ * Clears all simulation state keys from both localStorage and sessionStorage.
  */
 export function clearSimulationSession(prefix = 'sim_') {
-  const keysToRemove: string[] = [];
+  // Clear localStorage
+  const localKeys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(prefix)) {
+      localKeys.push(key);
+    }
+  }
+  localKeys.forEach(k => localStorage.removeItem(k));
+
+  // Clear legacy sessionStorage keys
+  const sessionKeys: string[] = [];
   for (let i = 0; i < sessionStorage.length; i++) {
     const key = sessionStorage.key(i);
     if (key?.startsWith(prefix)) {
-      keysToRemove.push(key);
+      sessionKeys.push(key);
     }
   }
-  keysToRemove.forEach(k => sessionStorage.removeItem(k));
+  sessionKeys.forEach(k => sessionStorage.removeItem(k));
 }

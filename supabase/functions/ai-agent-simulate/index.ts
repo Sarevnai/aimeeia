@@ -226,25 +226,30 @@ serve(async (req: Request) => {
 
     let finalResponse = await agent.postProcess(ctx, aiResponse);
 
-    // Parse module tag
+    // Parse module tag (same robust regex as ai-agent)
     let activeModuleInfo: { slug: string; name: string } | null = null;
-    const moduleMatch = finalResponse.match(/\[MODULO:\s*([^\]]+)\]/i);
+    const moduleMatch = finalResponse.match(/\[\s*MODULO\s*:\s*([^\]\n]+?)\s*\]/i);
     if (moduleMatch) {
-      const newSlug = moduleMatch[1].trim().toLowerCase();
-      finalResponse = finalResponse.replace(/\[MODULO:\s*[^\]]+\]\s*/gi, '').trim();
+      const newSlug = moduleMatch[1].trim().toLowerCase().replace(/\s+/g, '-');
+      finalResponse = finalResponse.replace(/\[\s*MODULO\s*:\s*[^\]\n]*?\s*\]\s*/gi, '').trim();
 
-      await supabase
-        .from('conversation_states')
-        .upsert({
-          tenant_id,
-          phone_number: simPhone,
-          current_module_slug: newSlug,
-          is_ai_active: true,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'tenant_id,phone_number' });
-
-      const mod = (activeModules as AiModule[])?.find(m => m.slug === newSlug);
-      activeModuleInfo = { slug: newSlug, name: mod?.name || newSlug };
+      // Validate slug against known modules
+      const validModule = (activeModules as AiModule[])?.find(m => m.slug === newSlug);
+      if (validModule) {
+        await supabase
+          .from('conversation_states')
+          .upsert({
+            tenant_id,
+            phone_number: simPhone,
+            current_module_slug: newSlug,
+            is_ai_active: true,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'tenant_id,phone_number' });
+        activeModuleInfo = { slug: newSlug, name: validModule.name };
+      }
+    } else {
+      // Strip any malformed module tags
+      finalResponse = finalResponse.replace(/\[\s*MODULO\s*[:\s][^\]]*\]\s*/gi, '').trim();
     }
 
     // Save AI response message

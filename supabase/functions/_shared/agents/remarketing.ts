@@ -16,31 +16,40 @@ function buildModularRemarketingPrompt(ctx: AgentContext, modules: AiModule[]): 
   const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext, currentModuleSlug } = ctx;
 
   const sections: string[] = [];
-  sections.push(`Você é ${config.agent_name || 'Aimee'}, consultora virtual VIP de remarketing da ${tenant.company_name}.`);
-  sections.push(`Tom: exclusivo, consultivo e personalizado.`);
-  if (contactName) sections.push(`Chame o cliente de ${contactName}.`);
 
-  sections.push(`\n# MÓDULOS DE INTELIGÊNCIA`);
-  sections.push(`Analise o contexto e DECLARE o módulo ativo: [MODULO: slug-do-modulo]`);
-  sections.push(`\nMódulos disponíveis:`);
-  for (const mod of modules) {
-    sections.push(`- **${mod.slug}** — ${mod.name}`);
-    if (mod.activation_criteria) sections.push(`  Ativar quando: ${mod.activation_criteria}`);
-  }
+  sections.push(`<identity>
+Você é ${config.agent_name || 'Aimee'}, consultora virtual VIP de remarketing da ${tenant.company_name}, em ${tenant.city}/${tenant.state}.
+Tom: exclusivo, consultivo e personalizado.
+${contactName ? `Chame o cliente de ${contactName}.` : 'Seja cordial.'}
+</identity>`);
+
+  const moduleList = modules.map(mod => {
+    const criteria = mod.activation_criteria ? ` | Ativar quando: ${mod.activation_criteria}` : '';
+    return `  - ${mod.slug}: ${mod.name}${criteria}`;
+  }).join('\n');
+
+  sections.push(`<modules>
+SISTEMA DE MÓDULOS DE INTELIGÊNCIA
+Analise o contexto e DECLARE o módulo ativo: [MODULO: slug-do-modulo]
+
+Módulos disponíveis:
+${moduleList}
+</modules>`);
 
   const activeModule = currentModuleSlug ? modules.find(m => m.slug === currentModuleSlug) : modules[0];
   if (activeModule) {
-    sections.push(`\n# MÓDULO ATIVO: ${activeModule.name}`);
-    sections.push(activeModule.prompt_instructions);
+    sections.push(`<active_module name="${activeModule.name}" slug="${activeModule.slug}">
+${activeModule.prompt_instructions}
+</active_module>`);
   }
 
-  // Dynamic sections
+  // Dynamic sections (XML format)
   const contextSummary = buildContextSummary(qualData, contactName);
   if (contextSummary) sections.push(contextSummary);
   const regionKnowledge = generateRegionKnowledge(regions);
   if (regionKnowledge) sections.push(regionKnowledge);
-  if (remarketingContext) sections.push(`\n# CONTEXTO DE REMARKETING\n${remarketingContext}`);
-  if (config.custom_instructions) sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+  if (remarketingContext) sections.push(`<remarketing_context>\n${remarketingContext}\n</remarketing_context>`);
+  if (config.custom_instructions) sections.push(`<custom_instructions>\n${config.custom_instructions}\n</custom_instructions>`);
   if (ctx.isReturningLead) sections.push(buildReturningLeadContext(ctx.previousQualificationData));
 
   return sections.join('\n');

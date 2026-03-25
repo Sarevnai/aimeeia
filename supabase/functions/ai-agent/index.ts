@@ -238,6 +238,7 @@ serve(async (req: Request) => {
         directive: null, structuredConfig: null, remarketingContext: null,
         isReturningLead: false, previousQualificationData: null,
         tenantApiKey, tenantProvider, supabase, lastAiMessages: [], toolsExecuted: [],
+        activeModules: [], currentModuleSlug: null,
       };
 
       await executeLeadHandoff(mc1Ctx, { motivo: dossierLines });
@@ -545,19 +546,28 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 
     // ========== PARSE MODULE TAG ==========
     // Strip [MODULO: slug] from response and update conversation_states
-    const moduleMatch = finalResponse.match(/\[MODULO:\s*([^\]]+)\]/i);
+    // Regex tolerates extra spaces: [ MODULO : slug ] and case-insensitive
+    const moduleMatch = finalResponse.match(/\[\s*MODULO\s*:\s*([^\]\n]+?)\s*\]/i);
     if (moduleMatch) {
-      const newModuleSlug = moduleMatch[1].trim().toLowerCase();
-      finalResponse = finalResponse.replace(/\[MODULO:\s*[^\]]+\]\s*/gi, '').trim();
+      const newModuleSlug = moduleMatch[1].trim().toLowerCase().replace(/\s+/g, '-');
+      // Always strip ALL module tags from the response (even multiple)
+      finalResponse = finalResponse.replace(/\[\s*MODULO\s*:\s*[^\]\n]*?\s*\]\s*/gi, '').trim();
 
-      // Update current module in conversation state
-      await supabase
-        .from('conversation_states')
-        .update({ current_module_slug: newModuleSlug, updated_at: new Date().toISOString() })
-        .eq('tenant_id', tenant_id)
-        .eq('phone_number', phone_number);
-
-      console.log(`🧩 Module switched to: ${newModuleSlug}`);
+      // Validate slug against known active modules before saving
+      const validModule = (activeModules as AiModule[])?.find(m => m.slug === newModuleSlug);
+      if (validModule) {
+        await supabase
+          .from('conversation_states')
+          .update({ current_module_slug: newModuleSlug, updated_at: new Date().toISOString() })
+          .eq('tenant_id', tenant_id)
+          .eq('phone_number', phone_number);
+        console.log(`🧩 Module switched to: ${newModuleSlug} (${validModule.name})`);
+      } else if ((activeModules as AiModule[])?.length > 0) {
+        console.warn(`⚠️ LLM declared invalid module slug: "${newModuleSlug}" — ignoring`);
+      }
+    } else {
+      // Even if no module tag found, strip any malformed attempts
+      finalResponse = finalResponse.replace(/\[\s*MODULO\s*[:\s][^\]]*\]\s*/gi, '').trim();
     }
 
     // ========== SEND RESPONSE ==========

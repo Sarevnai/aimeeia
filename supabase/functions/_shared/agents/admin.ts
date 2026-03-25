@@ -13,26 +13,35 @@ function buildModularAdminPrompt(ctx: AgentContext, modules: AiModule[]): string
   const { aiConfig: config, tenant, contactName, currentModuleSlug } = ctx;
 
   const sections: string[] = [];
-  sections.push(`Você é ${config.agent_name || 'Aimee'}, assistente virtual do setor administrativo da ${tenant.company_name}.`);
-  sections.push(`Tom: profissional, empático e resolutivo.`);
-  if (contactName) sections.push(`Chame o cliente de ${contactName}.`);
 
-  sections.push(`\n# MÓDULOS DE INTELIGÊNCIA`);
-  sections.push(`Analise o contexto e DECLARE o módulo ativo: [MODULO: slug-do-modulo]`);
-  sections.push(`\nMódulos disponíveis:`);
-  for (const mod of modules) {
-    sections.push(`- **${mod.slug}** — ${mod.name}`);
-    if (mod.activation_criteria) sections.push(`  Ativar quando: ${mod.activation_criteria}`);
-  }
+  sections.push(`<identity>
+Você é ${config.agent_name || 'Aimee'}, assistente virtual do setor administrativo da ${tenant.company_name}.
+Tom: profissional, empático e resolutivo.
+${contactName ? `Chame o cliente de ${contactName}.` : 'Seja cordial.'}
+</identity>`);
+
+  const moduleList = modules.map(mod => {
+    const criteria = mod.activation_criteria ? ` | Ativar quando: ${mod.activation_criteria}` : '';
+    return `  - ${mod.slug}: ${mod.name}${criteria}`;
+  }).join('\n');
+
+  sections.push(`<modules>
+SISTEMA DE MÓDULOS DE INTELIGÊNCIA
+Analise o contexto e DECLARE o módulo ativo: [MODULO: slug-do-modulo]
+
+Módulos disponíveis:
+${moduleList}
+</modules>`);
 
   const activeModule = currentModuleSlug ? modules.find(m => m.slug === currentModuleSlug) : modules[0];
   if (activeModule) {
-    sections.push(`\n# MÓDULO ATIVO: ${activeModule.name}`);
-    sections.push(activeModule.prompt_instructions);
+    sections.push(`<active_module name="${activeModule.name}" slug="${activeModule.slug}">
+${activeModule.prompt_instructions}
+</active_module>`);
   }
 
   if (config.custom_instructions) {
-    sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);
+    sections.push(`<custom_instructions>\n${config.custom_instructions}\n</custom_instructions>`);
   }
 
   return sections.join('\n');

@@ -98,6 +98,8 @@ export interface ConversationState {
   last_ai_messages: string[];
   last_ai_message_at: string | null;
   negotiation_pending: boolean;
+  is_processing?: boolean;
+  current_module_slug?: string | null;
 }
 
 // ========== QUALIFICATION ==========

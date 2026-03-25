@@ -213,13 +213,18 @@ serve(async (req: Request) => {
     const tools = agent.getTools(ctx);
 
     const aiResponse = await callLLMWithToolExecution(
-      ctx,
       systemPrompt,
-      message_body,
       history,
+      message_body,
       tools,
+      async (toolName: string, args: any) => {
+        ctx.toolsExecuted.push(toolName);
+        return agent.executeToolCall(ctx, toolName, args);
+      },
       {
         model: aiConfig.ai_model || 'google/gemini-2.0-flash-001',
+        provider: tenantProvider,
+        apiKey: tenantApiKey,
         temperature: 0.7,
         maxTokens: aiConfig.max_tokens || 500,
       }

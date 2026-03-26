@@ -859,12 +859,14 @@ async function legacyExecuteLeadHandoff(
       try {
         const { data: convState } = await supabase
           .from('conversation_states')
-          .select('pending_properties, current_property_index')
+          .select('pending_properties, current_property_index, last_property_shown_at')
           .eq('tenant_id', tenantId)
           .eq('phone_number', phoneNumber)
           .single();
         if (convState?.pending_properties?.length) {
-          const idx = Math.max(0, (convState.current_property_index || 1) - 1);
+          const idx = convState.current_property_index > 0
+            ? convState.current_property_index - 1
+            : (convState.last_property_shown_at ? 0 : 0);
           const prop = convState.pending_properties[idx] || convState.pending_properties[0];
           if (prop?.codigo) {
             developmentId = prop.codigo;
@@ -875,10 +877,16 @@ async function legacyExecuteLeadHandoff(
             const localStr = [bairro, cidade].filter(Boolean).join(', ');
             developmentTitle = [tipo, quartos, localStr ? `no ${localStr}` : ''].filter(Boolean).join(' ');
             console.log(`📦 Legacy fallback prop_ref: [${developmentId}] ${developmentTitle}`);
+          } else {
+            console.warn('⚠️ Legacy: pending_properties[0] has no codigo field:', JSON.stringify(prop).slice(0, 200));
           }
+        } else {
+          console.warn('⚠️ Legacy: No pending_properties found for fallback prop_ref');
         }
       } catch (fbErr) { console.warn('⚠️ Legacy fallback property lookup failed:', fbErr); }
     }
+
+    console.log(`🏠 Legacy lead handoff prop_ref: development_id=${developmentId || 'NULL'}, source=${args.codigo_imovel ? 'AI_ARGS' : 'FALLBACK'}`);
 
     await supabase.functions.invoke('c2s-create-lead', {
       body: { tenant_id: tenantId, phone_number: phoneNumber, conversation_id: conversationId, contact_id: contactId, reason: args.motivo, qualification_data: qualData, development_id: developmentId, development_title: developmentTitle },

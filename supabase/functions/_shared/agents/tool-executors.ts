@@ -553,18 +553,22 @@ export async function executeLeadHandoff(
     let developmentTitle = args.titulo_imovel || null;
 
     // Fallback: se a IA não passou o imóvel, tentar extrair do conversation_states
+    // Busca SEMPRE para garantir que temos prop_ref mesmo quando a IA omite
     if (!developmentId) {
       try {
         const { data: convState } = await ctx.supabase
           .from('conversation_states')
-          .select('pending_properties, current_property_index')
+          .select('pending_properties, current_property_index, last_property_shown_at')
           .eq('tenant_id', ctx.tenantId)
           .eq('phone_number', ctx.phoneNumber)
           .single();
 
         if (convState?.pending_properties?.length) {
-          // Pegar o último imóvel mostrado (current_property_index - 1, pois incrementa após mostrar)
-          const idx = Math.max(0, (convState.current_property_index || 1) - 1);
+          // current_property_index aponta para o PRÓXIMO a mostrar; o último mostrado é index-1
+          // Se index=0 e last_property_shown_at existe, significa que mostramos o primeiro (index 0)
+          const idx = convState.current_property_index > 0
+            ? convState.current_property_index - 1
+            : (convState.last_property_shown_at ? 0 : 0);
           const prop = convState.pending_properties[idx] || convState.pending_properties[0];
           if (prop?.codigo) {
             developmentId = prop.codigo;
@@ -575,12 +579,18 @@ export async function executeLeadHandoff(
             const localStr = [bairro, cidade].filter(Boolean).join(', ');
             developmentTitle = [tipo, quartos, localStr ? `no ${localStr}` : ''].filter(Boolean).join(' ');
             console.log(`📦 Fallback prop_ref: [${developmentId}] ${developmentTitle}`);
+          } else {
+            console.warn('⚠️ pending_properties[0] has no codigo field:', JSON.stringify(prop).slice(0, 200));
           }
+        } else {
+          console.warn('⚠️ No pending_properties found for fallback prop_ref');
         }
       } catch (fbErr) {
         console.warn('⚠️ Fallback property lookup failed:', fbErr);
       }
     }
+
+    console.log(`🏠 Lead handoff prop_ref: development_id=${developmentId || 'NULL'}, development_title=${developmentTitle || 'NULL'}, source=${args.codigo_imovel ? 'AI_ARGS' : 'FALLBACK'}`);
 
     await ctx.supabase.functions.invoke('c2s-create-lead', {
       body: {

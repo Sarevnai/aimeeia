@@ -130,7 +130,7 @@ function getBaseToolsForDepartment(department: DepartmentType): any[] {
               },
               bairro: {
                 type: "string",
-                description: "Bairro ou região desejada pelo cliente. OBRIGATÓRIO se o cliente mencionou um bairro. Use o nome exato do bairro (ex: 'Santa Mônica', 'Agronômica', 'Centro'). Se o cliente mencionou múltiplos bairros, use o mais recente ou o que ele está pedindo agora."
+                description: "CRITICAL: Bairro ou região desejada pelo cliente. Você DEVE preencher este campo SEMPRE que o cliente mencionar qualquer bairro, região ou localização. Extraia o nome exato (ex: 'Santa Mônica', 'Agronômica', 'Centro', 'Itacorubi'). Se o cliente mencionou múltiplos bairros, use o mais recente. NUNCA coloque o bairro apenas no query_semantica sem preencher este campo também. Se houver dúvida se é um bairro, preencha mesmo assim."
               },
               quartos: {
                 type: "number",

@@ -156,6 +156,29 @@ export async function executePropertySearch(
     // Resolve finalidade_imovel: map venda/locação to RESIDENCIAL/COMERCIAL when specified
     const filterFinalidade = args.finalidade_imovel || null; // RESIDENCIAL, COMERCIAL, or null
 
+    // SAFETY NET: Se o LLM não preencheu bairro mas o query_semantica menciona um bairro, extrair
+    if (!args.bairro && semanticQuery) {
+      const knownNeighborhoods = [
+        'Santa Mônica', 'Santa Monica', 'Agronômica', 'Centro', 'Itacorubi', 'Trindade',
+        'Córrego Grande', 'Corrego Grande', 'João Paulo', 'Joao Paulo', 'Saco Grande',
+        'Saco dos Limões', 'Saco dos Limoes', 'Pantanal', 'Carvoeira', 'Coqueiros',
+        'Estreito', 'Capoeiras', 'Kobrasol', 'Campinas', 'Barreiros', 'Ingleses',
+        'Canasvieiras', 'Jurerê', 'Jurere', 'Jurerê Internacional', 'Campeche',
+        'Lagoa da Conceição', 'Lagoa da Conceicao', 'Cachoeira do Bom Jesus',
+        'Cacupé', 'Cacupe', 'Ratones', 'Santo Antônio de Lisboa', 'Ribeirão da Ilha',
+        'Praia Brava', 'Santinho', 'São João do Rio Vermelho', 'Pedra Branca',
+        'Forquilhas', 'Barra da Lagoa', 'Rio Tavares', 'Morro das Pedras',
+      ];
+      const queryLower = semanticQuery.toLowerCase();
+      for (const nh of knownNeighborhoods) {
+        if (queryLower.includes(nh.toLowerCase())) {
+          args.bairro = nh;
+          console.log(`🔧 SAFETY NET: Bairro extraído do query_semantica → "${nh}"`);
+          break;
+        }
+      }
+    }
+
     console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Bairro: ${args.bairro || 'NENHUM'} | Tipo: ${args.tipo_imovel || 'NENHUM'} | Quartos: ${args.quartos || 'NENHUM'} | Finalidade: ${filterFinalidade || 'NENHUM'} | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
 
     const queryEmbedding = await generateEmbedding(semanticQuery);
@@ -209,9 +232,10 @@ export async function executePropertySearch(
         (args as any)._tipo_expandido = true;
         (args as any)._tipos_encontrados = tiposEncontrados;
       } else {
-        // PASSO 2: Nada no bairro pedido — informar e NÃO expandir silenciosamente
+        // PASSO 2: Nada no bairro pedido — informar DIRETAMENTE e NÃO expandir silenciosamente
         console.log(`🌍 C6: Nenhum imóvel no ${args.bairro} com budget ${searchBudget}. Informando o cliente.`);
-        return `[SISTEMA] Não encontrei nenhum imóvel disponível para ${args.finalidade || 'venda'} no bairro ${args.bairro} com orçamento de até R$ ${(clientBudget || 0).toLocaleString('pt-BR')}. Informe o cliente de forma natural e sugira: 1) Outros bairros próximos, 2) Aumentar orçamento, 3) Considerar outro tipo de imóvel. NÃO envie imóveis de outro bairro sem perguntar antes.`;
+        const budgetStr = clientBudget ? ` com orçamento de até R$ ${clientBudget.toLocaleString('pt-BR')}` : '';
+        return `[SISTEMA — INSTRUÇÃO OBRIGATÓRIA] Não existe nenhum imóvel para ${args.finalidade || 'venda'} no bairro ${args.bairro}${budgetStr} no nosso catálogo atual. Você DEVE informar isso ao cliente de forma direta e honesta. Diga claramente que não tem disponibilidade no bairro pedido. Depois sugira alternativas: bairros vizinhos, ajustar orçamento, ou outro tipo de imóvel. NUNCA diga "vou buscar" ou "deixa eu procurar" — a busca já foi feita e não encontrou. NUNCA envie imóveis de outro bairro sem autorização explícita do cliente.`;
       }
     } else if (validProperties.length <= 1 && !args.bairro) {
       // Sem bairro especificado: expansão geográfica normal

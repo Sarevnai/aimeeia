@@ -737,14 +737,37 @@ async function legacyExecutePropertySearch(
       query_embedding: queryEmbedding, match_tenant_id: tenantId,
       match_threshold: 0.2, match_count: 5,
       filter_max_price: searchBudget, filter_tipo: args.tipo_imovel || null,
+      filter_neighborhood: args.bairro || null,
+      filter_bedrooms: args.quartos || null,
+      filter_finalidade: null,
     });
     if (error) return 'Não consegui buscar imóveis no nosso catálogo inteligente no momento. Tente novamente em instantes.';
 
     // C2: Filtrar imóveis sem preço válido
     let validProperties = (properties || []).filter((p: any) => p.price && p.price > 1);
 
-    // C6: Expansão geográfica proativa
-    if (validProperties.length <= 1) {
+    // C6: Expansão inteligente quando poucos resultados
+    if (validProperties.length <= 1 && args.bairro) {
+      // PASSO 1: Mesmo bairro, sem filtro de tipo
+      console.log(`🌍 [Legacy] C6: Apenas ${validProperties.length} resultado(s) no ${args.bairro}. Flexibilizando tipo...`);
+      const flexQuery = `imóvel para ${args.finalidade || 'venda'} no bairro ${args.bairro}, ${tenant.city}`;
+      const flexEmbedding = await generateEmbedding(flexQuery);
+      const { data: flexProps } = await supabase.rpc('match_properties', {
+        query_embedding: flexEmbedding, match_tenant_id: tenantId,
+        match_threshold: 0.15, match_count: 5,
+        filter_max_price: searchBudget, filter_tipo: null,
+        filter_neighborhood: args.bairro,
+        filter_bedrooms: args.quartos || null,
+        filter_finalidade: null,
+      });
+      const flexValid = (flexProps || []).filter((p: any) => p.price && p.price > 1);
+      if (flexValid.length > 0) {
+        validProperties = flexValid;
+      } else {
+        // Nada no bairro — informar honestamente
+        return `[SISTEMA] Não encontrei nenhum imóvel disponível para ${args.finalidade || 'venda'} no bairro ${args.bairro} com orçamento de até R$ ${(clientBudget || 0).toLocaleString('pt-BR')}. Informe o cliente de forma natural e sugira: 1) Outros bairros próximos, 2) Aumentar orçamento, 3) Considerar outro tipo de imóvel. NÃO envie imóveis de outro bairro sem perguntar antes.`;
+      }
+    } else if (validProperties.length <= 1 && !args.bairro) {
       console.log(`🌍 [Legacy] C6: Apenas ${validProperties.length} resultado(s). Expansão geográfica...`);
       const expandedQuery = args.tipo_imovel
         ? `${args.tipo_imovel} para ${args.finalidade || 'venda'} em ${tenant.city}`
@@ -754,6 +777,9 @@ async function legacyExecutePropertySearch(
         query_embedding: expandedEmbedding, match_tenant_id: tenantId,
         match_threshold: 0.15, match_count: 5,
         filter_max_price: searchBudget, filter_tipo: args.tipo_imovel || null,
+        filter_neighborhood: null,
+        filter_bedrooms: null,
+        filter_finalidade: null,
       });
       const expandedValid = (expandedProps || []).filter((p: any) => p.price && p.price > 1);
       const originalIds = new Set(validProperties.map((p: any) => p.external_id));

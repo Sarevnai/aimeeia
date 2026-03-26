@@ -208,7 +208,7 @@ serve(async (req: Request) => {
       tenant_id,
       conversation_id,
       direction: 'inbound',
-      sender_type: 'contact',
+      sender_type: 'customer',
       body: message_body,
     });
 

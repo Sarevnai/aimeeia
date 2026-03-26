@@ -180,9 +180,42 @@ export async function executePropertySearch(
     // C2: Filtrar imóveis sem preço válido — "sob consulta" não existe no sistema
     let validProperties = (properties || []).filter((p: any) => p.price && p.price > 1);
 
-    // C6: Expansão geográfica proativa — se poucos resultados, busca ampla (sem bairro específico)
-    if (validProperties.length <= 1) {
-      console.log(`🌍 C6: Apenas ${validProperties.length} resultado(s) válido(s). Tentando expansão geográfica...`);
+    // C6: Expansão inteligente quando poucos resultados
+    if (validProperties.length <= 1 && args.bairro) {
+      console.log(`🌍 C6: Apenas ${validProperties.length} resultado(s) no ${args.bairro}. Tentando flexibilizar...`);
+
+      // PASSO 1: Tentar MESMO bairro sem filtro de tipo (ex: cliente quer apt no Santa Mônica, mas só tem casas)
+      const flexQuery = `imóvel para ${args.finalidade || 'venda'} no bairro ${args.bairro}, ${ctx.tenant.city}`;
+      const flexEmbedding = await generateEmbedding(flexQuery);
+      const { data: flexProps } = await ctx.supabase.rpc('match_properties', {
+        query_embedding: flexEmbedding,
+        match_tenant_id: ctx.tenantId,
+        match_threshold: 0.15,
+        match_count: 5,
+        filter_max_price: searchBudget,
+        filter_tipo: null, // Remove filtro de tipo, mantém bairro
+        filter_neighborhood: args.bairro,
+        filter_bedrooms: args.quartos || null,
+        filter_finalidade: filterFinalidade,
+      });
+      const flexValid = (flexProps || []).filter((p: any) => p.price && p.price > 1);
+
+      if (flexValid.length > 0) {
+        // Encontrou no bairro certo mas tipo diferente — INFORMAR o lead
+        const tiposEncontrados = [...new Set(flexValid.map((p: any) => p.type || 'imóvel'))].join(', ');
+        console.log(`🌍 C6: Encontrou ${flexValid.length} imóvel(is) no ${args.bairro} mas tipo diferente: ${tiposEncontrados}`);
+        validProperties = flexValid;
+        // Sinalizar para o hint que o tipo mudou
+        (args as any)._tipo_expandido = true;
+        (args as any)._tipos_encontrados = tiposEncontrados;
+      } else {
+        // PASSO 2: Nada no bairro pedido — informar e NÃO expandir silenciosamente
+        console.log(`🌍 C6: Nenhum imóvel no ${args.bairro} com budget ${searchBudget}. Informando o cliente.`);
+        return `[SISTEMA] Não encontrei nenhum imóvel disponível para ${args.finalidade || 'venda'} no bairro ${args.bairro} com orçamento de até R$ ${(clientBudget || 0).toLocaleString('pt-BR')}. Informe o cliente de forma natural e sugira: 1) Outros bairros próximos, 2) Aumentar orçamento, 3) Considerar outro tipo de imóvel. NÃO envie imóveis de outro bairro sem perguntar antes.`;
+      }
+    } else if (validProperties.length <= 1 && !args.bairro) {
+      // Sem bairro especificado: expansão geográfica normal
+      console.log(`🌍 C6: Apenas ${validProperties.length} resultado(s) sem bairro definido. Expandindo...`);
       const expandedQuery = args.tipo_imovel
         ? `${args.tipo_imovel} para ${args.finalidade || 'venda'} em ${ctx.tenant.city}`
         : `imóvel para ${args.finalidade || 'venda'} em ${ctx.tenant.city}`;
@@ -194,24 +227,17 @@ export async function executePropertySearch(
         match_count: 5,
         filter_max_price: searchBudget,
         filter_tipo: args.tipo_imovel || null,
-        filter_neighborhood: null, // Expansão intencional: sem filtro de bairro
-        filter_bedrooms: args.quartos || null, // Mantém filtro de quartos na expansão
-        filter_finalidade: filterFinalidade, // Mantém filtro residencial/comercial na expansão
+        filter_neighborhood: null,
+        filter_bedrooms: args.quartos || null,
+        filter_finalidade: filterFinalidade,
       });
-      console.log(`🌍 C6: Expansão sem filtro de bairro (bairro original: ${args.bairro || 'nenhum'})`);
-
       const expandedValid = (expandedProps || []).filter((p: any) => p.price && p.price > 1);
-      // Mesclar: resultados originais primeiro, depois os expandidos (sem duplicatas)
       const originalIds = new Set(validProperties.map((p: any) => p.external_id));
       const newExpanded = expandedValid.filter((p: any) => !originalIds.has(p.external_id));
-      const allProperties = [...validProperties, ...newExpanded];
 
-      if (allProperties.length === 0) {
+      if ([...validProperties, ...newExpanded].length === 0) {
         return 'Não encontrei imóveis disponíveis com esses critérios no momento. Quer que eu ajuste a faixa de preço ou o tipo de imóvel?';
       }
-
-      // Substituir validProperties com o resultado combinado e sinalizar expansão
-      console.log(`🌍 C6: Expansão trouxe ${newExpanded.length} resultado(s) adicional(is) em bairros próximos.`);
       validProperties.push(...newExpanded);
     }
 
@@ -417,7 +443,11 @@ export async function executePropertySearch(
       sentProp.suites ? `Suítes: ${sentProp.suites}` : null,
       sentProp.area_util ? `Área: ${sentProp.area_util}m²` : null,
     ].filter(Boolean).join(', ');
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] 1 imóvel já foi enviado ao cliente com foto, descrição personalizada e link clicável. O imóvel enviado é: ${propContext}.\n\nREGRAS DE RESPOSTA:\n1. NÃO liste detalhes técnicos — o cliente já recebeu tudo no card.\n2. Responda com 1-2 frases CURTAS conectando o imóvel ao perfil do cliente.\n3. OBRIGATÓRIO mencionar o bairro e tipo REAIS do imóvel (${sentProp.bairro || 'não informado'}, ${sentProp.tipo || 'imóvel'}).\n4. Destaque UM diferencial relevante para o cliente.\n5. Finalize convidando o cliente a dar uma olhada e dar feedback.\n6. NUNCA invente bairros, tipos ou características que não existem no imóvel enviado.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
+    // Inform if the type was expanded (e.g., client wanted apt but only houses exist in that neighborhood)
+    const tipoExpandidoNotice = (args as any)._tipo_expandido
+      ? `\n\n⚠️ AVISO IMPORTANTE: O cliente pediu "${args.tipo_imovel || 'imóvel'}" no ${args.bairro}, mas não encontramos esse tipo lá. Encontramos ${(args as any)._tipos_encontrados} no bairro. Você DEVE informar o cliente dessa situação ANTES de apresentar o imóvel. Exemplo: "No Santa Mônica não encontrei apartamentos disponíveis, mas achei uma casa que pode te interessar. Dá uma olhada!"`
+      : '';
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] 1 imóvel já foi enviado ao cliente com foto, descrição personalizada e link clicável. O imóvel enviado é: ${propContext}.${tipoExpandidoNotice}\n\nREGRAS DE RESPOSTA:\n1. NÃO liste detalhes técnicos — o cliente já recebeu tudo no card.\n2. Responda com 1-2 frases CURTAS conectando o imóvel ao perfil do cliente.\n3. OBRIGATÓRIO mencionar o bairro e tipo REAIS do imóvel (${sentProp.bairro || 'não informado'}, ${sentProp.tipo || 'imóvel'}).\n4. Destaque UM diferencial relevante para o cliente.\n5. Finalize convidando o cliente a dar uma olhada e dar feedback.\n6. NUNCA invente bairros, tipos ou características que não existem no imóvel enviado.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
     const remainingHint = remaining > 0
       ? `\n\n[FILA] Restam ${remaining} imóvel(is). Quando o cliente pedir mais opções, alterar critérios (mais quartos, outro bairro, mais suítes), ou não gostar, CHAME buscar_imoveis com os critérios atualizados. NÃO responda com texto genérico pedindo mais informações se já tem o perfil do cliente.`

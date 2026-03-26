@@ -314,35 +314,21 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
         return body?.example?.body_text_named_params?.map((p: { param_name: string }) => p.param_name) ?? [];
     };
 
-    /* ── Build named params for a contact ── */
-    const buildNamedParams = (
-        paramNames: string[],
-        contact: Contact,
-    ): Array<{ name: string; value: string }> => {
-        return paramNames.map((name) => {
-            let value = '';
-            if (name === 'nome') value = (contact.name || '').split(' ')[0];
-            return { name, value };
-        });
-    };
-
     /* ── Dispatch: send templates to each contact ── */
+    /* Named params are resolved automatically by the Edge Function
+       (it looks up contact name, agent name, empresa from DB).
+       We only need to send tenant_id, phone, template, campaign_id, contact_id. */
     const dispatchCampaign = async (
         campaignId: string,
         tenantId: string,
         templateName: string,
         contactList: Contact[],
-        template?: WhatsappTemplate,
+        _template?: WhatsappTemplate,
     ) => {
-        const paramNames = extractNamedParamNames(template?.components ?? null);
         let sentOk = 0;
 
         for (const contact of contactList) {
             try {
-                const named_body_params = paramNames.length > 0
-                    ? buildNamedParams(paramNames, contact)
-                    : undefined;
-
                 const { data, error: fnError } = await supabase.functions.invoke('send-wa-template', {
                     body: {
                         tenant_id: tenantId,
@@ -351,7 +337,6 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                         language_code: 'pt_BR',
                         campaign_id: campaignId,
                         contact_id: contact.id,
-                        ...(named_body_params ? { named_body_params } : {}),
                     },
                 });
                 if (fnError || data?.error) {

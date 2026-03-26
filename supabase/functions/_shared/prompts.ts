@@ -24,14 +24,28 @@ export function buildContextSummary(qualificationData: QualificationData | null,
   if (qualificationData.detected_timeline) collected.push(`⏱️ Prazo: ${qualificationData.detected_timeline === '0-3m' ? 'até 3 meses' : qualificationData.detected_timeline === '3-6m' ? '3 a 6 meses' : 'acima de 6 meses'}`);
 
   if (collected.length === 0) return '';
-  return `\n<lead_data>
-📋 DADOS JÁ COLETADOS (NÃO PERGUNTE DE NOVO — use esses dados no handoff):
-${collected.join('\n')}
 
-Atenção:
-- Separe mentalmente: operação (compra/locação), uso (moradia/investimento), localização, tipo, características.
-- Se "Objetivo" disser "venda", isso indica operação de COMPRA do ponto de vista do cliente.
-- Se algum desses pontos não estiver confirmado pelo cliente nesta conversa, confirme em vez de presumir.
+  // Build list of what's still MISSING for qualification
+  const missing: string[] = [];
+  if (!qualificationData.detected_interest) missing.push('finalidade (compra ou locação)');
+  if (!qualificationData.detected_property_type) missing.push('tipo de imóvel');
+  if (!qualificationData.detected_neighborhood && !qualificationData.detected_budget_max) missing.push('bairro OU orçamento');
+  if (qualificationData.detected_neighborhood && !qualificationData.detected_budget_max) missing.push('orçamento');
+  if (!qualificationData.detected_neighborhood && qualificationData.detected_budget_max) missing.push('bairro preferido');
+
+  const missingText = missing.length > 0
+    ? `\n⚠️ DADOS QUE AINDA FALTAM (pergunte APENAS estes): ${missing.join(', ')}`
+    : '\n✅ QUALIFICAÇÃO COMPLETA — pode buscar imóveis quando o cliente pedir.';
+
+  return `\n<lead_data>
+📋 DADOS JÁ COLETADOS — NUNCA re-pergunte o que já está aqui:
+${collected.join('\n')}
+${missingText}
+
+Regras:
+- Se "Objetivo" = "venda", o cliente quer COMPRAR.
+- Use esses dados ao buscar imóveis e no handoff para o CRM.
+- Avance a conversa: pergunte APENAS o que falta, não repita perguntas já respondidas.
 </lead_data>\n`;
 }
 

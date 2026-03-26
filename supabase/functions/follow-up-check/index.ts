@@ -8,7 +8,7 @@ import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorRespon
 import { sendWhatsAppMessage, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { Tenant } from '../_shared/types.ts';
 
-const INACTIVITY_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+const INACTIVITY_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes (was 5min — too aggressive for real estate leads)
 
 const FOLLOW_UP_MESSAGES = [
   'Ainda está por aí? Estou aqui caso precise de algo.',
@@ -64,16 +64,17 @@ serve(async (req: Request) => {
 
         if (!conversation) continue;
 
-        // Get the last message in the conversation
-        const { data: lastMessage } = await supabase
+        // Get the last few messages to check context
+        const { data: recentMessages } = await supabase
           .from('messages')
-          .select('direction, created_at, sender_type')
+          .select('direction, created_at, sender_type, body')
           .eq('conversation_id', conversation.id)
           .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .limit(5);
 
-        if (!lastMessage) continue;
+        if (!recentMessages || recentMessages.length === 0) continue;
+
+        const lastMessage = recentMessages[0];
 
         // Only follow up if last message was from AI and older than threshold
         if (lastMessage.direction !== 'outbound' || lastMessage.sender_type !== 'ai') continue;
@@ -85,6 +86,20 @@ serve(async (req: Request) => {
 
         // Don't follow up if silence is too long (> 24h = probably abandoned)
         if (silenceMs > 24 * 60 * 60 * 1000) continue;
+
+        // MAX 2 follow-ups per silence period: count consecutive outbound messages
+        // without any inbound in between (= follow-ups already sent)
+        let consecutiveFollowUps = 0;
+        for (const msg of recentMessages) {
+          if (msg.direction === 'inbound') break; // lead replied, stop counting
+          // Check if it's a follow-up message (matches known patterns)
+          const isFollowUp = FOLLOW_UP_MESSAGES.some(fu => msg.body?.includes(fu.slice(0, 20)));
+          if (isFollowUp) consecutiveFollowUps++;
+        }
+        if (consecutiveFollowUps >= 2) {
+          console.log(`⏭️ Skipping ${state.phone_number}: already sent ${consecutiveFollowUps} follow-ups`);
+          continue;
+        }
 
         // Load tenant for WhatsApp credentials
         const { data: tenant } = await supabase

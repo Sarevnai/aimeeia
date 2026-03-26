@@ -6,7 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
 import { callLLMWithToolExecution } from '../_shared/ai-call.ts';
-import { sendWhatsAppMessage, sendWhatsAppButtons, sendWhatsAppImage, saveOutboundMessage } from '../_shared/whatsapp.ts';
+import { sendWhatsAppMessage, sendWhatsAppButtons, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
 import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags } from '../_shared/qualification.ts';
@@ -341,6 +341,30 @@ serve(async (req: Request) => {
       if (autoTags.length > 0 && contact_id) {
         await syncContactTags(supabase, contact_id, autoTags);
       }
+
+      // Invalidate pending_properties when a critical qualification field changes significantly
+      // (e.g., budget changed from unknown to 5M, or neighborhood changed)
+      const budgetChanged = extracted.detected_budget_max && (!qualData.detected_budget_max || Math.abs(Number(extracted.detected_budget_max) - Number(qualData.detected_budget_max)) / Math.max(Number(qualData.detected_budget_max), 1) > 0.3);
+      const neighborhoodChanged = extracted.detected_neighborhood && qualData.detected_neighborhood && extracted.detected_neighborhood !== qualData.detected_neighborhood;
+
+      if (budgetChanged || neighborhoodChanged) {
+        console.log(`🔄 Qualification changed significantly (budget: ${budgetChanged}, neighborhood: ${neighborhoodChanged}). Invalidating pending properties.`);
+        await supabase
+          .from('conversation_states')
+          .update({
+            pending_properties: null,
+            current_property_index: 0,
+            awaiting_property_feedback: false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('tenant_id', tenant_id)
+          .eq('phone_number', phone_number);
+        // Also clear from local state so the LLM doesn't see stale data
+        if (state) {
+          state.pending_properties = null;
+          state.awaiting_property_feedback = false;
+        }
+      }
     }
 
     // Load conversation history
@@ -594,11 +618,16 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
           const audioUrl = await uploadAudioToStorage(supabase, audioBytes, tenant_id);
 
           if (audioConfig.audio_mode === 'text_and_audio') {
+            // Send text message and save to DB
             await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
             await sleep(500);
+            // Send audio via WhatsApp but do NOT save duplicate row in messages table
+            // The text row above already has the content; audio is just a companion format
+            await sendWhatsAppAudio(phone_number, audioUrl, tenant as Tenant);
+          } else {
+            // audio_only mode: send only audio and save with audio metadata
+            await sendAndSaveAudio(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, audioUrl, effectiveDepartment);
           }
-
-          await sendAndSaveAudio(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, audioUrl, effectiveDepartment);
         } catch (ttsError) {
           console.error('❌ TTS error, falling back to text:', ttsError);
           await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);

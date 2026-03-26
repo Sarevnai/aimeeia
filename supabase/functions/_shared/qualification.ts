@@ -293,7 +293,25 @@ function detectBedrooms(lower: string): number | null {
 }
 
 function detectBudget(lower: string): number | null {
-  // R$ patterns
+  // 1. Check "milhão/milhões" patterns FIRST (highest priority — natural speech)
+  const milhaoPatterns = [
+    /r?\$?\s*([\d.,]+)\s*milh[aãoõ][oe]?s?/i,           // "5 milhões", "R$ 2,5 milhões", "1 milhão"
+    /([\d.,]+)\s*milh[aãoõ][oe]?s?\s*(?:de\s+)?(?:reais)?/i, // "5 milhões de reais"
+    /(\d+)[.,](\d+)\s*(?:mi|M)\b/i,                       // "2.3M", "1,5 mi"
+  ];
+
+  for (const pattern of milhaoPatterns) {
+    const match = lower.match(pattern);
+    if (match) {
+      let value = match[1].replace(/\./g, '').replace(',', '.');
+      let num = parseFloat(value);
+      if (isNaN(num)) continue;
+      num *= 1_000_000;
+      if (num >= 100_000 && num <= 50_000_000) return num;
+    }
+  }
+
+  // 2. Standard R$ patterns
   const patterns = [
     /r\$\s*([\d.,]+)\s*(?:mil|k)/i,
     /r\$\s*([\d.,]+)/i,

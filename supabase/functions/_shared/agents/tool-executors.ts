@@ -357,7 +357,8 @@ export async function executePropertySearch(
         }, { onConflict: 'tenant_id,phone_number' });
     }
 
-    // Persist lead qualification data
+    // Persist lead qualification data — use bairro from args or first result, NOT the full semantic query
+    const detectedBairro = args.bairro || (formattedProperties.length > 0 ? formattedProperties[0].bairro : null);
     await ctx.supabase
       .from('lead_qualification')
       .upsert({
@@ -366,7 +367,7 @@ export async function executePropertySearch(
         detected_property_type: args.tipo_imovel || null,
         detected_budget_max: args.preco_max || null,
         detected_interest: args.finalidade || null,
-        detected_neighborhood: semanticQuery,
+        detected_neighborhood: detectedBairro || null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 
@@ -396,7 +397,17 @@ export async function executePropertySearch(
       return textHint;
     }
 
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] 1 imóvel já foi enviado ao cliente com foto, descrição personalizada e link. NÃO liste detalhes técnicos do imóvel novamente. Responda com 1-2 frases curtas conectando o imóvel ao que o cliente pediu e destacando um diferencial relevante. Exemplo: "Achei essa casa no Itacorubi que tem a suíte e a vaga que você pediu. Dá uma olhada e me conta o que achou." Se o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
+    // Build dynamic context so the LLM references the ACTUAL property sent, not a generic example
+    const sentProp = formattedProperties[0];
+    const propContext = [
+      sentProp.tipo ? `Tipo: ${sentProp.tipo}` : null,
+      sentProp.bairro ? `Bairro: ${sentProp.bairro}` : null,
+      sentProp.preco ? `Preço: ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}` : null,
+      sentProp.quartos ? `Quartos: ${sentProp.quartos}` : null,
+      sentProp.suites ? `Suítes: ${sentProp.suites}` : null,
+      sentProp.area_util ? `Área: ${sentProp.area_util}m²` : null,
+    ].filter(Boolean).join(', ');
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] 1 imóvel já foi enviado ao cliente com foto, descrição personalizada e link clicável. O imóvel enviado é: ${propContext}.\n\nREGRAS DE RESPOSTA:\n1. NÃO liste detalhes técnicos — o cliente já recebeu tudo no card.\n2. Responda com 1-2 frases CURTAS conectando o imóvel ao perfil do cliente.\n3. OBRIGATÓRIO mencionar o bairro e tipo REAIS do imóvel (${sentProp.bairro || 'não informado'}, ${sentProp.tipo || 'imóvel'}).\n4. Destaque UM diferencial relevante para o cliente.\n5. Finalize convidando o cliente a dar uma olhada e dar feedback.\n6. NUNCA invente bairros, tipos ou características que não existem no imóvel enviado.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
     const remainingHint = remaining > 0
       ? `\n\n[FILA] Restam ${remaining} imóvel(is). Quando o cliente pedir mais opções, alterar critérios (mais quartos, outro bairro, mais suítes), ou não gostar, CHAME buscar_imoveis com os critérios atualizados. NÃO responda com texto genérico pedindo mais informações se já tem o perfil do cliente.`

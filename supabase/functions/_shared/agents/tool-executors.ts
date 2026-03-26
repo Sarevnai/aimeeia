@@ -164,6 +164,7 @@ export async function executePropertySearch(
       match_count: 5,
       filter_max_price: searchBudget,
       filter_tipo: args.tipo_imovel || null,
+      filter_neighborhood: args.bairro || null,
     });
 
     if (error) {
@@ -188,7 +189,9 @@ export async function executePropertySearch(
         match_count: 5,
         filter_max_price: searchBudget,
         filter_tipo: args.tipo_imovel || null,
+        filter_neighborhood: null, // Expansão intencional: sem filtro de bairro
       });
+      console.log(`🌍 C6: Expansão sem filtro de bairro (bairro original: ${args.bairro || 'nenhum'})`);
 
       const expandedValid = (expandedProps || []).filter((p: any) => p.price && p.price > 1);
       // Mesclar: resultados originais primeiro, depois os expandidos (sem duplicatas)

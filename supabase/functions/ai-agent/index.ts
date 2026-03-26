@@ -796,8 +796,37 @@ async function legacyExecuteLeadHandoff(
   conversationId: string, contactId: string, args: any, qualData: any
 ): Promise<string> {
   try {
+    let developmentId = args.codigo_imovel || null;
+    let developmentTitle = args.titulo_imovel || null;
+
+    // Fallback: se a IA não passou o imóvel, extrair do conversation_states
+    if (!developmentId) {
+      try {
+        const { data: convState } = await supabase
+          .from('conversation_states')
+          .select('pending_properties, current_property_index')
+          .eq('tenant_id', tenantId)
+          .eq('phone_number', phoneNumber)
+          .single();
+        if (convState?.pending_properties?.length) {
+          const idx = Math.max(0, (convState.current_property_index || 1) - 1);
+          const prop = convState.pending_properties[idx] || convState.pending_properties[0];
+          if (prop?.codigo) {
+            developmentId = prop.codigo;
+            const tipo = prop.tipo?.replace(/s$/, '') || 'Imóvel';
+            const quartos = prop.quartos ? `com ${prop.quartos} dormitórios` : '';
+            const bairro = prop.bairro || '';
+            const cidade = prop.cidade || '';
+            const localStr = [bairro, cidade].filter(Boolean).join(', ');
+            developmentTitle = [tipo, quartos, localStr ? `no ${localStr}` : ''].filter(Boolean).join(' ');
+            console.log(`📦 Legacy fallback prop_ref: [${developmentId}] ${developmentTitle}`);
+          }
+        }
+      } catch (fbErr) { console.warn('⚠️ Legacy fallback property lookup failed:', fbErr); }
+    }
+
     await supabase.functions.invoke('c2s-create-lead', {
-      body: { tenant_id: tenantId, phone_number: phoneNumber, conversation_id: conversationId, contact_id: contactId, reason: args.motivo, qualification_data: qualData, development_id: args.codigo_imovel || null, development_title: args.titulo_imovel || null },
+      body: { tenant_id: tenantId, phone_number: phoneNumber, conversation_id: conversationId, contact_id: contactId, reason: args.motivo, qualification_data: qualData, development_id: developmentId, development_title: developmentTitle },
     });
     await supabase.from('conversation_states').upsert({
       tenant_id: tenantId, phone_number: phoneNumber, is_ai_active: false,

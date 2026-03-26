@@ -574,11 +574,13 @@ function getRemarketingTools(ctx: AgentContext): any[] {
       type: "function",
       function: {
         name: "enviar_lead_c2s",
-        description: "Transferir lead VIP qualificado para corretor humano. Use após a anamnese completa e curadoria de imóveis, incluindo dossiê completo do remarketing.",
+        description: "Transferir lead VIP qualificado para corretor humano. Use após a anamnese completa e curadoria de imóveis. OBRIGATÓRIO: se o cliente demonstrou interesse em algum imóvel específico, você DEVE incluir codigo_imovel e titulo_imovel.",
         parameters: {
           type: "object",
           properties: {
             motivo: { type: "string", description: "Dossiê completo do lead VIP: prazo, finalidade, tipo, características, localização, contexto remarketing" },
+            codigo_imovel: { type: "string", description: "OBRIGATÓRIO se o cliente escolheu um imóvel. O código (external_id) do imóvel. Ex: '54482'." },
+            titulo_imovel: { type: "string", description: "OBRIGATÓRIO se o cliente escolheu um imóvel. Título descritivo. Formato: 'Apartamento à venda com 3 dormitórios, 2 vagas, no Bairro, Cidade/UF'." },
           },
           required: ["motivo"],
         },

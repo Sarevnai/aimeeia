@@ -305,13 +305,13 @@ function getComercialTools(ctx: AgentContext): any[] {
       type: "function",
       function: {
         name: "enviar_lead_c2s",
-        description: "Transferir lead qualificado para corretor humano. Use quando o cliente demonstrar interesse real. IMPORTANTE: sempre inclua o código do imóvel de interesse se o cliente escolheu um.",
+        description: "Transferir lead qualificado para corretor humano. Use quando o cliente demonstrar interesse real. OBRIGATÓRIO: se o cliente demonstrou interesse em algum imóvel específico durante a conversa, você DEVE incluir codigo_imovel e titulo_imovel. Sem esses dados, o corretor não saberá qual imóvel o cliente quer.",
         parameters: {
           type: "object",
           properties: {
             motivo: { type: "string", description: "Razão da transferência com detalhes da qualificação" },
-            codigo_imovel: { type: "string", description: "Código (external_id) do imóvel que o cliente escolheu. Ex: '54482'. Se o cliente não escolheu nenhum, omita." },
-            titulo_imovel: { type: "string", description: "Título descritivo do imóvel escolhido. Formato: 'Apartamento à venda com 3 dormitórios, 2 vagas, no Bairro, Cidade/UF'. Se não escolheu, omita." },
+            codigo_imovel: { type: "string", description: "OBRIGATÓRIO se o cliente escolheu um imóvel. O código (external_id) do imóvel. Ex: '54482'. Extraia do imóvel que foi apresentado ao cliente na conversa." },
+            titulo_imovel: { type: "string", description: "OBRIGATÓRIO se o cliente escolheu um imóvel. Título descritivo. Formato: 'Apartamento à venda com 3 dormitórios, 2 vagas, no Bairro, Cidade/UF'. Extraia dos dados do imóvel apresentado." },
           },
           required: ["motivo"],
         },

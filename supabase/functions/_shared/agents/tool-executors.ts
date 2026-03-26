@@ -474,6 +474,39 @@ export async function executeLeadHandoff(
   args: any
 ): Promise<string> {
   try {
+    let developmentId = args.codigo_imovel || null;
+    let developmentTitle = args.titulo_imovel || null;
+
+    // Fallback: se a IA não passou o imóvel, tentar extrair do conversation_states
+    if (!developmentId) {
+      try {
+        const { data: convState } = await ctx.supabase
+          .from('conversation_states')
+          .select('pending_properties, current_property_index')
+          .eq('tenant_id', ctx.tenantId)
+          .eq('phone_number', ctx.phoneNumber)
+          .single();
+
+        if (convState?.pending_properties?.length) {
+          // Pegar o último imóvel mostrado (current_property_index - 1, pois incrementa após mostrar)
+          const idx = Math.max(0, (convState.current_property_index || 1) - 1);
+          const prop = convState.pending_properties[idx] || convState.pending_properties[0];
+          if (prop?.codigo) {
+            developmentId = prop.codigo;
+            const tipo = prop.tipo?.replace(/s$/, '') || 'Imóvel';
+            const quartos = prop.quartos ? `com ${prop.quartos} dormitórios` : '';
+            const bairro = prop.bairro || '';
+            const cidade = prop.cidade || '';
+            const localStr = [bairro, cidade].filter(Boolean).join(', ');
+            developmentTitle = [tipo, quartos, localStr ? `no ${localStr}` : ''].filter(Boolean).join(' ');
+            console.log(`📦 Fallback prop_ref: [${developmentId}] ${developmentTitle}`);
+          }
+        }
+      } catch (fbErr) {
+        console.warn('⚠️ Fallback property lookup failed:', fbErr);
+      }
+    }
+
     await ctx.supabase.functions.invoke('c2s-create-lead', {
       body: {
         tenant_id: ctx.tenantId,
@@ -482,8 +515,8 @@ export async function executeLeadHandoff(
         contact_id: ctx.contactId,
         reason: args.motivo,
         qualification_data: ctx.qualificationData,
-        development_id: args.codigo_imovel || null,
-        development_title: args.titulo_imovel || null,
+        development_id: developmentId,
+        development_title: developmentTitle,
       },
     });
 

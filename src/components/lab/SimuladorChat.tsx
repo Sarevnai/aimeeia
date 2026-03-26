@@ -162,7 +162,7 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
       const aiMessages: SimMessage[] = [];
 
       // The Edge Function may return a compound response separated by ___
-      const rawReply: string = responseData?.reply ?? responseData?.message ?? "";
+      const rawReply: string = responseData?.ai_response ?? responseData?.reply ?? responseData?.message ?? "";
       const parts = rawReply.split("___").map((p: string) => p.trim()).filter(Boolean);
 
       const action: string = responseData?.action ?? "";
@@ -243,26 +243,38 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
 
   // ------- Run analysis after AI response -------
   const runAnalysis = useCallback(
-    async (meta: SimMetadata) => {
+    async (meta: SimMetadata, userMessage: string, aiResponse: string) => {
       try {
         const { data: analysisData } = await supabase.functions.invoke("ai-agent-analyze", {
           body: {
             tenant_id: tenantId,
-            conversation_history: meta.conversationHistory,
-            qualification: meta.qualification,
-            action: meta.action,
+            conversation_id: conversationId,
+            conversation_history: meta.conversationHistory || [],
+            current_turn: {
+              user_message: userMessage,
+              ai_response: aiResponse,
+              action: meta.action,
+              active_module: meta.activeModule,
+              triage_stage: meta.triageStage,
+              qualification: meta.qualification,
+              tools_executed: meta.toolsExecuted,
+              property_cards: meta.propertyCards,
+            },
+            flow_type: department || 'vendas',
+            turn_number: messages.length,
           },
         });
 
         if (analysisData) {
           const withAnalysis = { ...meta, analysis: analysisData };
           setMetadata(withAnalysis);
+          onMetadataUpdate?.({ ...withAnalysis });
         }
       } catch {
         // analysis is best-effort
       }
     },
-    [tenantId, setMetadata]
+    [tenantId, conversationId, department, messages.length, setMetadata, onMetadataUpdate]
   );
 
   // ------- Send user message -------
@@ -293,8 +305,8 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
 
       if (error) throw error;
 
-      const { updatedMeta } = processAiResponse(data);
-      await runAnalysis(updatedMeta);
+      const { updatedMeta, rawReply } = processAiResponse(data);
+      await runAnalysis(updatedMeta, text, rawReply || data?.ai_response || '');
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -340,8 +352,8 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
 
         if (error) throw error;
 
-        const { updatedMeta } = processAiResponse(data);
-        await runAnalysis(updatedMeta);
+        const { updatedMeta, rawReply } = processAiResponse(data);
+        await runAnalysis(updatedMeta, `[Template: ${template.name}]`, rawReply || data?.ai_response || '');
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -362,7 +374,7 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
 
   // ------- Reset -------
   const handleReset = useCallback(async () => {
-    // Archive conversation if it exists
+    // Archive conversation and clear DB state
     if (conversationId) {
       try {
         await supabase
@@ -372,6 +384,20 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
       } catch {
         // best effort
       }
+    }
+    // Clear conversation_states for the sim phone to prevent residual triage state
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const simPhone = `SIM-${user.id.slice(0, 8)}`;
+        await supabase
+          .from("conversation_states" as any)
+          .delete()
+          .eq("tenant_id", tenantId)
+          .eq("phone_number", simPhone);
+      }
+    } catch {
+      // best effort
     }
 
     setMessages([]);

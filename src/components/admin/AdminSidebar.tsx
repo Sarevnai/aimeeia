@@ -15,6 +15,7 @@ import {
     Megaphone,
     MessageSquareText,
     Brain,
+    FlaskConical,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -62,6 +63,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
             items: [
                 { label: 'Agentes IA', icon: Bot, path: '/admin/agents' },
                 { label: 'Módulos', icon: Brain, path: '/admin/modulos' },
+                { label: 'AI Lab', icon: FlaskConical, path: '/admin/lab' },
                 { label: 'Simulação', icon: MessageSquareText, path: '/admin/simulacao' },
                 { label: 'Planos', icon: ScrollText, path: '/admin/billing' },
             ],

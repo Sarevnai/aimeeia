@@ -46,6 +46,14 @@ import AgentGlobalSettingsPage from "@/pages/admin/AgentGlobalSettingsPage";
 import AdminSimulacaoPage from "@/pages/admin/AdminSimulacaoPage";
 import AdminModulosPage from "@/pages/admin/AdminModulosPage";
 
+// AI Lab
+import LabLayout from "@/pages/admin/lab/LabLayout";
+import LabSimulatorPage from "@/pages/admin/lab/LabSimulatorPage";
+import LabPromptsPage from "@/pages/admin/lab/LabPromptsPage";
+import LabAgentConfigPage from "@/pages/admin/lab/LabAgentConfigPage";
+import LabTriagePage from "@/pages/admin/lab/LabTriagePage";
+import LabAnalysisPage from "@/pages/admin/lab/LabAnalysisPage";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -97,6 +105,13 @@ const App = () => (
                   <Route path="campanhas" element={<AdminCampaignsPage />} />
                   <Route path="simulacao" element={<AdminSimulacaoPage />} />
                   <Route path="modulos" element={<AdminModulosPage />} />
+                  <Route path="lab" element={<LabLayout />}>
+                    <Route index element={<LabSimulatorPage />} />
+                    <Route path="prompts" element={<LabPromptsPage />} />
+                    <Route path="agent-config" element={<LabAgentConfigPage />} />
+                    <Route path="triage" element={<LabTriagePage />} />
+                    <Route path="analysis" element={<LabAnalysisPage />} />
+                  </Route>
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

@@ -1,0 +1,635 @@
+import { useRef, useEffect, useCallback, useState } from "react";
+import { Send, RotateCcw, Loader2, FileText, MessageSquareText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { useSessionState, clearSimulationSession } from "@/hooks/useSessionState";
+import { supabase } from "@/integrations/supabase/client";
+import { PropertyCard } from "./PropertyCard";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SimMessage {
+  id: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  timestamp: Date;
+  action?: string;
+  propertyCards?: any[];
+  templateRendered?: any;
+}
+
+interface SimMetadata {
+  action: string;
+  triageStage: string;
+  activeModule: { slug: string; name: string } | null;
+  moduleHistory: Array<{ slug: string; name: string }>;
+  qualification: Record<string, any>;
+  tags: string[];
+  toolsExecuted: string[];
+  agentType: string;
+  propertyCards: any[];
+  conversationState: any;
+  modelUsed: string;
+  handoffDetected: boolean;
+  loopDetected: boolean;
+  analysis: any | null;
+  conversationHistory: Array<{ role: string; content: string }>;
+}
+
+interface SimuladorChatProps {
+  tenantId: string;
+  onMetadataUpdate?: (metadata: SimMetadata) => void;
+  onReset?: () => void;
+}
+
+interface WhatsAppTemplate {
+  id: string;
+  name: string;
+  status: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const DEPARTMENTS = [
+  { value: "vendas", label: "Vendas" },
+  { value: "locacao", label: "Locacao" },
+  { value: "administrativo", label: "Administrativo" },
+  { value: "remarketing", label: "Remarketing" },
+] as const;
+
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+const INITIAL_METADATA: SimMetadata = {
+  action: "",
+  triageStage: "",
+  activeModule: null,
+  moduleHistory: [],
+  qualification: {},
+  tags: [],
+  toolsExecuted: [],
+  agentType: "",
+  propertyCards: [],
+  conversationState: null,
+  modelUsed: "",
+  handoffDetected: false,
+  loopDetected: false,
+  analysis: null,
+  conversationHistory: [],
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: SimuladorChatProps) {
+  // Persisted state (survives navigation / refresh)
+  const [messages, setMessages] = useSessionState<SimMessage[]>("lab_messages", []);
+  const [conversationId, setConversationId] = useSessionState<string | null>("lab_conversationId", null);
+  const [department, setDepartment] = useSessionState<string>("lab_department", "vendas");
+  const [metadata, setMetadata] = useSessionState<SimMetadata>("lab_metadata", INITIAL_METADATA);
+  const [moduleHistory, setModuleHistory] = useSessionState<Array<{ slug: string; name: string }>>(
+    "lab_moduleHistory",
+    []
+  );
+
+  // Ephemeral state
+  const [inputText, setInputText] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ------- Auto-scroll -------
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isLoading]);
+
+  // ------- Emit metadata to parent whenever it changes -------
+  useEffect(() => {
+    onMetadataUpdate?.(metadata);
+  }, [metadata, onMetadataUpdate]);
+
+  // ------- Fetch templates -------
+  const fetchTemplates = useCallback(async () => {
+    setLoadingTemplates(true);
+    try {
+      const { data, error } = await supabase
+        .from("whatsapp_templates" as any)
+        .select("id, name, status")
+        .eq("tenant_id", tenantId)
+        .eq("status", "APPROVED");
+
+      if (!error && data) {
+        setTemplates(data as WhatsAppTemplate[]);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }, [tenantId]);
+
+  // ------- Process AI response -------
+  const processAiResponse = useCallback(
+    (responseData: any) => {
+      const aiMessages: SimMessage[] = [];
+
+      // The Edge Function may return a compound response separated by ___
+      const rawReply: string = responseData?.reply ?? responseData?.message ?? "";
+      const parts = rawReply.split("___").map((p: string) => p.trim()).filter(Boolean);
+
+      const action: string = responseData?.action ?? "";
+      const propertyCards: any[] = responseData?.property_cards ?? responseData?.propertyCards ?? [];
+      const templateRendered = responseData?.template_rendered ?? null;
+
+      for (const part of parts) {
+        aiMessages.push({
+          id: generateId(),
+          direction: "outbound",
+          body: part,
+          timestamp: new Date(),
+          action,
+          propertyCards: parts.indexOf(part) === parts.length - 1 ? propertyCards : [],
+          templateRendered: parts.indexOf(part) === parts.length - 1 ? templateRendered : undefined,
+        });
+      }
+
+      // If nothing was split, still add a single message
+      if (aiMessages.length === 0 && rawReply) {
+        aiMessages.push({
+          id: generateId(),
+          direction: "outbound",
+          body: rawReply,
+          timestamp: new Date(),
+          action,
+          propertyCards,
+          templateRendered,
+        });
+      }
+
+      setMessages((prev) => [...prev, ...aiMessages]);
+
+      // Build updated module history
+      const activeModule = responseData?.active_module ?? responseData?.activeModule ?? null;
+      const newModuleHistory = [...moduleHistory];
+      if (activeModule && !newModuleHistory.some((m) => m.slug === activeModule.slug)) {
+        newModuleHistory.push(activeModule);
+      }
+      setModuleHistory(newModuleHistory);
+
+      // Build conversation history for metadata
+      const newConvHistory = [
+        ...metadata.conversationHistory,
+        { role: "user", content: inputText || "(template)" },
+        { role: "assistant", content: rawReply },
+      ];
+
+      const updatedMeta: SimMetadata = {
+        action,
+        triageStage: responseData?.triage_stage ?? responseData?.triageStage ?? metadata.triageStage,
+        activeModule,
+        moduleHistory: newModuleHistory,
+        qualification: responseData?.qualification ?? metadata.qualification,
+        tags: responseData?.tags ?? metadata.tags,
+        toolsExecuted: responseData?.tools_executed ?? responseData?.toolsExecuted ?? metadata.toolsExecuted,
+        agentType: responseData?.agent_type ?? responseData?.agentType ?? metadata.agentType,
+        propertyCards,
+        conversationState: responseData?.conversation_state ?? responseData?.conversationState ?? metadata.conversationState,
+        modelUsed: responseData?.model_used ?? responseData?.modelUsed ?? metadata.modelUsed,
+        handoffDetected: responseData?.handoff_detected ?? responseData?.handoffDetected ?? false,
+        loopDetected: responseData?.loop_detected ?? responseData?.loopDetected ?? false,
+        analysis: metadata.analysis,
+        conversationHistory: newConvHistory,
+      };
+
+      setMetadata(updatedMeta);
+
+      // Store conversation_id if returned
+      if (responseData?.conversation_id) {
+        setConversationId(responseData.conversation_id);
+      }
+
+      return { updatedMeta, rawReply };
+    },
+    [metadata, moduleHistory, inputText, setMessages, setMetadata, setModuleHistory, setConversationId]
+  );
+
+  // ------- Run analysis after AI response -------
+  const runAnalysis = useCallback(
+    async (meta: SimMetadata) => {
+      try {
+        const { data: analysisData } = await supabase.functions.invoke("ai-agent-analyze", {
+          body: {
+            tenant_id: tenantId,
+            conversation_history: meta.conversationHistory,
+            qualification: meta.qualification,
+            action: meta.action,
+          },
+        });
+
+        if (analysisData) {
+          const withAnalysis = { ...meta, analysis: analysisData };
+          setMetadata(withAnalysis);
+        }
+      } catch {
+        // analysis is best-effort
+      }
+    },
+    [tenantId, setMetadata]
+  );
+
+  // ------- Send user message -------
+  const handleSend = useCallback(async () => {
+    const text = inputText.trim();
+    if (!text || isLoading) return;
+
+    // Add user message
+    const userMsg: SimMessage = {
+      id: generateId(),
+      direction: "inbound",
+      body: text,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInputText("");
+    setIsLoading(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-agent-simulate", {
+        body: {
+          tenant_id: tenantId,
+          message_body: text,
+          department,
+          conversation_id: conversationId,
+        },
+      });
+
+      if (error) throw error;
+
+      const { updatedMeta } = processAiResponse(data);
+      await runAnalysis(updatedMeta);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          direction: "outbound",
+          body: `Erro ao processar mensagem: ${err instanceof Error ? err.message : "erro desconhecido"}`,
+          timestamp: new Date(),
+          action: "error",
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+      inputRef.current?.focus();
+    }
+  }, [inputText, isLoading, tenantId, department, conversationId, setMessages, processAiResponse, runAnalysis]);
+
+  // ------- Send template -------
+  const handleTemplateSend = useCallback(
+    async (template: WhatsAppTemplate) => {
+      setTemplateDialogOpen(false);
+      setIsLoading(true);
+
+      // Add placeholder user message
+      const userMsg: SimMessage = {
+        id: generateId(),
+        direction: "inbound",
+        body: `[Template: ${template.name}]`,
+        timestamp: new Date(),
+        action: "template_sent",
+      };
+      setMessages((prev) => [...prev, userMsg]);
+
+      try {
+        const { data, error } = await supabase.functions.invoke("ai-agent-simulate", {
+          body: {
+            tenant_id: tenantId,
+            department,
+            conversation_id: conversationId,
+            simulate_template: { template_name: template.name },
+          },
+        });
+
+        if (error) throw error;
+
+        const { updatedMeta } = processAiResponse(data);
+        await runAnalysis(updatedMeta);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId(),
+            direction: "outbound",
+            body: `Erro ao enviar template: ${err instanceof Error ? err.message : "erro desconhecido"}`,
+            timestamp: new Date(),
+            action: "error",
+          },
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [tenantId, department, conversationId, setMessages, processAiResponse, runAnalysis]
+  );
+
+  // ------- Reset -------
+  const handleReset = useCallback(async () => {
+    // Archive conversation if it exists
+    if (conversationId) {
+      try {
+        await supabase
+          .from("conversations" as any)
+          .update({ status: "archived" } as any)
+          .eq("id", conversationId);
+      } catch {
+        // best effort
+      }
+    }
+
+    setMessages([]);
+    setConversationId(null);
+    setDepartment("vendas");
+    setMetadata(INITIAL_METADATA);
+    setModuleHistory([]);
+    setInputText("");
+    clearSimulationSession("sim_lab_");
+    onReset?.();
+    inputRef.current?.focus();
+  }, [conversationId, setMessages, setConversationId, setDepartment, setMetadata, setModuleHistory, onReset]);
+
+  // ------- Keyboard handling -------
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  // ------- Render helpers -------
+
+  const renderActionBadge = (action?: string) => {
+    if (!action) return null;
+    switch (action) {
+      case "triage":
+        return (
+          <Badge className="mb-1 bg-blue-100 text-blue-700 hover:bg-blue-100 text-[10px]">
+            Triage
+          </Badge>
+        );
+      case "handoff_direct":
+        return (
+          <Badge className="mb-1 bg-orange-100 text-orange-700 hover:bg-orange-100 text-[10px]">
+            Handoff
+          </Badge>
+        );
+      case "ai_response":
+        return (
+          <Badge className="mb-1 bg-green-100 text-green-700 hover:bg-green-100 text-[10px]">
+            IA
+          </Badge>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const renderMessage = (msg: SimMessage) => {
+    const isInbound = msg.direction === "inbound";
+
+    return (
+      <div
+        key={msg.id}
+        className={`flex flex-col ${isInbound ? "items-end" : "items-start"} mb-3`}
+      >
+        {/* Action badge */}
+        {!isInbound && renderActionBadge(msg.action)}
+
+        {/* Bubble */}
+        <div
+          className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${
+            isInbound
+              ? "bg-primary text-primary-foreground rounded-br-sm"
+              : "bg-muted text-foreground rounded-bl-sm"
+          }`}
+        >
+          {msg.body}
+        </div>
+
+        {/* Template preview */}
+        {msg.action === "template_sent" && msg.templateRendered && (
+          <div className="mt-1 max-w-[85%]">
+            <Card className="p-3 bg-amber-50 border-amber-200 text-xs">
+              <p className="font-medium text-amber-800 mb-1">Template Preview</p>
+              <p className="text-amber-700">
+                {typeof msg.templateRendered === "string"
+                  ? msg.templateRendered
+                  : JSON.stringify(msg.templateRendered, null, 2)}
+              </p>
+            </Card>
+          </div>
+        )}
+
+        {/* Property cards */}
+        {msg.propertyCards && msg.propertyCards.length > 0 && (
+          <div className="mt-2 flex flex-col gap-2 max-w-[85%]">
+            {msg.propertyCards.map((card: any, idx: number) => (
+              <PropertyCard
+                key={`${msg.id}-card-${idx}`}
+                codigo={card.codigo ?? card.property_code ?? ""}
+                tipo={card.tipo ?? card.property_type ?? ""}
+                bairro={card.bairro ?? card.neighborhood ?? ""}
+                cidade={card.cidade ?? card.city}
+                preco_formatado={card.preco_formatado ?? card.formatted_price}
+                foto_url={card.foto_url ?? card.photo_url}
+                caption={card.caption}
+                link={card.link}
+                quartos={card.quartos ?? card.bedrooms}
+                suites={card.suites}
+                vagas={card.vagas ?? card.parking}
+                area_util={card.area_util ?? card.useful_area}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Timestamp */}
+        <span className="text-[10px] text-muted-foreground mt-0.5 px-1">
+          {msg.timestamp instanceof Date
+            ? msg.timestamp.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+            : new Date(msg.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+        </span>
+      </div>
+    );
+  };
+
+  // ------- Main render -------
+
+  return (
+    <Card className="flex flex-col h-full overflow-hidden">
+      {/* -------- Top bar -------- */}
+      <div className="flex items-center gap-2 p-3 border-b bg-card">
+        <MessageSquareText className="w-4 h-4 text-muted-foreground shrink-0" />
+
+        <Select value={department} onValueChange={setDepartment}>
+          <SelectTrigger className="w-[160px] h-8 text-xs">
+            <SelectValue placeholder="Departamento" />
+          </SelectTrigger>
+          <SelectContent>
+            {DEPARTMENTS.map((d) => (
+              <SelectItem key={d.value} value={d.value} className="text-xs">
+                {d.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="flex-1" />
+
+        {/* Template dialog */}
+        <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+          <DialogTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={() => {
+                fetchTemplates();
+              }}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Enviar Template
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Selecionar Template</DialogTitle>
+            </DialogHeader>
+            <div className="py-2">
+              {loadingTemplates ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : templates.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Nenhum template aprovado encontrado.
+                </p>
+              ) : (
+                <ScrollArea className="max-h-[300px]">
+                  <div className="flex flex-col gap-1">
+                    {templates.map((t) => (
+                      <Button
+                        key={t.id}
+                        variant="ghost"
+                        className="justify-start text-sm h-auto py-2 px-3"
+                        onClick={() => handleTemplateSend(t)}
+                      >
+                        <FileText className="w-4 h-4 mr-2 shrink-0 text-muted-foreground" />
+                        {t.name}
+                      </Button>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs gap-1 text-destructive hover:text-destructive"
+          onClick={handleReset}
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          Reiniciar
+        </Button>
+      </div>
+
+      {/* -------- Chat area -------- */}
+      <ScrollArea className="flex-1 min-h-0">
+        <div ref={scrollRef} className="p-4 flex flex-col">
+          {messages.length === 0 && (
+            <div className="flex-1 flex items-center justify-center py-16">
+              <div className="text-center text-muted-foreground">
+                <MessageSquareText className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="text-sm font-medium">Simulador de Conversa</p>
+                <p className="text-xs mt-1">
+                  Envie uma mensagem para iniciar a simulacao com a IA.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {messages.map(renderMessage)}
+
+          {/* Loading indicator */}
+          {isLoading && (
+            <div className="flex items-start mb-3">
+              <div className="bg-muted rounded-lg rounded-bl-sm px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Digitando...
+              </div>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* -------- Input area -------- */}
+      <div className="border-t p-3 bg-card">
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Digite sua mensagem..."
+            rows={1}
+            className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[120px]"
+            disabled={isLoading}
+            style={{ fieldSizing: "content" } as any}
+          />
+          <Button
+            size="icon"
+            className="h-[38px] w-[38px] shrink-0"
+            onClick={handleSend}
+            disabled={!inputText.trim() || isLoading}
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}

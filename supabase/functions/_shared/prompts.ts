@@ -136,6 +136,11 @@ function getBaseToolsForDepartment(department: DepartmentType): any[] {
                 type: "number",
                 description: "Número mínimo de quartos desejado pelo cliente, se informado"
               },
+              finalidade_imovel: {
+                type: "string",
+                description: "Finalidade do imóvel: 'RESIDENCIAL' para moradia, 'COMERCIAL' para negócios/escritório/loja. Não confunda com 'finalidade' (venda/locação). Use somente se o cliente deixou claro que quer imóvel comercial ou residencial.",
+                enum: ["RESIDENCIAL", "COMERCIAL"]
+              },
             },
             required: ["query_semantica", "finalidade"],
           },

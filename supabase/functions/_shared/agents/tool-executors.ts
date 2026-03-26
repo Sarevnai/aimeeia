@@ -153,7 +153,10 @@ export async function executePropertySearch(
     const clientBudget = args.preco_max || null;
     const searchBudget = clientBudget ? Math.round(clientBudget * 1.3) : null;
 
-    console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Bairro filtro: ${args.bairro || 'NENHUM'} | Tipo: ${args.tipo_imovel || 'NENHUM'} | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
+    // Resolve finalidade_imovel: map venda/locação to RESIDENCIAL/COMERCIAL when specified
+    const filterFinalidade = args.finalidade_imovel || null; // RESIDENCIAL, COMERCIAL, or null
+
+    console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Bairro: ${args.bairro || 'NENHUM'} | Tipo: ${args.tipo_imovel || 'NENHUM'} | Quartos: ${args.quartos || 'NENHUM'} | Finalidade: ${filterFinalidade || 'NENHUM'} | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
 
     const queryEmbedding = await generateEmbedding(semanticQuery);
 
@@ -165,6 +168,8 @@ export async function executePropertySearch(
       filter_max_price: searchBudget,
       filter_tipo: args.tipo_imovel || null,
       filter_neighborhood: args.bairro || null,
+      filter_bedrooms: args.quartos || null,
+      filter_finalidade: filterFinalidade,
     });
 
     if (error) {
@@ -185,11 +190,13 @@ export async function executePropertySearch(
       const { data: expandedProps } = await ctx.supabase.rpc('match_properties', {
         query_embedding: expandedEmbedding,
         match_tenant_id: ctx.tenantId,
-        match_threshold: 0.15, // Threshold mais baixo para busca ampla
+        match_threshold: 0.15,
         match_count: 5,
         filter_max_price: searchBudget,
         filter_tipo: args.tipo_imovel || null,
         filter_neighborhood: null, // Expansão intencional: sem filtro de bairro
+        filter_bedrooms: args.quartos || null, // Mantém filtro de quartos na expansão
+        filter_finalidade: filterFinalidade, // Mantém filtro residencial/comercial na expansão
       });
       console.log(`🌍 C6: Expansão sem filtro de bairro (bairro original: ${args.bairro || 'nenhum'})`);
 

@@ -43,6 +43,57 @@ serve(async (req: Request) => {
       .eq('id', contact_id)
       .maybeSingle();
 
+    // Load property details from pending_properties (source of truth)
+    let propertyDetails: any = null;
+    let finalDevId = development_id || null;
+    let finalDevTitle = development_title || null;
+
+    if (!finalDevId) {
+      try {
+        const { data: convState } = await supabase
+          .from('conversation_states')
+          .select('pending_properties, current_property_index, last_property_shown_at')
+          .eq('tenant_id', tenant_id)
+          .eq('phone_number', phone_number)
+          .maybeSingle();
+
+        if (convState?.pending_properties?.length) {
+          const idx = convState.current_property_index > 0
+            ? convState.current_property_index - 1
+            : 0;
+          const prop = convState.pending_properties[idx] || convState.pending_properties[0];
+          if (prop?.codigo) {
+            finalDevId = prop.codigo;
+            const tipo = prop.tipo?.replace(/s$/, '') || 'Imóvel';
+            const quartos = prop.quartos ? `com ${prop.quartos} dormitórios` : '';
+            const bairro = prop.bairro || '';
+            const cidade = prop.cidade || '';
+            const localStr = [bairro, cidade].filter(Boolean).join(', ');
+            finalDevTitle = [tipo, quartos, localStr ? `no ${localStr}` : ''].filter(Boolean).join(' ');
+            propertyDetails = prop;
+            console.log(`📦 c2s-create-lead: prop_ref from pending_properties: [${finalDevId}] ${finalDevTitle}`);
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️ c2s-create-lead: failed to load pending_properties:', err);
+      }
+    }
+
+    // If we have development_id but no property details yet, try to load them
+    if (finalDevId && !propertyDetails) {
+      try {
+        const { data: convState } = await supabase
+          .from('conversation_states')
+          .select('pending_properties')
+          .eq('tenant_id', tenant_id)
+          .eq('phone_number', phone_number)
+          .maybeSingle();
+        if (convState?.pending_properties?.length) {
+          propertyDetails = convState.pending_properties.find((p: any) => p.codigo === finalDevId) || null;
+        }
+      } catch (_) { /* ok */ }
+    }
+
     // Check if C2S integration is configured
     const { data: c2sConfig } = await supabase
       .from('system_settings')
@@ -63,8 +114,9 @@ serve(async (req: Request) => {
         origin: 'whatsapp_ai',
         notes: reason || 'Lead qualificado via Aimee.iA',
         qualification: qualification_data || {},
-        development_id: development_id || null,
-        development_title: development_title || null,
+        development_id: finalDevId,
+        development_title: finalDevTitle,
+        property_details: propertyDetails,
       });
       // Only consider sent if no error in response
       c2sSent = c2sResult && !c2sResult.error;
@@ -123,6 +175,75 @@ serve(async (req: Request) => {
 
 // ========== C2S API ==========
 
+function formatCurrencyBR(value: number | string | null | undefined): string | null {
+  if (!value) return null;
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return null;
+  return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 });
+}
+
+function buildLeadBody(leadData: any): string {
+  const qualification = leadData.qualification || {};
+  const lines: string[] = [];
+
+  // Header
+  lines.push('━━━ LEAD QUALIFICADO VIA AIMEE.IA ━━━');
+  lines.push('');
+
+  // Perfil do cliente
+  const perfilItems: string[] = [];
+  const interest = qualification.detected_interest === 'locacao' ? 'Locação' : 'Venda';
+  perfilItems.push(`Finalidade: ${interest}`);
+  if (qualification.detected_property_type) {
+    perfilItems.push(`Tipo: ${qualification.detected_property_type.charAt(0).toUpperCase() + qualification.detected_property_type.slice(1)}`);
+  }
+  if (qualification.detected_neighborhood) {
+    perfilItems.push(`Bairro: ${qualification.detected_neighborhood}`);
+  }
+  if (qualification.detected_budget_max) {
+    perfilItems.push(`Orçamento: até ${formatCurrencyBR(qualification.detected_budget_max)}`);
+  }
+  if (qualification.detected_bedrooms) {
+    perfilItems.push(`Quartos: ${qualification.detected_bedrooms}`);
+  }
+  if (perfilItems.length > 0) {
+    lines.push('📋 PERFIL DO CLIENTE');
+    perfilItems.forEach(item => lines.push(`  • ${item}`));
+    lines.push('');
+  }
+
+  // Imóvel de interesse
+  if (leadData.development_id) {
+    lines.push('🏠 IMÓVEL DE INTERESSE');
+    lines.push(`  • Código: ${leadData.development_id}`);
+    if (leadData.development_title) {
+      lines.push(`  • ${leadData.development_title}`);
+    }
+    if (leadData.property_details) {
+      const pd = leadData.property_details;
+      if (pd.preco) lines.push(`  • Preço: ${formatCurrencyBR(pd.preco)}`);
+      if (pd.quartos) lines.push(`  • Quartos: ${pd.quartos}`);
+      if (pd.area_util) lines.push(`  • Área: ${pd.area_util}m²`);
+      if (pd.link) lines.push(`  • Link: ${pd.link}`);
+    }
+    lines.push('');
+  }
+
+  // Motivo do handoff
+  if (leadData.notes && leadData.notes !== 'Lead qualificado via Aimee.iA') {
+    lines.push('💬 CONTEXTO');
+    lines.push(`  ${leadData.notes}`);
+    lines.push('');
+  }
+
+  // Score
+  if (qualification.qualification_score) {
+    lines.push(`⭐ Score: ${qualification.qualification_score}/100`);
+  }
+
+  return lines.join('\n');
+}
+
 async function sendToC2S(config: any, leadData: any): Promise<any> {
   try {
     const configTags: string[] = config.tags || ['Aimee'];
@@ -141,6 +262,8 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
     }
     const tags = [...configTags, ...qualTags];
 
+    const body = buildLeadBody(leadData);
+
     // C2S API requires JSON API format: { data: { type, attributes } }
     const payload = {
       data: {
@@ -150,7 +273,7 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
           phone: leadData.phone,
           email: leadData.email,
           source: leadData.origin,
-          body: leadData.notes,
+          body,
           tags,
           type_negotiation: qualification.detected_interest === 'locacao' ? 'Aluguel' : 'Compra',
           neighbourhood: qualification.detected_neighborhood || null,
@@ -162,7 +285,7 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
       },
     };
 
-    console.log('📤 C2S payload:', JSON.stringify(payload).slice(0, 500));
+    console.log('📤 C2S payload:', JSON.stringify(payload).slice(0, 800));
 
     const response = await fetch(config.api_url, {
       method: 'POST',

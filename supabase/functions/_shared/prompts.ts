@@ -128,6 +128,14 @@ function getBaseToolsForDepartment(department: DepartmentType): any[] {
                 description: "Use 'locacao' para alugar, 'venda' para comprar",
                 enum: ["venda", "locacao"]
               },
+              bairro: {
+                type: "string",
+                description: "Bairro ou região desejada pelo cliente. OBRIGATÓRIO se o cliente mencionou um bairro. Use o nome exato do bairro (ex: 'Santa Mônica', 'Agronômica', 'Centro'). Se o cliente mencionou múltiplos bairros, use o mais recente ou o que ele está pedindo agora."
+              },
+              quartos: {
+                type: "number",
+                description: "Número mínimo de quartos desejado pelo cliente, se informado"
+              },
             },
             required: ["query_semantica", "finalidade"],
           },

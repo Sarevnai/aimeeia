@@ -153,7 +153,7 @@ export async function executePropertySearch(
     const clientBudget = args.preco_max || null;
     const searchBudget = clientBudget ? Math.round(clientBudget * 1.3) : null;
 
-    console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
+    console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Bairro filtro: ${args.bairro || 'NENHUM'} | Tipo: ${args.tipo_imovel || 'NENHUM'} | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
 
     const queryEmbedding = await generateEmbedding(semanticQuery);
 

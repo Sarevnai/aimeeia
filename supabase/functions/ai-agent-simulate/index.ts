@@ -498,10 +498,13 @@ serve(async (req: Request) => {
     // Collapse contract messages in history to prevent LLM from pattern-matching.
     // Without this, the LLM sees the contract as its last response and repeats it
     // even when the system prompt says to do anamnese.
+    // Collapse contract messages: use the same broad patterns as contractAlreadySentInHistory
+    // to catch all LLM paraphrases (sinceridade completa, garagem apertada, vagas apertadas, etc.)
+    const contractCollapsePattern = /sinceridade\s+(total|completa|absoluta)|direto\s+comigo|sem\s+filtro|consultoria\s+(de\s+verdade|que\s+realmente|imobili[aá]ria\s+de)|o\s+que\s+(n[aã]o\s+aceita|n[aã]o\s+gosta|te\s+incomoda|descarta)|vagas?\s+apertadas?|garagem\s+apertada|face\s+sem\s+sol|barulho\s+de\s+rua/i;
     const llmHistory = history.map(msg => {
       if (msg.role === 'assistant' && msg.content &&
-          /sinceridade total|consultoria de verdade|sem receio.*feedback|vaga apertada|face sem sol/i.test(msg.content) &&
-          msg.content.includes('___')) {
+          msg.content.includes('___') &&
+          contractCollapsePattern.test(msg.content)) {
         return {
           ...msg,
           content: '[Contrato de parceria VIP já realizado com sucesso. O cliente aceitou. Agora siga para a anamnese — pergunte o que falta.]',

@@ -484,11 +484,12 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 - Limite sua resposta a no máximo ${aiConfig.audio_max_chars || 500} caracteres para não ficar longo demais.`;
       }
 
-      // Collapse contract messages in history to prevent LLM from pattern-matching
+      // Collapse contract messages: use broad patterns to catch all LLM paraphrases
+      const contractCollapsePattern = /sinceridade\s+(total|completa|absoluta)|direto\s+comigo|sem\s+filtro|consultoria\s+(de\s+verdade|que\s+realmente|imobili[aá]ria\s+de)|o\s+que\s+(n[aã]o\s+aceita|n[aã]o\s+gosta|te\s+incomoda|descarta)|vagas?\s+apertadas?|garagem\s+apertada|face\s+sem\s+sol|barulho\s+de\s+rua/i;
       const agentLlmHistory = history.map(msg => {
         if (msg.role === 'assistant' && msg.content &&
-            /sinceridade total|consultoria de verdade|sem receio.*feedback|vaga apertada|face sem sol/i.test(msg.content) &&
-            msg.content.includes('___')) {
+            msg.content.includes('___') &&
+            contractCollapsePattern.test(msg.content)) {
           return {
             ...msg,
             content: '[Contrato de parceria VIP já realizado com sucesso. O cliente aceitou. Agora siga para a anamnese — pergunte o que falta.]',

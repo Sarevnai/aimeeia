@@ -140,8 +140,7 @@ serve(async (req: Request) => {
     const { data: qualRow } = await supabase
       .from('lead_qualification')
       .select('*')
-      .eq('tenant_id', tenant_id)
-      .eq('phone_number', phone_number)
+      .eq('conversation_id', conversation_id)
       .maybeSingle();
 
     const regions = await loadRegions(supabase, tenant_id);

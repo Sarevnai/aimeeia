@@ -150,7 +150,9 @@ export async function executePropertySearch(
 
     // C1: Aplicar margem de 30% acima do orçamento informado pelo cliente
     // "O cliente pediu 1 milhão, mandamos de 1M até 1.3M" — regra de negociação imobiliária
-    const clientBudget = args.preco_max || null;
+    // FALLBACK: Se o LLM não passou preco_max, usar o orçamento já extraído da qualificação
+    const clientBudget = args.preco_max
+      || (ctx.qualificationData?.detected_budget_max ? Number(ctx.qualificationData.detected_budget_max) : null);
     const searchBudget = clientBudget ? Math.round(clientBudget * 1.3) : null;
 
     // Resolve finalidade_imovel: map venda/locação to RESIDENCIAL/COMERCIAL when specified
@@ -177,6 +179,16 @@ export async function executePropertySearch(
           break;
         }
       }
+    }
+
+    // FALLBACK: Se LLM não preencheu bairro/quartos, usar dados da qualificação
+    if (!args.bairro && ctx.qualificationData?.detected_neighborhood) {
+      args.bairro = ctx.qualificationData.detected_neighborhood;
+      console.log(`🔧 FALLBACK: Bairro da qualificação → "${args.bairro}"`);
+    }
+    if (!args.quartos && ctx.qualificationData?.detected_bedrooms) {
+      args.quartos = Number(ctx.qualificationData.detected_bedrooms);
+      console.log(`🔧 FALLBACK: Quartos da qualificação → ${args.quartos}`);
     }
 
     console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Bairro: ${args.bairro || 'NENHUM'} | Tipo: ${args.tipo_imovel || 'NENHUM'} | Quartos: ${args.quartos || 'NENHUM'} | Finalidade: ${filterFinalidade || 'NENHUM'} | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);

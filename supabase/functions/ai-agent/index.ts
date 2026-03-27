@@ -212,9 +212,11 @@ serve(async (req: Request) => {
 
     const qualScore = qualRow?.qualification_score || 0;
     const isHandoffIntent = handoffIntentRegex.test(message_body) || directHandoffRegex.test(message_body);
+    // MC-1: Only bypass LLM for direct handoff if properties were already shown
+    const hasShownProperties = (state?.shown_property_ids || []).length > 0;
 
-    if (isHandoffIntent && qualScore >= 65) {
-      console.log(`🚀 MC-1: Handoff intent detected ("${message_body.slice(0, 60)}"), score=${qualScore}. Bypassing LLM.`);
+    if (isHandoffIntent && qualScore >= 65 && hasShownProperties) {
+      console.log(`🚀 MC-1: Handoff intent detected ("${message_body.slice(0, 60)}"), score=${qualScore}, shown=${state?.shown_property_ids?.length}. Bypassing LLM.`);
 
       const qualData = qualRow || {};
       const contactForHandoff = contact_name || 'Cliente';

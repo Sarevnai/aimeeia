@@ -170,6 +170,10 @@ export async function saveQualificationData(
   contactId: string | null,
   data: QualificationData
 ) {
+  // Always recalculate score before persisting
+  const freshScore = calculateQualificationScore(data);
+  data.qualification_score = freshScore;
+
   // Save to lead_qualification
   await supabase.from('lead_qualification').upsert({
     tenant_id: tenantId,
@@ -182,7 +186,7 @@ export async function saveQualificationData(
     detected_budget_max: data.detected_budget_max || null,
     detected_interest: data.detected_interest || null,
     detected_timeline: data.detected_timeline || null,
-    qualification_score: data.qualification_score || 0,
+    qualification_score: freshScore,
     questions_answered: data.questions_answered || 0,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'conversation_id' });
@@ -304,10 +308,11 @@ function detectNeighborhood(
     }
   }
 
-  // Return first match that is NOT in work context
+  // Return all matches that are NOT in work context, joined by comma
   const nonWorkMatches = allMatches.filter(m => !workContextMatches.includes(m));
   if (nonWorkMatches.length > 0) {
-    return nonWorkMatches[0];
+    // Multiple desired neighborhoods: join them (e.g., "Centro, Agronômica")
+    return nonWorkMatches.join(', ');
   }
 
   // Fallback: return first match
@@ -326,22 +331,22 @@ function detectPropertyType(lower: string): string | null {
 }
 
 function detectBedrooms(lower: string): number | null {
-  // Match "3 quartos", "3 dormitórios", but also "3 quartos sendo 2 suítes"
-  // Always extract the TOTAL bedrooms count (first number before quartos/dormitórios)
-  const match = lower.match(/(\d+)\s*(?:quartos?|dormit[oó]rios?|dorms?)/i);
+  // Match "3 quartos", "3 dormitórios", "de 3 quartos", "com 3 quartos"
+  // Also "3 quartos sendo 2 suítes" — always extract TOTAL bedrooms count
+  const match = lower.match(/(?:de\s+|com\s+)?(\d+)\s*(?:quartos?|dormit[oó]rios?|dorms?)/i);
   if (match) return parseInt(match[1]);
 
   // Fallback: "2 suítes" without explicit quartos count — treat suítes as bedrooms hint
-  const suitesMatch = lower.match(/(\d+)\s*su[ií]tes?/i);
+  const suitesMatch = lower.match(/(?:de\s+|com\s+)?(\d+)\s*su[ií]tes?/i);
   if (suitesMatch) return parseInt(suitesMatch[1]);
 
-  // Word to number
+  // Word to number: "três quartos", "dois dormitórios"
   const wordMap: Record<string, number> = {
-    'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'tr[eê]s': 3,
+    'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'tr[eê]s': 3, 'tres': 3,
     'quatro': 4, 'cinco': 5,
   };
   for (const [word, num] of Object.entries(wordMap)) {
-    if (new RegExp(`${word}\\s*(?:quartos?|dormit|su[ií]tes?)`, 'i').test(lower)) return num;
+    if (new RegExp(`(?:de\\s+|com\\s+)?${word}\\s*(?:quartos?|dormit|su[ií]tes?)`, 'i').test(lower)) return num;
   }
 
   return null;

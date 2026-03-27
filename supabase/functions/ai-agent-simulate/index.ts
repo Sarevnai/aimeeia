@@ -7,7 +7,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
 import { callLLMWithToolExecution } from '../_shared/ai-call.ts';
 import { handleTriage } from '../_shared/triage.ts';
-import { extractQualificationFromText, mergeQualificationData, saveQualificationData, generateTagsFromQualification, syncContactTags } from '../_shared/qualification.ts';
+import { extractQualificationFromText, mergeQualificationData, saveQualificationData, generateTagsFromQualification, syncContactTags, calculateQualificationScore } from '../_shared/qualification.ts';
 import { isLoopingQuestion, isRepetitiveMessage, getRotatingFallback, updateAntiLoopState } from '../_shared/anti-loop.ts';
 import { loadRegions } from '../_shared/regions.ts';
 import { formatCurrency } from '../_shared/utils.ts';
@@ -315,13 +315,15 @@ serve(async (req: Request) => {
 
     // ========== MC-1 HANDOFF DETECTION ==========
 
-    const qualScore = mergedQual.qualification_score || 0;
+    const qualScore = calculateQualificationScore(mergedQual);
     const isHandoffIntent = handoffIntentRegex.test(message_body) || directHandoffRegex.test(message_body);
     let handoffDetected = false;
 
-    if (isHandoffIntent && qualScore >= 65) {
+    // MC-1: Only do direct handoff if properties were already shown to the client
+    const hasShownProperties = (state?.shown_property_ids || []).length > 0;
+    if (isHandoffIntent && qualScore >= 65 && hasShownProperties) {
       handoffDetected = true;
-      console.log(`🚀 SIM MC-1: Handoff intent detected, score=${qualScore}`);
+      console.log(`🚀 SIM MC-1: Handoff intent detected, score=${qualScore}, shown=${state?.shown_property_ids?.length}`);
 
       const dossierLines = [
         `Nome: ${contactName}`,
@@ -639,7 +641,7 @@ serve(async (req: Request) => {
         detected_bedrooms: mergedQual.detected_bedrooms || null,
         detected_budget_max: mergedQual.detected_budget_max || null,
         detected_timeline: mergedQual.detected_timeline || null,
-        qualification_score: mergedQual.qualification_score || 0,
+        qualification_score: calculateQualificationScore(mergedQual),
       },
       tags: currentTags,
       tools_executed: ctx.toolsExecuted,

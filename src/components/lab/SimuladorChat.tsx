@@ -227,19 +227,36 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
         { role: "assistant", content: rawReply },
       ];
 
+      // Merge qualification: never overwrite with empty object — only update fields that have values
+      const incomingQual = responseData?.qualification || {};
+      const hasQualData = Object.values(incomingQual).some((v: any) => v != null && v !== 0 && v !== '');
+      const mergedQualification = hasQualData
+        ? { ...metadata.qualification, ...incomingQual }
+        : metadata.qualification;
+
+      // Merge tags: never overwrite with empty array — only replace when new tags exist
+      const incomingTags = responseData?.tags || [];
+      const mergedTags = incomingTags.length > 0 ? incomingTags : metadata.tags;
+
+      // Merge tools: accumulate, don't replace
+      const incomingTools = responseData?.tools_executed ?? responseData?.toolsExecuted ?? [];
+      const mergedTools = incomingTools.length > 0
+        ? [...metadata.toolsExecuted, ...incomingTools]
+        : metadata.toolsExecuted;
+
       const updatedMeta: SimMetadata = {
         action,
         triageStage: responseData?.triage_stage ?? responseData?.triageStage ?? metadata.triageStage,
         activeModule,
         moduleHistory: newModuleHistory,
-        qualification: responseData?.qualification ?? metadata.qualification,
-        tags: responseData?.tags ?? metadata.tags,
-        toolsExecuted: responseData?.tools_executed ?? responseData?.toolsExecuted ?? metadata.toolsExecuted,
+        qualification: mergedQualification,
+        tags: mergedTags,
+        toolsExecuted: mergedTools,
         agentType: responseData?.agent_type ?? responseData?.agentType ?? metadata.agentType,
         propertyCards,
         conversationState: responseData?.conversation_state ?? responseData?.conversationState ?? metadata.conversationState,
         modelUsed: responseData?.model_used ?? responseData?.modelUsed ?? metadata.modelUsed,
-        handoffDetected: responseData?.handoff_detected ?? responseData?.handoffDetected ?? false,
+        handoffDetected: responseData?.handoff_detected ?? responseData?.handoffDetected ?? metadata.handoffDetected,
         loopDetected: responseData?.loop_detected ?? responseData?.loopDetected ?? false,
         analysis: metadata.analysis,
         conversationHistory: newConvHistory,

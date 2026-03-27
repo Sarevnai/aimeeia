@@ -57,8 +57,20 @@ export default function LabSimulatorPage() {
   const handleMetadataUpdate = useCallback((metadata: any) => {
     setTriageStage(metadata.triageStage);
     setActiveModule(metadata.activeModule);
-    setQualification(metadata.qualification || {});
-    setTags(metadata.tags || []);
+
+    // Merge qualification: never overwrite with empty — only update when there's real data
+    const incomingQual = metadata.qualification || {};
+    const hasQualData = Object.values(incomingQual).some((v: any) => v != null && v !== 0 && v !== '');
+    if (hasQualData) {
+      setQualification(prev => ({ ...prev, ...incomingQual }));
+    }
+
+    // Merge tags: never overwrite with empty array
+    const incomingTags = metadata.tags || [];
+    if (incomingTags.length > 0) {
+      setTags(incomingTags);
+    }
+
     setAgentType(metadata.agentType || 'comercial');
     setConversationState(metadata.conversationState || {
       pending_properties_count: 0,
@@ -67,13 +79,11 @@ export default function LabSimulatorPage() {
       shown_property_ids: [],
     });
     setModelUsed(metadata.modelUsed || null);
-    setHandoffDetected(metadata.handoffDetected || false);
+    setHandoffDetected(prev => prev || metadata.handoffDetected || false);
     setLoopDetected(metadata.loopDetected || false);
 
-    // Accumulate tools
-    if (metadata.toolsExecuted?.length > 0) {
-      setToolsExecuted(prev => [...prev, ...metadata.toolsExecuted]);
-    }
+    // Tools already accumulated in SimuladorChat, just set directly
+    setToolsExecuted(metadata.toolsExecuted || []);
 
     // Track module history
     if (metadata.activeModule) {

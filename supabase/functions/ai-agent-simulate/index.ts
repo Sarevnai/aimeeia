@@ -296,6 +296,13 @@ serve(async (req: Request) => {
 
     const qualData = qualRow || {};
     const extracted = effectiveDepartment === 'administrativo' ? {} : extractQualificationFromText(message_body, qualData, regions);
+
+    // Auto-infer interest from department if not yet detected
+    if (!qualData.detected_interest && !extracted.detected_interest) {
+      if (effectiveDepartment === 'vendas') extracted.detected_interest = 'venda';
+      else if (effectiveDepartment === 'locacao') extracted.detected_interest = 'locacao';
+    }
+
     const mergedQual = mergeQualificationData(qualData, extracted);
 
     if (Object.keys(extracted).length > 0) {

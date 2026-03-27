@@ -144,7 +144,7 @@ ${turnContext}
 Analise este turno e retorne a avaliação em JSON.`;
 
     // Call Google Gemini via REST API
-    const geminiModel = 'gemini-3.1-pro-preview';
+    const geminiModel = 'gemini-2.5-flash';
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
 
     const response = await fetch(endpoint, {
@@ -164,11 +164,30 @@ Analise este turno e retorne a avaliação em JSON.`;
     if (!response.ok) {
       const error = await response.text();
       console.error('Gemini API error:', error);
-      return errorResponse(`Analysis API error: ${response.status} - ${error.slice(0, 200)}`, 500);
+      // Return a graceful fallback instead of error so the UI doesn't break
+      return jsonResponse({
+        score: 0,
+        max_score: 10,
+        criteria: [],
+        errors: [{ type: 'api_error', severity: 'high', description: `Gemini API error: ${response.status}`, suggestion: 'Verificar API key e modelo', affected_file: 'ai-agent-analyze/index.ts' }],
+        summary: `Erro na API de análise (${response.status}). Verifique a configuração.`,
+        is_production_ready: false,
+      });
     }
 
     const data = await response.json();
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    if (!rawText) {
+      return jsonResponse({
+        score: 0,
+        max_score: 10,
+        criteria: [],
+        errors: [{ type: 'empty_response', severity: 'high', description: 'Resposta vazia do modelo de análise', suggestion: 'Verificar modelo e prompt', affected_file: 'ai-agent-analyze/index.ts' }],
+        summary: 'Modelo retornou resposta vazia.',
+        is_production_ready: false,
+      });
+    }
 
     // Parse JSON from response
     let analysis: AnalysisResult;
@@ -182,7 +201,7 @@ Analise este turno e retorne a avaliação em JSON.`;
         max_score: 10,
         criteria: [],
         errors: [{ type: 'parse_error', severity: 'high', description: 'Falha ao parsear resposta do avaliador', suggestion: 'Verificar formato do response', affected_file: 'ai-agent-analyze/index.ts' }],
-        summary: rawText.slice(0, 500),
+        summary: rawText.slice(0, 200),
         is_production_ready: false,
       };
     }

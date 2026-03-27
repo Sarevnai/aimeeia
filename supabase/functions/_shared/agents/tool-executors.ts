@@ -278,15 +278,15 @@ export async function executePropertySearch(
       bairro: p.neighborhood || 'Região',
       cidade: p.city || ctx.tenant.city,
       preco: p.price,
-      preco_formatado: null,
+      preco_formatado: p.price ? formatCurrency(p.price) : null,
       quartos: p.bedrooms,
-      suites: null,
-      vagas: null,
-      area_util: null,
+      suites: p.suites || null,
+      vagas: p.parking_spots || p.vagas || null,
+      area_util: p.useful_area || p.area_util || null,
       link: p.url || (websiteBase && p.external_id ? `${websiteBase}/imovel/${p.external_id}` : ''),
       foto_destaque: p.images && p.images.length > 0 ? p.images[0] : null,
       descricao: p.description,
-      valor_condominio: null,
+      valor_condominio: p.condo_fee || null,
     }));
 
     // Filter out properties already shown to this lead
@@ -314,6 +314,7 @@ export async function executePropertySearch(
         pending_properties: formattedProperties,
         current_property_index: 0,
         awaiting_property_feedback: true,
+        shown_property_ids: [...Array.from(shownIds)],
         last_search_params: { semantic_query: semanticQuery, ...args },
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
@@ -374,8 +375,18 @@ export async function executePropertySearch(
     const aiCaption = await generatePropertyCaption(prop, agentName, clientNeeds, nearbyPlacesText);
     const rawCaption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
     const caption = `*${agentName}*\n\n${rawCaption}`;
+
+    // Store generated caption on the property for the frontend card
+    prop.caption = aiCaption;
+
     let sentCount = 0;
-    if (prop.foto_destaque) {
+    const isSimulation = ctx.phoneNumber.startsWith('SIM-');
+
+    if (isSimulation) {
+      // In simulation mode, skip WhatsApp sending — simulate success
+      sentCount = 1;
+      console.log(`📤 SIM: Skipping WhatsApp send for property ${prop.codigo} (simulation mode)`);
+    } else if (prop.foto_destaque) {
       const imgResult = await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
       if (imgResult.success) {
         sentCount = 1;

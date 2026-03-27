@@ -129,6 +129,7 @@ function buildModularRemarketingPrompt(ctx: AgentContext, modules: AiModule[]): 
   const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext } = ctx;
 
   const sections: string[] = [];
+  const isContractDone = contractAlreadySentInHistory(ctx.conversationHistory || []);
 
   // ===== SYSTEM PROMPT (fixed, ~40 lines) =====
 
@@ -148,18 +149,28 @@ Tom: Sóbrio, elegante, humano, direto, consultivo e pessoal. Caloroso, porém c
 - Transmita exclusividade pela substância da conversa, não por exclamações.
 </tone>
 
+${isContractDone ? `<contract_status>
+CONTRATO DE PARCERIA JÁ FOI REALIZADO NESTA CONVERSA.
+É PROIBIDO repetir o contrato, pedir sinceridade, dar exemplos de feedback ou usar o separador ___.
+Siga EXCLUSIVAMENTE as instruções do módulo ativo abaixo.
+</contract_status>
+
 <mission>
+1. Executar a anamnese objetiva e consultiva — pergunte APENAS o que falta.
+2. Acionar buscar_imoveis no momento exato, sem enrolação.
+3. Encaminhar o lead ao corretor com dossiê completo quando necessário.
+</mission>` : `<mission>
 1. Engajar o cliente de forma elegante e natural.
-2. Estabelecer o contrato de parceria, quando aplicável.
+2. Estabelecer o contrato de parceria (SOMENTE UMA VEZ, na primeira resposta).
 3. Executar uma anamnese objetiva e consultiva.
 4. Acionar buscar_imoveis no momento exato, sem enrolação.
 5. Encaminhar o lead ao corretor com dossiê completo quando necessário.
-</mission>
+</mission>`}
 
 <format>
 - Mensagens curtas para WhatsApp.
 - Máximo 3 parágrafos curtos por resposta.
-- Ao executar o contrato de parceria, usar o separador ___ entre blocos.
+${!isContractDone ? '- Ao executar o contrato de parceria, usar o separador ___ entre blocos.' : '- NÃO use o separador ___. Responda em texto corrido.'}
 </format>
 
 <guardrails>
@@ -171,6 +182,7 @@ Tom: Sóbrio, elegante, humano, direto, consultivo e pessoal. Caloroso, porém c
 - NUNCA diga que o cliente enviou áudio se a mensagem é de texto.
 - NUNCA diga que você está "em áudio" ou que "não consegue ver" algo.
 - NUNCA prometa transferência sem acionar enviar_lead_c2s no mesmo turno.
+${isContractDone ? '- NUNCA repita o contrato de parceria. Ele já foi feito. Avance a conversa.' : ''}
 - Fora do escopo imobiliário: peça esclarecimento curto e objetivo.
 </guardrails>`);
 
@@ -287,7 +299,7 @@ Exemplo de confirmação:
 
 <protocols>
 
-[CONTRATO DE PARCERIA]
+${isContractDone ? '' : `[CONTRATO DE PARCERIA]
 
 Quando aplicável, sua primeira resposta deve seguir esta lógica comportamental, com redação natural e variável, sem repetir fórmula engessada:
 
@@ -323,7 +335,7 @@ Quanto mais eu souber do que é importante pra você...
 ___
 Me conta: é pra comprar ou alugar?
 
-[FLUXO DE ANAMNESE]
+`}[FLUXO DE ANAMNESE]
 
 Conduza uma anamnese estruturada para entender exatamente o que o cliente busca.
 

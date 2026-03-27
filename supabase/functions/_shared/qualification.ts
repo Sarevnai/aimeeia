@@ -228,35 +228,90 @@ function detectNeighborhood(
   // Normalize input for accent-insensitive comparison
   const normalizedInput = removeAccents(lower);
 
-  // 1. Direct match against neighborhoods list (accent-insensitive)
-  for (const region of regions) {
-    for (const neighborhood of region.neighborhoods) {
-      const normalizedNeighborhood = removeAccents(neighborhood.toLowerCase());
-      if (normalizedInput.includes(normalizedNeighborhood)) {
-        return neighborhood;
+  // Helper: find all matching neighborhoods in text
+  function findAllMatches(text: string): string[] {
+    const matches: string[] = [];
+    for (const region of regions) {
+      for (const neighborhood of region.neighborhoods) {
+        const norm = removeAccents(neighborhood.toLowerCase());
+        if (text.includes(norm)) {
+          matches.push(neighborhood);
+        }
+      }
+      const normRegion = removeAccents(region.region_name.toLowerCase());
+      if (text.includes(normRegion)) {
+        matches.push(region.region_name);
       }
     }
-    const normalizedRegion = removeAccents(region.region_name.toLowerCase());
-    if (normalizedInput.includes(normalizedRegion)) {
-      return region.region_name;
-    }
-  }
-
-  // 2. Alias/fuzzy match — check abbreviations and common misspellings
-  for (const region of regions) {
-    for (const neighborhood of region.neighborhoods) {
-      const aliases = NEIGHBORHOOD_ALIASES[neighborhood.toLowerCase()];
-      if (aliases) {
-        for (const alias of aliases) {
-          if (normalizedInput.includes(removeAccents(alias))) {
-            return neighborhood;
+    // Also check aliases
+    for (const region of regions) {
+      for (const neighborhood of region.neighborhoods) {
+        const aliases = NEIGHBORHOOD_ALIASES[neighborhood.toLowerCase()];
+        if (aliases) {
+          for (const alias of aliases) {
+            if (text.includes(removeAccents(alias))) {
+              if (!matches.includes(neighborhood)) matches.push(neighborhood);
+            }
           }
         }
       }
     }
+    return matches;
   }
 
-  return null;
+  const allMatches = findAllMatches(normalizedInput);
+
+  // If only one match, return it directly
+  if (allMatches.length <= 1) {
+    return allMatches[0] || null;
+  }
+
+  // Multiple matches: use context to disambiguate
+  // Patterns that indicate DESIRED neighborhood (higher priority)
+  const desiredPatterns = [
+    /(?:quero|gostaria|prefiro|busco|procuro|preciso|desejo)\s+(?:morar|um\s+im[oó]vel|uma?\s+casa|um\s+ap(?:to|artamento)?)\s+(?:em|no|na|n[oa]s?)\s+/i,
+    /(?:morar|residir|viver)\s+(?:em|no|na)\s+/i,
+    /(?:regiao|bairro|zona)\s+(?:de|do|da)\s+/i,
+    /(?:gost[oa]|ador[oa]|curto)\s+(?:muito\s+)?(?:d[oa]|a\s+regiao)\s+/i,
+  ];
+
+  // Patterns that indicate WORKPLACE/non-desired context (lower priority)
+  const workPatterns = [
+    /(?:trabalh[oa]|atuo|fa[cç]o\s+est[aá]gio|emprego|escrit[oó]rio|servi[cç]o)\s+(?:em|no|na|n[oa]s?|pel[oa])\s+/i,
+    /(?:meu\s+trabalho|minha\s+empresa|meu\s+escrit[oó]rio)\s+(?:[eé]|fica)\s+(?:em|no|na)\s+/i,
+  ];
+
+  // Check which neighborhoods appear in desired vs work contexts
+  for (const match of allMatches) {
+    const normMatch = removeAccents(match.toLowerCase());
+    for (const pattern of desiredPatterns) {
+      const regex = new RegExp(pattern.source + '[^.!?]*' + normMatch, 'i');
+      if (regex.test(normalizedInput)) {
+        return match; // Found in desired context — return immediately
+      }
+    }
+  }
+
+  // Filter out neighborhoods that only appear in work context
+  const workContextMatches: string[] = [];
+  for (const match of allMatches) {
+    const normMatch = removeAccents(match.toLowerCase());
+    for (const pattern of workPatterns) {
+      const regex = new RegExp(pattern.source + '[^.!?]*' + normMatch, 'i');
+      if (regex.test(normalizedInput)) {
+        workContextMatches.push(match);
+      }
+    }
+  }
+
+  // Return first match that is NOT in work context
+  const nonWorkMatches = allMatches.filter(m => !workContextMatches.includes(m));
+  if (nonWorkMatches.length > 0) {
+    return nonWorkMatches[0];
+  }
+
+  // Fallback: return first match
+  return allMatches[0];
 }
 
 function detectPropertyType(lower: string): string | null {

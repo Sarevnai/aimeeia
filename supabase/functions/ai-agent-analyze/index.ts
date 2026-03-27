@@ -155,7 +155,7 @@ Analise este turno e retorne a avaliação em JSON.`;
         system_instruction: { parts: [{ text: ANALYSIS_SYSTEM_PROMPT }] },
         contents: [{ role: 'user', parts: [{ text: userMessage }] }],
         generationConfig: {
-          maxOutputTokens: 2000,
+          maxOutputTokens: 8192,
           temperature: 0.3,
           responseMimeType: 'application/json',
         },

@@ -229,7 +229,7 @@ export default function RealConversationAnalyzer({
       </div>
 
       {/* Sidebar: Analysis */}
-      <div className="w-80 border-l overflow-y-auto shrink-0 bg-muted/10">
+      <div className="w-64 border-l overflow-y-auto shrink-0 bg-muted/10">
         <div className="p-3 space-y-3">
           {/* Report History */}
           <AnalysisReportHistory

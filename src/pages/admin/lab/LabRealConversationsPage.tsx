@@ -5,6 +5,8 @@ import RealConversationAnalyzer from '@/components/lab/RealConversationAnalyzer'
 import PromptVersionTracker from '@/components/lab/PromptVersionTracker';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface Tenant {
   id: string;
@@ -42,6 +44,7 @@ export default function LabRealConversationsPage() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [filters, setFilters] = useState({ search: '', department: 'all', status: 'all' });
   const [activeTab, setActiveTab] = useState('analyzer');
+  const [listCollapsed, setListCollapsed] = useState(false);
 
   // Load tenants
   useEffect(() => {
@@ -170,44 +173,58 @@ export default function LabRealConversationsPage() {
     setSelectedConvId(convId);
     loadMessages(convId);
     setActiveTab('analyzer');
+    setListCollapsed(true); // Auto-collapse list when selecting a conversation
   }, [loadMessages]);
 
   return (
     <div className="flex h-full">
-      {/* Left: Conversation List */}
-      <div className="w-72 border-r flex flex-col shrink-0">
-        {/* Tenant Selector */}
-        <div className="p-3 border-b">
-          <Select value={tenantId} onValueChange={setTenantId}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Selecionar tenant..." />
-            </SelectTrigger>
-            <SelectContent>
-              {tenants.map(t => (
-                <SelectItem key={t.id} value={t.id} className="text-xs">{t.company_name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      {/* Left: Conversation List (collapsible) */}
+      {!listCollapsed && (
+        <div className="w-56 border-r flex flex-col shrink-0">
+          {/* Tenant Selector */}
+          <div className="p-3 border-b">
+            <Select value={tenantId} onValueChange={setTenantId}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Selecionar tenant..." />
+              </SelectTrigger>
+              <SelectContent>
+                {tenants.map(t => (
+                  <SelectItem key={t.id} value={t.id} className="text-xs">{t.company_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <RealConversationList
-          conversations={conversations}
-          loading={conversationsLoading}
-          selectedId={selectedConvId}
-          onSelect={handleSelectConversation}
-          filters={filters}
-          onFiltersChange={setFilters}
-        />
-      </div>
+          <RealConversationList
+            conversations={conversations}
+            loading={conversationsLoading}
+            selectedId={selectedConvId}
+            onSelect={handleSelectConversation}
+            filters={filters}
+            onFiltersChange={setFilters}
+          />
+        </div>
+      )}
 
       {/* Right: Analyzer or Prompt Tracker */}
       <div className="flex-1 flex flex-col min-w-0">
         {selectedConvId ? (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="w-fit mx-3 mt-2 h-7 shrink-0">
-              <TabsTrigger value="analyzer" className="text-xs h-6 px-3">Analise</TabsTrigger>
-              <TabsTrigger value="prompts" className="text-xs h-6 px-3">Prompt Versions</TabsTrigger>
-            </TabsList>
+            <div className="flex items-center gap-2 mx-3 mt-2 shrink-0">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setListCollapsed(!listCollapsed)}
+                className="h-7 w-7 p-0"
+                title={listCollapsed ? 'Mostrar lista' : 'Esconder lista'}
+              >
+                {listCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+              </Button>
+              <TabsList className="w-fit h-7">
+                <TabsTrigger value="analyzer" className="text-xs h-6 px-3">Analise</TabsTrigger>
+                <TabsTrigger value="prompts" className="text-xs h-6 px-3">Prompt Versions</TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="analyzer" className="flex-1 mt-0 overflow-hidden" style={{ display: activeTab === 'analyzer' ? 'flex' : 'none', flexDirection: 'column' }}>
               <RealConversationAnalyzer

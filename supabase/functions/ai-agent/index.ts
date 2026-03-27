@@ -484,9 +484,22 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 - Limite sua resposta a no máximo ${aiConfig.audio_max_chars || 500} caracteres para não ficar longo demais.`;
       }
 
+      // Collapse contract messages in history to prevent LLM from pattern-matching
+      const agentLlmHistory = history.map(msg => {
+        if (msg.role === 'assistant' && msg.content &&
+            /sinceridade total|consultoria de verdade|sem receio.*feedback|vaga apertada|face sem sol/i.test(msg.content) &&
+            msg.content.includes('___')) {
+          return {
+            ...msg,
+            content: '[Contrato de parceria VIP já realizado com sucesso. O cliente aceitou. Agora siga para a anamnese — pergunte o que falta.]',
+          };
+        }
+        return msg;
+      });
+
       const aiResponse = await callLLMWithToolExecution(
         systemPrompt,
-        history,
+        agentLlmHistory,
         enrichedMessageBody,
         tools,
         async (toolName, args) => {

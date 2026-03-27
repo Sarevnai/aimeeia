@@ -495,9 +495,24 @@ serve(async (req: Request) => {
     const tools = agent.getTools(ctx);
     const modelUsed = aiConfig.ai_model || 'google/gemini-2.5-flash';
 
+    // Collapse contract messages in history to prevent LLM from pattern-matching.
+    // Without this, the LLM sees the contract as its last response and repeats it
+    // even when the system prompt says to do anamnese.
+    const llmHistory = history.map(msg => {
+      if (msg.role === 'assistant' && msg.content &&
+          /sinceridade total|consultoria de verdade|sem receio.*feedback|vaga apertada|face sem sol/i.test(msg.content) &&
+          msg.content.includes('___')) {
+        return {
+          ...msg,
+          content: '[Contrato de parceria VIP já realizado com sucesso. O cliente aceitou. Agora siga para a anamnese — pergunte o que falta.]',
+        };
+      }
+      return msg;
+    });
+
     const aiResponse = await callLLMWithToolExecution(
       systemPrompt,
-      history,
+      llmHistory,
       message_body,
       tools,
       async (toolName: string, args: any) => {

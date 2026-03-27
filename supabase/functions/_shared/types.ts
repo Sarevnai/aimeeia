@@ -1,7 +1,7 @@
 // ========== AIMEE.iA v2 - TYPES ==========
 // Clean types, no hardcoded defaults (defaults come from DB)
 
-export type DepartmentType = 'locacao' | 'vendas' | 'administrativo' | 'marketing' | null;
+export type DepartmentType = 'locacao' | 'vendas' | 'administrativo' | 'marketing' | 'remarketing' | null;
 export type TriageStage = 'greeting' | 'awaiting_name' | 'awaiting_triage' | 'completed' | 'remarketing_vip_pitch' | 'remarketing_buyin' | null;
 export type ConversationStatus = 'active' | 'closed' | 'archived';
 export type MessageDirection = 'inbound' | 'outbound';

@@ -318,10 +318,10 @@ async function processInboundMessage(
         .update({
           source: 'remarketing',
           campaign_id: remarketingResult.campaign_id,
-          department_code: 'vendas',
+          department_code: 'remarketing',
         })
         .eq('id', conversation.id);
-      conversation.department_code = 'vendas';
+      conversation.department_code = 'remarketing';
 
       // Update campaign_result as replied
       await supabase
@@ -343,12 +343,12 @@ async function processInboundMessage(
           updated_at: new Date().toISOString(),
         }, { onConflict: 'tenant_id,phone_number' });
 
-      // Assign first vendas pipeline stage
+      // Assign first remarketing pipeline stage
       const { data: firstStage } = await supabase
         .from('conversation_stages')
         .select('id')
         .eq('tenant_id', tenant.id)
-        .eq('department_code', 'vendas')
+        .eq('department_code', 'remarketing')
         .order('order_index', { ascending: true })
         .limit(1)
         .maybeSingle();

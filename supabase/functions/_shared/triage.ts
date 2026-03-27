@@ -245,7 +245,7 @@ export async function handleTriage(
     if (positivePatterns.test(lower)) {
       // Buy-in confirmed! Complete triage and let the remarketing AI agent
       // generate a personalized partnership contract (instead of hardcoded text)
-      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'vendas');
+      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
 
       // Return shouldContinue: false so the flow continues to the AI agent,
       // which will generate the partnership contract dynamically
@@ -271,11 +271,11 @@ export async function handleTriage(
     // Audio/media messages are engagement signals — treat as positive
     if (lower.startsWith('[áudio]') || lower.startsWith('[audio]') || lower.startsWith('[transcrição') || lower.startsWith('[imagem]') || lower.startsWith('[documento')) {
       // Complete triage and let the AI agent handle naturally
-      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'vendas');
+      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
       return {
         shouldContinue: true,
         responseMessages: [],
-        department: 'vendas',
+        department: 'remarketing',
       };
     }
 

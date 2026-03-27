@@ -19,7 +19,7 @@ import { remarketingAgent } from '../_shared/agents/remarketing.ts';
 import { decryptApiKey, loadConversationHistory, loadRemarketingContext, executeLeadHandoff } from '../_shared/agents/tool-executors.ts';
 
 function selectAgent(department: string | null, source: string): { agentType: AgentType; agent: AgentModule } {
-  if (source === 'remarketing') return { agentType: 'remarketing', agent: remarketingAgent };
+  if (source === 'remarketing' || department === 'remarketing') return { agentType: 'remarketing', agent: remarketingAgent };
   if (department === 'administrativo') return { agentType: 'admin', agent: adminAgent };
   return { agentType: 'comercial', agent: comercialAgent };
 }
@@ -456,7 +456,7 @@ serve(async (req: Request) => {
 
     // Load remarketing context
     let remarketingContext: string | null = null;
-    if (conversationSource === 'remarketing') {
+    if (conversationSource === 'remarketing' || effectiveDepartment === 'remarketing') {
       remarketingContext = await loadRemarketingContext(supabase, tenant_id, contact_id);
     }
 

@@ -31,8 +31,8 @@ function selectAgent(
   department: string | null,
   conversationSource: string
 ): { agentType: AgentType; agent: AgentModule } {
-  // Priority 1: Remarketing source always gets remarketing agent
-  if (conversationSource === 'remarketing') {
+  // Priority 1: Remarketing (by source OR department)
+  if (conversationSource === 'remarketing' || department === 'remarketing') {
     return { agentType: 'remarketing', agent: remarketingAgent };
   }
 
@@ -402,7 +402,7 @@ serve(async (req: Request) => {
 
     // Load remarketing context if applicable
     let remarketingContext: string | null = null;
-    if (conversationSource === 'remarketing') {
+    if (conversationSource === 'remarketing' || effectiveDepartment === 'remarketing') {
       remarketingContext = await loadRemarketingContext(supabase, tenant_id, contact_id);
     }
 

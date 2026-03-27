@@ -60,7 +60,7 @@ export const AGENT_TYPES = {
     key: 'remarketing' as const,
     label: 'Remarketing',
     description: 'Reengajamento VIP de leads arquivados. Anamnese personalizada + busca + handoff com dossiê.',
-    departments: [] as string[],
+    departments: ['remarketing'] as string[],
     icon: Repeat2,
     color: 'hsl(142 71% 45%)',
     tools: [

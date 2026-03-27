@@ -1911,7 +1911,7 @@ export type Database = {
     }
     Enums: {
       conversation_status: "active" | "closed" | "archived"
-      department_type: "locacao" | "vendas" | "administrativo"
+      department_type: "locacao" | "vendas" | "administrativo" | "remarketing"
       message_direction: "inbound" | "outbound"
       triage_stage:
         | "greeting"
@@ -2049,7 +2049,7 @@ export const Constants = {
   public: {
     Enums: {
       conversation_status: ["active", "closed", "archived"],
-      department_type: ["locacao", "vendas", "administrativo"],
+      department_type: ["locacao", "vendas", "administrativo", "remarketing"],
       message_direction: ["inbound", "outbound"],
       triage_stage: [
         "greeting",

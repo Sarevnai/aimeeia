@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
-export type DepartmentFilter = 'all' | 'locacao' | 'vendas' | 'administrativo';
+export type DepartmentFilter = 'all' | 'locacao' | 'vendas' | 'administrativo' | 'remarketing';
 
 interface DepartmentFilterContextType {
   department: DepartmentFilter;
@@ -15,6 +15,7 @@ const labels: Record<DepartmentFilter, string> = {
   locacao: 'Locação',
   vendas: 'Vendas',
   administrativo: 'Administrativo',
+  remarketing: 'Remarketing',
 };
 
 const DepartmentFilterContext = createContext<DepartmentFilterContextType>({

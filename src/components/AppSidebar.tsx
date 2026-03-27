@@ -63,6 +63,7 @@ const DEPT_PATHS: Record<string, string[]> = {
   administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/financeiro', '/guia'],
   vendas: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/empreendimentos', '/guia'],
   locacao: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/empreendimentos', '/guia'],
+  remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/campanhas', '/empreendimentos', '/guia'],
 };
 
 const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {

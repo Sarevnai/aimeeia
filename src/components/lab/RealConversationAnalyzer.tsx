@@ -4,7 +4,7 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { Play, Loader2, RotateCcw } from 'lucide-react';
 import RealConversationThread from './RealConversationThread';
-import AnalysisPanel from './AnalysisPanel';
+import { AnalysisPanel } from './AnalysisPanel';
 import AnalysisReportHistory from './AnalysisReportHistory';
 import AnalysisComparison from './AnalysisComparison';
 

@@ -482,7 +482,17 @@ export async function executePropertySearch(
     const tipoExpandidoNotice = (args as any)._tipo_expandido
       ? `\n\n⚠️ AVISO IMPORTANTE: O cliente pediu "${args.tipo_imovel || 'imóvel'}" no ${args.bairro}, mas não encontramos esse tipo lá. Encontramos ${(args as any)._tipos_encontrados} no bairro. Você DEVE informar o cliente dessa situação ANTES de apresentar o imóvel. Exemplo: "No Santa Mônica não encontrei apartamentos disponíveis, mas achei uma casa que pode te interessar. Dá uma olhada!"`
       : '';
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] 1 imóvel já foi enviado ao cliente com foto, descrição personalizada e link clicável. O imóvel enviado é: ${propContext}.${tipoExpandidoNotice}\n\nREGRAS DE RESPOSTA:\n1. NÃO liste detalhes técnicos — o cliente já recebeu tudo no card.\n2. Responda com 1-2 frases CURTAS conectando o imóvel ao perfil do cliente.\n3. OBRIGATÓRIO mencionar o bairro e tipo REAIS do imóvel (${sentProp.bairro || 'não informado'}, ${sentProp.tipo || 'imóvel'}).\n4. Destaque UM diferencial relevante para o cliente.\n5. Finalize convidando o cliente a dar uma olhada e dar feedback.\n6. NUNCA invente bairros, tipos ou características que não existem no imóvel enviado.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
+    // Build client profile context for personalization
+    const clientProfile = [
+      args.finalidade ? `Finalidade: ${args.finalidade}` : null,
+      args.tipo_imovel ? `Busca: ${args.tipo_imovel}` : null,
+      args.bairro ? `Bairro desejado: ${args.bairro}` : null,
+      args.quartos ? `Quartos: ${args.quartos}` : null,
+    ].filter(Boolean).join(', ');
+    const singularPlural = sentCount === 1
+      ? `Use SINGULAR ("esse imóvel", "essa opção"). NÃO pergunte "qual das opções" — só há 1 imóvel. Confirme se o cliente gostou DESTE imóvel específico.`
+      : `O cliente recebeu ${sentCount} opções. Pode perguntar qual chamou mais atenção.`;
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto, descrição personalizada e link clicável. O imóvel principal é: ${propContext}.${tipoExpandidoNotice}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA:\n1. NÃO liste detalhes técnicos — o cliente já recebeu tudo no card.\n2. Responda com 1-2 frases CURTAS conectando o imóvel ao perfil do cliente.\n3. OBRIGATÓRIO mencionar o bairro e tipo REAIS do imóvel (${sentProp.bairro || 'não informado'}, ${sentProp.tipo || 'imóvel'}).\n4. OBRIGATÓRIO mencionar pelo menos 1 dado do perfil do cliente (bairro desejado, família, estilo de vida).\n5. Finalize convidando o cliente a dar uma olhada e dar feedback.\n6. NUNCA invente bairros, tipos ou características que não existem no imóvel enviado.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
     const remainingHint = remaining > 0
       ? `\n\n[FILA] Restam ${remaining} imóvel(is). Quando o cliente pedir mais opções, alterar critérios (mais quartos, outro bairro, mais suítes), ou não gostar, CHAME buscar_imoveis com os critérios atualizados. NÃO responda com texto genérico pedindo mais informações se já tem o perfil do cliente.`

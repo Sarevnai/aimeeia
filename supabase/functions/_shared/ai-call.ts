@@ -384,7 +384,7 @@ export async function callLLMWithToolExecution(
 
     if (sistemaMsg) {
       const exampleMatch = sistemaMsg.match(/Exemplo:\s*"([^"]+)"/);
-      return exampleMatch ? exampleMatch[1] : 'Enviei algumas opções. Dá uma olhada e me conta o que achou.';
+      return exampleMatch ? exampleMatch[1] : 'Dá uma olhada no que te enviei e me conta o que achou.';
     }
   }
 

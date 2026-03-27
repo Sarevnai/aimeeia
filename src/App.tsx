@@ -53,6 +53,7 @@ import LabPromptsPage from "@/pages/admin/lab/LabPromptsPage";
 import LabAgentConfigPage from "@/pages/admin/lab/LabAgentConfigPage";
 import LabTriagePage from "@/pages/admin/lab/LabTriagePage";
 import LabAnalysisPage from "@/pages/admin/lab/LabAnalysisPage";
+import LabRealConversationsPage from "@/pages/admin/lab/LabRealConversationsPage";
 
 const queryClient = new QueryClient();
 
@@ -110,6 +111,7 @@ const App = () => (
                     <Route path="prompts" element={<LabPromptsPage />} />
                     <Route path="agent-config" element={<LabAgentConfigPage />} />
                     <Route path="triage" element={<LabTriagePage />} />
+                    <Route path="real-conversations" element={<LabRealConversationsPage />} />
                     <Route path="analysis" element={<LabAnalysisPage />} />
                   </Route>
                 </Route>

@@ -166,7 +166,7 @@ export function detectCorrections(
 export async function saveQualificationData(
   supabase: any,
   tenantId: string,
-  conversationId: string,
+  phoneNumber: string,
   contactId: string | null,
   data: QualificationData
 ) {
@@ -174,28 +174,19 @@ export async function saveQualificationData(
   const freshScore = calculateQualificationScore(data);
   data.qualification_score = freshScore;
 
-  // Save to lead_qualification
+  // Save to lead_qualification (unique constraint: tenant_id + phone_number)
   await supabase.from('lead_qualification').upsert({
     tenant_id: tenantId,
-    conversation_id: conversationId,
-    contact_id: contactId,
+    phone_number: phoneNumber,
     detected_neighborhood: data.detected_neighborhood || null,
     detected_property_type: data.detected_property_type || null,
     detected_bedrooms: data.detected_bedrooms || null,
-    detected_budget_min: data.detected_budget_min || null,
     detected_budget_max: data.detected_budget_max || null,
     detected_interest: data.detected_interest || null,
     detected_timeline: data.detected_timeline || null,
     qualification_score: freshScore,
-    questions_answered: data.questions_answered || 0,
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'conversation_id' });
-
-  // Also update conversation
-  await supabase
-    .from('conversations')
-    .update({ qualification_data: data })
-    .eq('id', conversationId);
+  }, { onConflict: 'tenant_id,phone_number' });
 }
 
 // ========== PRIVATE HELPERS ==========
@@ -406,6 +397,7 @@ function detectBudget(lower: string): number | null {
     /r?\$?\s*([\d.,]+)\s*milh[aãoõ][oe]?s?/i,           // "5 milhões", "R$ 2,5 milhões", "1 milhão"
     /([\d.,]+)\s*milh[aãoõ][oe]?s?\s*(?:de\s+)?(?:reais)?/i, // "5 milhões de reais"
     /(\d+)[.,](\d+)\s*(?:mi|M)\b/i,                       // "2.3M", "1,5 mi"
+    /(\d+)\s*(?:mi|M)\b/i,                                // "1M", "2M", "5 mi"
   ];
 
   for (const pattern of milhaoPatterns) {

@@ -291,7 +291,8 @@ serve(async (req: Request) => {
     const { data: qualRow } = await supabase
       .from('lead_qualification')
       .select('*')
-      .eq('conversation_id', conversation_id)
+      .eq('tenant_id', tenant_id)
+      .eq('phone_number', simPhone)
       .maybeSingle();
 
     const qualData = qualRow || {};
@@ -306,7 +307,7 @@ serve(async (req: Request) => {
     const mergedQual = mergeQualificationData(qualData, extracted);
 
     if (Object.keys(extracted).length > 0) {
-      await saveQualificationData(supabase, tenant_id, conversation_id, contact_id, mergedQual);
+      await saveQualificationData(supabase, tenant_id, simPhone, contact_id, mergedQual);
       const autoTags = generateTagsFromQualification(mergedQual);
       if (autoTags.length > 0 && contact_id) {
         await syncContactTags(supabase, contact_id, autoTags);

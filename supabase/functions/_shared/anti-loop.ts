@@ -146,20 +146,41 @@ export function isRepetitiveMessage(
 
   const normalized = aiResponse.toLowerCase().trim().slice(0, 200);
 
+  const checkSimilarity = (a: string, b: string): number => {
+    const wordsA = new Set(a.split(/\s+/));
+    const wordsB = new Set(b.split(/\s+/));
+    const intersection = [...wordsA].filter(w => wordsB.has(w));
+    const union = new Set([...wordsA, ...wordsB]);
+    return intersection.length / union.size;
+  };
+
+  // Check against recent AI messages
   for (const prev of lastAiMessages) {
     const prevNorm = prev.toLowerCase().trim().slice(0, 200);
     if (normalized === prevNorm) return true;
 
-    // Check similarity (simple Jaccard on words)
-    const wordsA = new Set(normalized.split(/\s+/));
-    const wordsB = new Set(prevNorm.split(/\s+/));
-    const intersection = [...wordsA].filter(w => wordsB.has(w));
-    const union = new Set([...wordsA, ...wordsB]);
-    const similarity = intersection.length / union.size;
-
-    if (similarity > 0.85) {
-      console.log(`⚠️ Repetitive message detected (${(similarity * 100).toFixed(0)}% similar)`);
+    const similarity = checkSimilarity(normalized, prevNorm);
+    if (similarity > 0.70) {
+      console.log(`⚠️ Repetitive message detected (${(similarity * 100).toFixed(0)}% similar to previous)`);
       return true;
+    }
+  }
+
+  // Also check if LLM naturally generated text too similar to a fallback message
+  // (prevents the LLM from producing its own version of generic fallbacks)
+  if (ALL_FALLBACKS.size > 0) {
+    for (const fb of ALL_FALLBACKS) {
+      const similarity = checkSimilarity(normalized, fb);
+      if (similarity > 0.75) {
+        // Only flag if this same fallback-like message appeared in history
+        for (const prev of lastAiMessages) {
+          const prevSim = checkSimilarity(prev.toLowerCase().trim().slice(0, 200), fb);
+          if (prevSim > 0.60) {
+            console.log(`⚠️ Repetitive: LLM generated fallback-like text already seen in history`);
+            return true;
+          }
+        }
+      }
     }
   }
 

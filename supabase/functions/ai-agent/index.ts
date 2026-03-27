@@ -136,11 +136,12 @@ serve(async (req: Request) => {
       .eq('id', conversation_id)
       .single();
 
-    // Load qualification data from lead_qualification table
+    // Load qualification data from lead_qualification table (keyed by tenant_id + phone_number)
     const { data: qualRow } = await supabase
       .from('lead_qualification')
       .select('*')
-      .eq('conversation_id', conversation_id)
+      .eq('tenant_id', tenant_id)
+      .eq('phone_number', phone_number)
       .maybeSingle();
 
     const regions = await loadRegions(supabase, tenant_id);
@@ -335,7 +336,7 @@ serve(async (req: Request) => {
     const mergedQual = isReturningLead ? mergeQualificationData({}, extracted) : mergeQualificationData(qualData, extracted);
 
     if (Object.keys(extracted).length > 0) {
-      await saveQualificationData(supabase, tenant_id, conversation_id, contact_id, mergedQual);
+      await saveQualificationData(supabase, tenant_id, phone_number, contact_id, mergedQual);
 
       // Auto-tag contact based on qualification data
       const autoTags = generateTagsFromQualification(mergedQual);

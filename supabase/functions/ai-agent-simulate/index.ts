@@ -588,8 +588,9 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     const propertyCards: any[] = [];
-    if (updatedState?.pending_properties && Array.isArray(updatedState.pending_properties)) {
-      // Get the properties that were shown in this turn
+    const searchExecutedThisTurn = ctx.toolsExecuted.some((t: string) => t === 'buscar_imoveis' || t === 'search_properties');
+    if (searchExecutedThisTurn && updatedState?.pending_properties && Array.isArray(updatedState.pending_properties)) {
+      // Only return property cards when a search was actually executed this turn
       const shownInThisTurn = updatedState.pending_properties.slice(0, updatedState.current_property_index || 0);
       for (const prop of shownInThisTurn) {
         propertyCards.push({

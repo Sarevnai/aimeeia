@@ -14,6 +14,38 @@ import { SkillConfig, AiModule } from '../types.ts';
 // Decides which module to activate based on conversation state,
 // instead of delegating to the LLM.
 
+// Detect if a message is a triage/system message (not a real AI agent response)
+function isTriageOrSystemMessage(content: string): boolean {
+  if (!content) return false;
+  // Template messages
+  if (content.startsWith('[Template:')) return true;
+  // System messages
+  if (content.startsWith('[SISTEMA')) return true;
+  // Triage greeting/name patterns
+  if (/^(Olá!?\s+Eu sou|Prazer,?\s|Como posso te chamar|Como posso te ajudar)/i.test(content)) return true;
+  // VIP pitch (triage remarketing_vip_pitch stage)
+  if (/consultoria imobiliária personalizada|atendo no máximo 2 a 3 clientes|cliente vip/i.test(content)) return true;
+  // Department welcome
+  if (/^Vou te ajudar a encontrar/i.test(content)) return true;
+  // Triage buttons/clarification
+  if (/Posso seguir com seu atendimento VIP/i.test(content)) return true;
+  return false;
+}
+
+// Detect if the partnership contract has been sent in history
+function contractAlreadySentInHistory(history: any[]): boolean {
+  return history?.some(
+    msg => msg.role === 'assistant' && msg.content && (
+      // Contract signatures: sinceridade, feedback, contrato language
+      /sinceridade total|consultoria de verdade|contrato de parceria|sem receio/i.test(msg.content) ||
+      // Contract examples: vaga apertada, face sem sol, etc
+      /vaga apertada|face sem sol|barulho de rua/i.test(msg.content) ||
+      // Separator pattern (contract uses ___) with contract-like content
+      (msg.content.includes('___') && /quanto mais.*verdade|quanto mais.*souber/i.test(msg.content))
+    )
+  ) || false;
+}
+
 function resolveActiveModule(ctx: AgentContext, modules: AiModule[]): AiModule | null {
   const { qualificationData: qualData, conversationHistory: history, isReturningLead } = ctx;
   const find = (slug: string) => modules.find(m => m.slug === slug) || null;
@@ -23,9 +55,13 @@ function resolveActiveModule(ctx: AgentContext, modules: AiModule[]): AiModule |
     msg => msg.role === 'assistant' && msg.content?.includes('Lead transferido para atendimento humano via CRM')
   ) || false;
 
-  // Check if there are previous assistant messages (i.e., contract already done)
+  // Filter out triage/system messages to detect REAL AI agent responses only
   const assistantMessages = history?.filter(msg => msg.role === 'assistant') || [];
-  const hasAssistantHistory = assistantMessages.length > 0;
+  const realAgentMessages = assistantMessages.filter(msg => !isTriageOrSystemMessage(msg.content));
+  const hasRealAgentHistory = realAgentMessages.length > 0;
+
+  // Detect if contract was already sent (content-based, more reliable)
+  const contractDone = contractAlreadySentInHistory(history || []);
 
   // Priority 1: Post-handoff follow-up (lead returns after broker transfer)
   if (hadHandoff) {
@@ -34,15 +70,20 @@ function resolveActiveModule(ctx: AgentContext, modules: AiModule[]): AiModule |
   }
 
   // Priority 2: Returning lead revalidation
-  if (isReturningLead && !hasAssistantHistory) {
+  if (isReturningLead && !hasRealAgentHistory) {
     console.log('🧩 [resolve] Returning lead detected');
     return find('lead-retornante');
   }
 
-  // Priority 3: First interaction — partnership contract
-  if (!hasAssistantHistory) {
+  // Priority 3: Partnership contract (only if never sent)
+  if (!hasRealAgentHistory && !contractDone) {
     console.log('🧩 [resolve] First interaction → contrato-parceria');
     return find('contrato-parceria');
+  }
+
+  // If contract was already done, skip to anamnese/busca
+  if (contractDone) {
+    console.log('🧩 [resolve] Contract already done, checking qualification...');
   }
 
   // Priority 4: Qualification complete → property search or handoff
@@ -191,6 +232,7 @@ function buildRemarketingPrompt(ctx: AgentContext): string {
 
   // Priority 3: Hardcoded fallback (below)
   const sections: string[] = [];
+  const isContractDone = contractAlreadySentInHistory(ctx.conversationHistory || []);
 
   sections.push(`<character>
 
@@ -231,8 +273,9 @@ ${config.use_customer_name && contactName ? `O cliente deve ser chamado de ${con
 
 Antes de responder, avalie o histórico da conversa:
 
-- Se o cliente ACABOU de aceitar o atendimento VIP e esta for a sua primeira resposta real, execute o [CONTRATO DE PARCERIA].
-- Se o histórico já tiver mensagens suas anteriores ou o contrato já tiver sido realizado, pule o contrato e siga para o [FLUXO DE ANAMNESE] ou para a continuidade natural da conversa.
+${isContractDone
+? `- O CONTRATO DE PARCERIA JÁ FOI REALIZADO. NÃO repita o contrato em hipótese alguma. Siga para o [FLUXO DE ANAMNESE] ou continuidade natural da conversa.`
+: `- Se o cliente ACABOU de aceitar o atendimento VIP e esta for a sua primeira resposta real, execute o [CONTRATO DE PARCERIA]. Execute o contrato UMA ÚNICA VEZ.`}
 - Se já houver dados no histórico ou em <lead_data>, CONFIRME em vez de perguntar de novo.
 - Se já houver no mínimo 3 dados coletados (operação + localização + tipo OU quartos), acione buscar_imoveis imediatamente antes de fazer novas perguntas.
 - Se o cliente pedir para ver imóveis ou mais opções, acione buscar_imoveis no mesmo turno.

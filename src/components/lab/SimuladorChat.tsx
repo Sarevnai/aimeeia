@@ -18,7 +18,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useSessionState, clearSimulationSession } from "@/hooks/useSessionState";
+import { useSessionState } from "@/hooks/useSessionState";
 import { supabase } from "@/integrations/supabase/client";
 import { PropertyCard } from "./PropertyCard";
 
@@ -156,11 +156,9 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
     }
   }, [tenantId]);
 
-  // ------- Process AI response -------
+  // ------- Process AI response (with staggered message delivery) -------
   const processAiResponse = useCallback(
     (responseData: any) => {
-      const aiMessages: SimMessage[] = [];
-
       // The Edge Function may return a compound response separated by ___
       const rawReply: string = responseData?.ai_response ?? responseData?.reply ?? responseData?.message ?? "";
       const parts = rawReply.split("___").map((p: string) => p.trim()).filter(Boolean);
@@ -169,6 +167,8 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
       const propertyCards: any[] = responseData?.property_cards ?? responseData?.propertyCards ?? [];
       const templateRendered = responseData?.template_rendered ?? null;
 
+      // Build all messages
+      const aiMessages: SimMessage[] = [];
       for (const part of parts) {
         aiMessages.push({
           id: generateId(),
@@ -194,7 +194,23 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
         });
       }
 
-      setMessages((prev) => [...prev, ...aiMessages]);
+      // Stagger message delivery to simulate human typing rhythm
+      if (aiMessages.length <= 1) {
+        // Single message — deliver immediately
+        setMessages((prev) => [...prev, ...aiMessages]);
+      } else {
+        // Multiple messages — deliver with random delays (1-3s between each)
+        setMessages((prev) => [...prev, aiMessages[0]]);
+        let cumulativeDelay = 0;
+        for (let i = 1; i < aiMessages.length; i++) {
+          const delay = 1000 + Math.random() * 2000; // 1s to 3s
+          cumulativeDelay += delay;
+          const msg = aiMessages[i];
+          setTimeout(() => {
+            setMessages((prev) => [...prev, msg]);
+          }, cumulativeDelay);
+        }
+      }
 
       // Build updated module history
       const activeModule = responseData?.active_module ?? responseData?.activeModule ?? null;
@@ -406,7 +422,12 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
     setMetadata(INITIAL_METADATA);
     setModuleHistory([]);
     setInputText("");
-    clearSimulationSession("sim_lab_");
+    // Clear only chat-specific state, NOT tenant selection or parent state
+    const chatKeys = [
+      "sim_lab_messages", "sim_lab_conversationId", "sim_lab_department",
+      "sim_lab_metadata", "sim_lab_moduleHistory",
+    ];
+    chatKeys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
     onReset?.();
     inputRef.current?.focus();
   }, [conversationId, setMessages, setConversationId, setDepartment, setMetadata, setModuleHistory, onReset]);
@@ -469,17 +490,14 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
           {msg.body}
         </div>
 
-        {/* Template preview */}
+        {/* Template info badge (no raw JSON) */}
         {msg.action === "template_sent" && msg.templateRendered && (
           <div className="mt-1 max-w-[85%]">
-            <Card className="p-3 bg-amber-50 border-amber-200 text-xs">
-              <p className="font-medium text-amber-800 mb-1">Template Preview</p>
-              <p className="text-amber-700">
-                {typeof msg.templateRendered === "string"
-                  ? msg.templateRendered
-                  : JSON.stringify(msg.templateRendered, null, 2)}
-              </p>
-            </Card>
+            <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300 bg-amber-50">
+              Template: {typeof msg.templateRendered === "string"
+                ? msg.templateRendered
+                : msg.templateRendered?.name || "enviado"}
+            </Badge>
           </div>
         )}
 

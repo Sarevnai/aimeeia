@@ -199,6 +199,7 @@ export const adminAgent: AgentModule = {
 
     if (isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
       finalResponse = ctx.aiConfig.fallback_message || 'Posso te ajudar com mais alguma coisa?';
+      ctx._loopDetected = true;
     }
 
     await updateAntiLoopState(ctx.supabase, ctx.tenantId, ctx.phoneNumber, finalResponse);

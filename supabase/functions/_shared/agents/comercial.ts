@@ -416,15 +416,18 @@ export const comercialAgent: AgentModule = {
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
     let finalResponse = aiResponse;
     const qualified = isQualificationComplete(ctx.qualificationData);
+    const isRemarketing = ctx.conversationSource === 'remarketing';
 
     if (isLoopingQuestion(finalResponse, ctx.qualificationData)) {
       console.log('🔄 [Comercial] Loop detected → rotating fallback');
-      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages);
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, isRemarketing);
+      ctx._loopDetected = true;
     }
 
-    if (isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
+    if (!ctx._loopDetected && isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
       console.log('🔄 [Comercial] Repetition detected → rotating fallback');
-      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages);
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, isRemarketing);
+      ctx._loopDetected = true;
     }
 
     await updateAntiLoopState(ctx.supabase, ctx.tenantId, ctx.phoneNumber, finalResponse);

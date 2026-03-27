@@ -32,6 +32,7 @@ export interface AgentContext {
   toolsExecuted: string[];               // MC-5: Track which tools were called this turn
   activeModules: AiModule[];              // Intelligence modules for this tenant
   currentModuleSlug: string | null;       // Currently active module slug
+  _loopDetected?: boolean;                // Set by postProcess to signal loop to caller
   supabase: any;
 }
 

@@ -1,25 +1,71 @@
-// ========== AIMEE.iA v2 - ANTI-LOOP ==========
+// ========== AIMEE.iA v3 - ANTI-LOOP ==========
 // Persistence in DB (fixes v1 bug where in-memory Map reset on cold start).
 // Checks last AI messages to detect repetitive behavior.
-// v2.1: Fallback rotation to prevent infinite fallback loops.
-//        Property-detail responses are never intercepted.
+// v3: Fixes meta-loop bug — fallbacks are NOT saved to last_ai_messages,
+//     getRotatingFallback avoids ALL recent messages (not just last),
+//     expanded pool to 8 messages per category + remarketing-specific pool.
 
 import { QualificationData } from './types.ts';
 
 const MAX_STORED_MESSAGES = 5;
 
-// Rotating fallback pool — never send the same fallback twice in a row
+// ========== FALLBACK POOLS (expanded to avoid exhaustion) ==========
+
 const FALLBACK_POOL_QUALIFIED = [
   'Vou buscar novas opções pra você com base no que conversamos.',
   'Deixa eu procurar mais alternativas com o perfil que você descreveu.',
   'Com base no que já conversamos, vou trazer outras opções.',
+  'Vou ampliar a busca pra encontrar algo ainda mais alinhado ao que você precisa.',
+  'Tenho mais algumas opções que podem fazer sentido pra você. Deixa eu buscar.',
+  'Vou verificar se apareceram novidades que combinem com o que você procura.',
+  'Posso buscar em outras regiões similares pra aumentar as opções. Quer que eu faça isso?',
+  'Vou dar uma olhada em imóveis com perfil parecido. Já volto com novidades.',
 ];
 
 const FALLBACK_POOL_UNQUALIFIED = [
   'Me ajuda a entender melhor o que você procura?',
   'Pra eu buscar algo certeiro, preciso de mais alguns detalhes.',
   'Me conta mais sobre o que é importante pra você no imóvel?',
+  'Qual região da cidade faz mais sentido pra você?',
+  'Você tem uma faixa de valor em mente?',
+  'O que é indispensável pra você no imóvel?',
+  'Pra eu te ajudar da melhor forma, me conta: é pra comprar ou alugar?',
+  'Me fala um pouco mais do que seria ideal pra você.',
 ];
+
+const FALLBACK_POOL_REMARKETING_QUALIFIED = [
+  'Vou buscar opções alinhadas ao perfil que traçamos juntos.',
+  'Deixa eu procurar alternativas que façam mais sentido pro que você descreveu.',
+  'Vou ampliar a busca com base no que conversamos até aqui.',
+  'Tenho mais opções que podem se encaixar. Vou buscar pra você.',
+  'Vou verificar novidades que combinem com o que você precisa.',
+  'Posso explorar outras regiões com o mesmo perfil. Quer que eu faça isso?',
+  'Vou olhar com mais cuidado o que temos disponível pra você.',
+  'Deixa eu buscar com critérios um pouco mais flexíveis pra ampliar as possibilidades.',
+];
+
+const FALLBACK_POOL_REMARKETING_UNQUALIFIED = [
+  'Pra eu fazer uma busca certeira, me conta um pouco mais do que você procura.',
+  'Qual região da cidade faz mais sentido pra você hoje?',
+  'Você já tem uma ideia do tipo de imóvel que seria ideal?',
+  'Me conta: qual a faixa de valor que funciona pra você?',
+  'Antes de buscar, me ajuda com mais um detalhe sobre o que você precisa.',
+  'Pra eu te atender da melhor forma, preciso entender melhor suas prioridades.',
+  'O que é mais importante pra você na hora de escolher o imóvel?',
+  'Me fala mais sobre o que seria ideal — isso vai fazer toda a diferença na busca.',
+];
+
+// Set of all fallback texts (lowercase) for quick lookup
+const ALL_FALLBACKS = new Set([
+  ...FALLBACK_POOL_QUALIFIED,
+  ...FALLBACK_POOL_UNQUALIFIED,
+  ...FALLBACK_POOL_REMARKETING_QUALIFIED,
+  ...FALLBACK_POOL_REMARKETING_UNQUALIFIED,
+].map(f => f.toLowerCase().trim()));
+
+export function isFallbackMessage(text: string): boolean {
+  return ALL_FALLBACKS.has(text.toLowerCase().trim());
+}
 
 // ========== CHECK IF RESPONSE CONTAINS PROPERTY DETAILS ==========
 
@@ -77,6 +123,13 @@ export function isLoopingQuestion(
     }
   }
 
+  if (qualificationData.detected_interest) {
+    if (/comprar\s+ou\s+alugar|alugar\s+ou\s+comprar|loca[cç][aã]o\s+ou\s+venda|venda\s+ou\s+loca/i.test(lower)) {
+      console.log('⚠️ Loop detected: asking interest/finalidade again');
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -113,28 +166,52 @@ export function isRepetitiveMessage(
   return false;
 }
 
-// ========== GET ROTATING FALLBACK (never same as last) ==========
+// ========== GET ROTATING FALLBACK (avoids ALL recent messages) ==========
 
 export function getRotatingFallback(
   isQualified: boolean,
-  lastAiMessages: string[]
+  lastAiMessages: string[],
+  isRemarketing: boolean = false
 ): string {
-  const pool = isQualified ? FALLBACK_POOL_QUALIFIED : FALLBACK_POOL_UNQUALIFIED;
-  const lastMsg = lastAiMessages.length > 0
-    ? lastAiMessages[lastAiMessages.length - 1]?.toLowerCase().trim() || ''
-    : '';
+  // Select the right pool based on context
+  let pool: string[];
+  if (isRemarketing) {
+    pool = isQualified ? FALLBACK_POOL_REMARKETING_QUALIFIED : FALLBACK_POOL_REMARKETING_UNQUALIFIED;
+  } else {
+    pool = isQualified ? FALLBACK_POOL_QUALIFIED : FALLBACK_POOL_UNQUALIFIED;
+  }
 
-  // Pick a fallback that doesn't match the last message
+  // Build set of recent messages (lowercase) to avoid ALL of them
+  const recentSet = new Set(
+    lastAiMessages.map(m => m.toLowerCase().trim().slice(0, 200))
+  );
+
+  // Pick a fallback that doesn't match ANY recent message
   for (const fb of pool) {
-    if (fb.toLowerCase().trim() !== lastMsg.slice(0, 200)) {
+    if (!recentSet.has(fb.toLowerCase().trim().slice(0, 200))) {
       return fb;
     }
   }
-  // Ultimate fallback: pick the first from the pool
-  return pool[0];
+
+  // All fallbacks in the primary pool were used recently — try the other pool as overflow
+  const overflowPool = isRemarketing
+    ? (isQualified ? FALLBACK_POOL_QUALIFIED : FALLBACK_POOL_UNQUALIFIED)
+    : (isQualified ? FALLBACK_POOL_REMARKETING_QUALIFIED : FALLBACK_POOL_REMARKETING_UNQUALIFIED);
+
+  for (const fb of overflowPool) {
+    if (!recentSet.has(fb.toLowerCase().trim().slice(0, 200))) {
+      return fb;
+    }
+  }
+
+  // Ultimate fallback: pick index based on messages count to cycle deterministically
+  return pool[lastAiMessages.length % pool.length];
 }
 
 // ========== UPDATE ANTI-LOOP STATE ==========
+// v3: Does NOT save fallback messages to last_ai_messages.
+// Fallbacks are synthetic responses — saving them pollutes the history
+// and causes the system to detect its own fallbacks as repetition.
 
 export async function updateAntiLoopState(
   supabase: any,
@@ -142,6 +219,13 @@ export async function updateAntiLoopState(
   phoneNumber: string,
   aiResponse: string
 ) {
+  // Don't save fallback messages — they would pollute the history
+  // and be detected as repetition on the next turn.
+  if (isFallbackMessage(aiResponse)) {
+    console.log('ℹ️ Anti-loop: skipping fallback save to last_ai_messages');
+    return;
+  }
+
   // Get current state
   const { data: state } = await supabase
     .from('conversation_states')

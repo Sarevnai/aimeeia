@@ -518,23 +518,10 @@ serve(async (req: Request) => {
     // Strip module tags
     finalResponse = finalResponse.replace(/\[\s*MODULO\s*:\s*[^\]\n]*?\s*\]\s*/gi, '').trim();
 
-    // ========== ANTI-LOOP (production parity) ==========
-
-    let loopDetected = false;
-    if (isLoopingQuestion(finalResponse, mergedQual)) {
-      loopDetected = true;
-      console.log('🔄 SIM: Loop detected → rotating fallback');
-      const qualified = (mergedQual.qualification_score || 0) >= 60;
-      finalResponse = getRotatingFallback(qualified, state?.last_ai_messages || []);
-    }
-    if (!loopDetected && isRepetitiveMessage(finalResponse, state?.last_ai_messages || [])) {
-      loopDetected = true;
-      console.log('🔄 SIM: Repetition detected → rotating fallback');
-      const qualified = (mergedQual.qualification_score || 0) >= 60;
-      finalResponse = getRotatingFallback(qualified, state?.last_ai_messages || []);
-    }
-
-    await updateAntiLoopState(supabase, tenant_id, simPhone, finalResponse);
+    // Anti-loop is handled inside agent.postProcess() — do NOT run it again here.
+    // Running it twice caused double-saving to last_ai_messages, exhausting the
+    // small fallback pool in 2 turns and creating a meta-loop.
+    const loopDetected = ctx._loopDetected || false;
 
     // ========== PERSIST MODULE ==========
 

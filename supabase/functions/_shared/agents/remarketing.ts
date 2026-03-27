@@ -47,18 +47,38 @@ function resolveActiveModule(ctx: AgentContext, modules: AiModule[]): AiModule |
 
   // Priority 4: Qualification complete → property search or handoff
   const qualScore = calculateQualificationScore(qualData);
-  if (qualScore >= 60) {
+
+  // Also count how many turns of anamnese we've had — if too many turns
+  // with data already collected, force progression to busca-imoveis.
+  // This prevents getting stuck in anamnese when extractQualificationFromText
+  // fails to parse the client's responses.
+  const userMessages = history?.filter(msg => msg.role === 'user') || [];
+  const anamneseTurns = userMessages.length; // turns since triage completed
+  const hasMinimumData = !!(qualData?.detected_interest || qualData?.detected_property_type || qualData?.detected_neighborhood);
+
+  if (qualScore >= 60 || (anamneseTurns >= 5 && hasMinimumData)) {
     // If tools already executed handoff, stay on handoff
     if (ctx.toolsExecuted?.includes('enviar_lead_c2s')) {
       console.log('🧩 [resolve] Handoff already executed');
       return find('handoff');
     }
-    console.log(`🧩 [resolve] Qualification complete (score=${qualScore}) → busca-imoveis`);
+    if (qualScore < 60) {
+      console.log(`🧩 [resolve] Forcing progression: ${anamneseTurns} turns with some data → busca-imoveis`);
+    } else {
+      console.log(`🧩 [resolve] Qualification complete (score=${qualScore}) → busca-imoveis`);
+    }
     return find('busca-imoveis');
   }
 
-  // Priority 5: Default — anamnesis (qualification in progress)
-  console.log(`🧩 [resolve] Qualification in progress (score=${qualScore}) → anamnese`);
+  // Priority 5: If stuck in anamnese for too long (8+ turns) with no data at all,
+  // still force to busca-imoveis to break the loop — the LLM will ask what's missing
+  if (anamneseTurns >= 8) {
+    console.log(`🧩 [resolve] Forcing exit from anamnese after ${anamneseTurns} turns with no data`);
+    return find('busca-imoveis');
+  }
+
+  // Priority 6: Default — anamnesis (qualification in progress)
+  console.log(`🧩 [resolve] Qualification in progress (score=${qualScore}, turns=${anamneseTurns}) → anamnese`);
   return find('anamnese');
 }
 
@@ -644,13 +664,15 @@ export const remarketingAgent: AgentModule = {
     // Detect loop: AI re-asking questions already answered
     if (isLoopingQuestion(finalResponse, ctx.qualificationData)) {
       console.log('🔄 [Remarketing] Loop detected → rotating fallback');
-      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages);
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, true);
+      ctx._loopDetected = true;
     }
 
     // Detect repetition: AI sending same/similar message multiple times
-    if (isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
+    if (!ctx._loopDetected && isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
       console.log('🔄 [Remarketing] Repetition detected → rotating fallback');
-      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages);
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, true);
+      ctx._loopDetected = true;
     }
 
     // MC-5: Detect handoff promise without actual tool call

@@ -32,17 +32,21 @@ function isTriageOrSystemMessage(content: string): boolean {
   return false;
 }
 
-// Detect if the partnership contract has been sent in history
+// Detect if the partnership contract has been sent in history.
+// The LLM paraphrases keywords (e.g. "sinceridade total" → "sinceridade completa",
+// "vaga apertada" → "garagem apertada"), so we use broader patterns.
+// IMPORTANT: Requires ___ AND at least one contract keyword to avoid false positives
+// from triage messages that also use ___ as separator.
+const CONTRACT_KEYWORD_PATTERN = /sinceridade\s+(total|completa|absoluta)|direto\s+comigo|sem\s+filtro|o\s+que\s+(n[aã]o\s+aceita|n[aã]o\s+gosta|te\s+incomoda|descarta)|vagas?\s+apertadas?|garagem\s+apertada|face\s+sem\s+sol|barulho\s+de\s+rua/i;
+
 function contractAlreadySentInHistory(history: any[]): boolean {
   return history?.some(
-    msg => msg.role === 'assistant' && msg.content && (
-      // Contract signatures: sinceridade, feedback, contrato language
-      /sinceridade total|consultoria de verdade|contrato de parceria|sem receio/i.test(msg.content) ||
-      // Contract examples: vaga apertada, face sem sol, etc
-      /vaga apertada|face sem sol|barulho de rua/i.test(msg.content) ||
-      // Separator pattern (contract uses ___) with contract-like content
-      (msg.content.includes('___') && /quanto mais.*verdade|quanto mais.*souber/i.test(msg.content))
-    )
+    msg => msg.role === 'assistant' && msg.content &&
+      // Exclude triage/system messages — they use ___ but are NOT the contract
+      !isTriageOrSystemMessage(msg.content) &&
+      // Require BOTH ___ separator AND at least one contract keyword
+      msg.content.includes('___') &&
+      CONTRACT_KEYWORD_PATTERN.test(msg.content)
   ) || false;
 }
 

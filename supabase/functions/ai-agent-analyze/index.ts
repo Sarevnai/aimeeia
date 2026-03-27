@@ -1,11 +1,11 @@
 // ========== AIMEE.iA - AI AGENT ANALYZE ==========
-// Analyzes simulation/real turns using Google Gemini via REST API.
+// Analyzes simulation/real turns using GPT 5.4 Mini (OpenAI).
 // Returns a 0-10 score with detailed criteria breakdown and error detection.
 // Used by the AI Lab to validate agent quality before production.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
-import { buildAnalysisUserMessage, callGeminiAnalysis } from '../_shared/analyze.ts';
+import { buildAnalysisUserMessage, callAnalysis } from '../_shared/analyze.ts';
 import type { AnalysisResult } from '../_shared/analyze.ts';
 
 serve(async (req: Request) => {
@@ -27,7 +27,7 @@ serve(async (req: Request) => {
       return errorResponse('Missing required fields', 400);
     }
 
-    // Build analysis context and call Gemini
+    // Build analysis context and call OpenAI
     const userMessage = buildAnalysisUserMessage({
       conversation_history,
       current_turn,
@@ -36,7 +36,7 @@ serve(async (req: Request) => {
       turn_number,
     });
 
-    const analysis: AnalysisResult = await callGeminiAnalysis(userMessage);
+    const analysis: AnalysisResult = await callAnalysis(userMessage);
 
     // Persist analysis to DB
     const supabase = getSupabaseClient();

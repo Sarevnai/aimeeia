@@ -1,6 +1,7 @@
 // ========== AIMEE.iA - SHARED ANALYSIS MODULE ==========
-// Shared Gemini analysis logic used by both ai-agent-analyze (per-turn)
+// Shared AI analysis logic used by both ai-agent-analyze (per-turn)
 // and ai-agent-analyze-batch (full conversation).
+// Model: GPT 5.4 Mini (OpenAI)
 
 export interface AnalysisCriterion {
   name: string;
@@ -183,59 +184,62 @@ Analise este turno e retorne a avaliação em JSON.`;
 }
 
 /**
- * Call Google Gemini API and return the analysis result.
+ * Call OpenAI API (GPT 5.4 Mini) and return the analysis result.
  */
-export async function callGeminiAnalysis(userMessage: string): Promise<AnalysisResult> {
-  const apiKey = Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('GEMINI_API_KEY');
+export async function callAnalysis(userMessage: string): Promise<AnalysisResult> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) {
-    throw new Error('Google API key not configured (GOOGLE_API_KEY or GEMINI_API_KEY)');
+    throw new Error('OpenAI API key not configured (OPENAI_API_KEY)');
   }
 
-  const geminiModel = 'gemini-2.5-flash';
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
+  const model = 'gpt-5.4-mini';
+  const endpoint = 'https://api.openai.com/v1/chat/completions';
 
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: ANALYSIS_SYSTEM_PROMPT }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-      generationConfig: {
-        maxOutputTokens: 8192,
-        temperature: 0.3,
-        responseMimeType: 'application/json',
-      },
+      model,
+      messages: [
+        { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+      temperature: 0.3,
+      max_tokens: 8192,
+      response_format: { type: 'json_object' },
     }),
   });
 
   if (!response.ok) {
     const error = await response.text();
-    console.error('Gemini API error:', error);
+    console.error('OpenAI API error:', error);
     return {
       score: 0,
       max_score: 10,
       criteria: [],
-      errors: [{ type: 'api_error', severity: 'high', description: `Gemini API error: ${response.status}`, suggestion: 'Verificar API key e modelo', affected_file: 'ai-agent-analyze/index.ts' }],
+      errors: [{ type: 'api_error', severity: 'high', description: `OpenAI API error: ${response.status}`, suggestion: 'Verificar API key e modelo', affected_file: 'ai-agent-analyze/index.ts' }],
       summary: `Erro na API de análise (${response.status}). Verifique a configuração.`,
       is_production_ready: false,
     };
   }
 
   const data = await response.json();
-  return parseGeminiResponse(data);
+  return parseAnalysisResponse(data);
 }
 
+/** @deprecated Use callAnalysis instead */
+export const callGeminiAnalysis = callAnalysis;
+
 /**
- * Robust JSON parsing from Gemini response with multiple fallback strategies.
+ * Parse OpenAI response into AnalysisResult.
  */
-export function parseGeminiResponse(data: any): AnalysisResult {
-  const parts = data.candidates?.[0]?.content?.parts || [];
+export function parseAnalysisResponse(data: any): AnalysisResult {
+  const rawText = data.choices?.[0]?.message?.content || '';
 
-  const nonThoughtParts = parts.filter((p: any) => !p.thought && p.text);
-  const textParts = nonThoughtParts.length > 0 ? nonThoughtParts : parts.filter((p: any) => p.text);
-  const rawText = textParts.map((p: any) => p.text).join('').trim();
-
-  console.log('[analyze] Model response length:', rawText.length, 'parts:', parts.length, 'nonThought:', nonThoughtParts.length);
+  console.log('[analyze] Model response length:', rawText.length);
 
   if (!rawText) {
     console.error('[analyze] Empty response. Full data:', JSON.stringify(data).slice(0, 1000));
@@ -249,45 +253,30 @@ export function parseGeminiResponse(data: any): AnalysisResult {
     };
   }
 
-  // --- Robust JSON parsing with multiple fallback strategies ---
   try {
     return JSON.parse(rawText);
-  } catch (_e1) {
+  } catch (_e) {
+    // Fallback: extract JSON object from string
     try {
-      let jsonStr = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      return JSON.parse(jsonStr);
-    } catch (_e2) {
-      try {
-        const firstBrace = rawText.indexOf('{');
-        const lastBrace = rawText.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace > firstBrace) {
-          return JSON.parse(rawText.slice(firstBrace, lastBrace + 1));
-        }
-        throw new Error('No JSON object found');
-      } catch (_e3) {
-        try {
-          let jsonStr = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-          const firstBrace = jsonStr.indexOf('{');
-          const lastBrace = jsonStr.lastIndexOf('}');
-          if (firstBrace !== -1 && lastBrace > firstBrace) {
-            jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
-          }
-          jsonStr = jsonStr.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-          jsonStr = jsonStr.replace(/(?<=":[\s]*"[^"]*)\n/g, '\\n');
-          jsonStr = jsonStr.replace(/(?<=":[\s]*"[^"]*)\t/g, '\\t');
-          return JSON.parse(jsonStr);
-        } catch (finalErr) {
-          console.error('[analyze] All parse strategies failed. Raw:', rawText.slice(0, 500));
-          return {
-            score: 0,
-            max_score: 10,
-            criteria: [],
-            errors: [{ type: 'parse_error', severity: 'high', description: 'Falha ao parsear resposta do avaliador', suggestion: 'Verificar formato do response', affected_file: 'ai-agent-analyze/index.ts' }],
-            summary: rawText.slice(0, 200),
-            is_production_ready: false,
-          };
-        }
+      const firstBrace = rawText.indexOf('{');
+      const lastBrace = rawText.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        return JSON.parse(rawText.slice(firstBrace, lastBrace + 1));
       }
+      throw new Error('No JSON object found');
+    } catch (finalErr) {
+      console.error('[analyze] Parse failed. Raw:', rawText.slice(0, 500));
+      return {
+        score: 0,
+        max_score: 10,
+        criteria: [],
+        errors: [{ type: 'parse_error', severity: 'high', description: 'Falha ao parsear resposta do avaliador', suggestion: 'Verificar formato do response', affected_file: 'ai-agent-analyze/index.ts' }],
+        summary: rawText.slice(0, 200),
+        is_production_ready: false,
+      };
     }
   }
 }
+
+/** @deprecated Use parseAnalysisResponse instead */
+export const parseGeminiResponse = parseAnalysisResponse;

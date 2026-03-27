@@ -1,11 +1,11 @@
 // ========== AIMEE.iA - AI AGENT ANALYZE BATCH ==========
-// Analyzes an entire real conversation (all turns) using the same Gemini analyst.
+// Analyzes an entire real conversation (all turns) using GPT 5.4 Mini (OpenAI).
 // Groups messages into turns, runs analysis on each AI response,
 // creates a versioned analysis_report with aggregated scores.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
-import { buildAnalysisUserMessage, callGeminiAnalysis } from '../_shared/analyze.ts';
+import { buildAnalysisUserMessage, callAnalysis } from '../_shared/analyze.ts';
 import type { AnalysisResult } from '../_shared/analyze.ts';
 
 interface Turn {
@@ -145,7 +145,7 @@ serve(async (req: Request) => {
 
     for (const turn of turns) {
       // Build conversation history up to this point
-      const analysis = await callGeminiAnalysis(
+      const analysis = await callAnalysis(
         buildAnalysisUserMessage({
           conversation_history: [...conversationHistory],
           current_turn: {

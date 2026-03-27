@@ -484,15 +484,22 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 - Limite sua resposta a no máximo ${aiConfig.audio_max_chars || 500} caracteres para não ficar longo demais.`;
       }
 
-      // Collapse contract messages: use broad patterns to catch all LLM paraphrases
-      const contractCollapsePattern = /sinceridade\s+(total|completa|absoluta)|direto\s+comigo|sem\s+filtro|consultoria\s+(de\s+verdade|que\s+realmente|imobili[aá]ria\s+de)|o\s+que\s+(n[aã]o\s+aceita|n[aã]o\s+gosta|te\s+incomoda|descarta)|vagas?\s+apertadas?|garagem\s+apertada|face\s+sem\s+sol|barulho\s+de\s+rua/i;
+      // Collapse ALL assistant messages with ___ (contract format) to prevent LLM pattern-matching.
+      // Triage messages (VIP pitch) are identified and left intact.
+      const isTriageMsg = (content: string) => {
+        if (!content) return false;
+        return content.startsWith('[Template:') || content.startsWith('[SISTEMA') ||
+          /^(Olá!?\s+Eu sou|Prazer,?\s|Como posso te chamar|Como posso te ajudar)/i.test(content) ||
+          /consultoria imobiliária personalizada|atendo no máximo 2 a 3 clientes|cliente vip/i.test(content) ||
+          /^Vou te ajudar a encontrar/i.test(content) ||
+          /Posso seguir com seu atendimento VIP/i.test(content);
+      };
       const agentLlmHistory = history.map(msg => {
         if (msg.role === 'assistant' && msg.content &&
-            msg.content.includes('___') &&
-            contractCollapsePattern.test(msg.content)) {
+            msg.content.includes('___') && !isTriageMsg(msg.content)) {
           return {
             ...msg,
-            content: '[Contrato de parceria VIP já realizado com sucesso. O cliente aceitou. Agora siga para a anamnese — pergunte o que falta.]',
+            content: '[Contrato de parceria VIP já realizado. O cliente aceitou. Siga para a anamnese — pergunte APENAS o que falta.]',
           };
         }
         return msg;

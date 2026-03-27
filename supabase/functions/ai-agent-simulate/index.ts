@@ -90,7 +90,7 @@ serve(async (req: Request) => {
           .insert({
             tenant_id,
             phone_number: simPhone,
-            department_code: isRemarketing ? 'vendas' : effectiveDepartment,
+            department_code: effectiveDepartment,
             source: conversationSource,
             status: 'active',
           })
@@ -495,19 +495,25 @@ serve(async (req: Request) => {
     const tools = agent.getTools(ctx);
     const modelUsed = aiConfig.ai_model || 'google/gemini-2.5-flash';
 
-    // Collapse contract messages in history to prevent LLM from pattern-matching.
-    // Without this, the LLM sees the contract as its last response and repeats it
-    // even when the system prompt says to do anamnese.
-    // Collapse contract messages: use the same broad patterns as contractAlreadySentInHistory
-    // to catch all LLM paraphrases (sinceridade completa, garagem apertada, vagas apertadas, etc.)
-    const contractCollapsePattern = /sinceridade\s+(total|completa|absoluta)|direto\s+comigo|sem\s+filtro|consultoria\s+(de\s+verdade|que\s+realmente|imobili[aá]ria\s+de)|o\s+que\s+(n[aã]o\s+aceita|n[aã]o\s+gosta|te\s+incomoda|descarta)|vagas?\s+apertadas?|garagem\s+apertada|face\s+sem\s+sol|barulho\s+de\s+rua/i;
+    // Collapse ALL assistant messages containing ___ separator (contract format).
+    // The ___ separator is only used by the contract module and triage VIP pitch.
+    // Triage messages are identified by isTriageOrSystemMessage and left intact.
+    // Everything else with ___ is a contract (or contract-like repetition) and gets collapsed
+    // to prevent LLM from pattern-matching and regenerating contract text.
+    const isTriageMsg = (content: string) => {
+      if (!content) return false;
+      return content.startsWith('[Template:') || content.startsWith('[SISTEMA') ||
+        /^(Olá!?\s+Eu sou|Prazer,?\s|Como posso te chamar|Como posso te ajudar)/i.test(content) ||
+        /consultoria imobiliária personalizada|atendo no máximo 2 a 3 clientes|cliente vip/i.test(content) ||
+        /^Vou te ajudar a encontrar/i.test(content) ||
+        /Posso seguir com seu atendimento VIP/i.test(content);
+    };
     const llmHistory = history.map(msg => {
       if (msg.role === 'assistant' && msg.content &&
-          msg.content.includes('___') &&
-          contractCollapsePattern.test(msg.content)) {
+          msg.content.includes('___') && !isTriageMsg(msg.content)) {
         return {
           ...msg,
-          content: '[Contrato de parceria VIP já realizado com sucesso. O cliente aceitou. Agora siga para a anamnese — pergunte o que falta.]',
+          content: '[Contrato de parceria VIP já realizado. O cliente aceitou. Siga para a anamnese — pergunte APENAS o que falta.]',
         };
       }
       return msg;

@@ -775,11 +775,7 @@ export async function loadConversationHistory(
     .eq('conversation_id', conversationId)
     .not('body', 'is', null);
 
-  // Only filter by department_code if it's a valid enum value.
-  // 'remarketing' is NOT in the department_type enum (locacao, vendas, administrativo)
-  // and would cause PostgREST to silently return 0 results.
-  const validDepartments = ['locacao', 'vendas', 'administrativo'];
-  if (departmentCode && validDepartments.includes(departmentCode)) {
+  if (departmentCode) {
     query = query.or(`department_code.eq.${departmentCode},department_code.is.null`);
   }
 

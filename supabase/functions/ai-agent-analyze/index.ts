@@ -1,5 +1,5 @@
 // ========== AIMEE.iA - AI AGENT ANALYZE ==========
-// Analyzes simulation turns using Claude Sonnet 4.6 via Anthropic API.
+// Analyzes simulation turns using Google Gemini via REST API.
 // Returns a 0-10 score with detailed criteria breakdown and error detection.
 // Used by the AI Lab to validate agent quality before production.
 
@@ -102,9 +102,10 @@ serve(async (req: Request) => {
       return errorResponse('Missing required fields', 400);
     }
 
-    const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+    // Use Google Gemini API key
+    const apiKey = Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
-      return errorResponse('ANTHROPIC_API_KEY not configured', 500);
+      return errorResponse('Google API key not configured (GOOGLE_API_KEY or GEMINI_API_KEY)', 500);
     }
 
     // Build analysis context
@@ -142,40 +143,40 @@ ${turnContext}
 
 Analise este turno e retorne a avaliação em JSON.`;
 
-    // Call Claude Sonnet 4.6 via Anthropic API
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // Call Google Gemini via REST API
+    const geminiModel = 'gemini-3.1-pro-preview';
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6-20250514',
-        max_tokens: 2000,
-        temperature: 0.3,
-        system: ANALYSIS_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMessage }],
+        system_instruction: { parts: [{ text: ANALYSIS_SYSTEM_PROMPT }] },
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+        generationConfig: {
+          maxOutputTokens: 2000,
+          temperature: 0.3,
+          responseMimeType: 'application/json',
+        },
       }),
     });
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('Anthropic API error:', error);
-      return errorResponse(`Analysis API error: ${response.status}`, 500);
+      console.error('Gemini API error:', error);
+      return errorResponse(`Analysis API error: ${response.status} - ${error.slice(0, 200)}`, 500);
     }
 
     const data = await response.json();
-    const rawText = data.content?.[0]?.text || '';
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // Parse JSON from response (handle potential markdown wrapping)
+    // Parse JSON from response
     let analysis: AnalysisResult;
     try {
       const jsonStr = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       analysis = JSON.parse(jsonStr);
     } catch (parseErr) {
       console.error('Failed to parse analysis JSON:', rawText.slice(0, 500));
-      // Fallback: return raw text as summary
       analysis = {
         score: 0,
         max_score: 10,

@@ -176,7 +176,10 @@ Analise este turno e retorne a avaliação em JSON.`;
     }
 
     const data = await response.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    // Gemini 2.5 Flash returns thinking tokens as parts[0] (thought: true) before the actual JSON.
+    // Skip thought parts and take the first non-thought part.
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const rawText = (parts.find((p: any) => !p.thought) ?? parts[0])?.text || '';
 
     if (!rawText) {
       return jsonResponse({

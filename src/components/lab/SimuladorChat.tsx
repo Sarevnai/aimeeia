@@ -227,16 +227,20 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
         { role: "assistant", content: rawReply },
       ];
 
-      // Merge qualification: never overwrite with empty object — only update fields that have values
+      // Merge qualification: only overwrite fields that have real values (skip nulls/zeros/empty)
       const incomingQual = responseData?.qualification || {};
-      const hasQualData = Object.values(incomingQual).some((v: any) => v != null && v !== 0 && v !== '');
-      const mergedQualification = hasQualData
-        ? { ...metadata.qualification, ...incomingQual }
+      const validIncomingQual = Object.fromEntries(
+        Object.entries(incomingQual).filter(([, v]) => v != null && v !== 0 && v !== '')
+      );
+      const mergedQualification = Object.keys(validIncomingQual).length > 0
+        ? { ...metadata.qualification, ...validIncomingQual }
         : metadata.qualification;
 
-      // Merge tags: never overwrite with empty array — only replace when new tags exist
+      // Merge tags: union — never drop existing tags, only add new ones
       const incomingTags = responseData?.tags || [];
-      const mergedTags = incomingTags.length > 0 ? incomingTags : metadata.tags;
+      const mergedTags = incomingTags.length > 0
+        ? [...new Set([...metadata.tags, ...incomingTags])]
+        : metadata.tags;
 
       // Merge tools: accumulate, don't replace
       const incomingTools = responseData?.tools_executed ?? responseData?.toolsExecuted ?? [];

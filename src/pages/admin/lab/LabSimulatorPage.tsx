@@ -58,17 +58,19 @@ export default function LabSimulatorPage() {
     setTriageStage(metadata.triageStage);
     setActiveModule(metadata.activeModule);
 
-    // Merge qualification: never overwrite with empty — only update when there's real data
+    // Merge qualification: only overwrite fields with real values (skip nulls/zeros/empty)
     const incomingQual = metadata.qualification || {};
-    const hasQualData = Object.values(incomingQual).some((v: any) => v != null && v !== 0 && v !== '');
-    if (hasQualData) {
-      setQualification(prev => ({ ...prev, ...incomingQual }));
+    const validIncomingQual = Object.fromEntries(
+      Object.entries(incomingQual).filter(([, v]) => v != null && v !== 0 && v !== '')
+    );
+    if (Object.keys(validIncomingQual).length > 0) {
+      setQualification(prev => ({ ...prev, ...validIncomingQual }));
     }
 
-    // Merge tags: never overwrite with empty array
+    // Merge tags: union — never drop existing tags, only add new ones
     const incomingTags = metadata.tags || [];
     if (incomingTags.length > 0) {
-      setTags(incomingTags);
+      setTags(prev => [...new Set([...prev, ...incomingTags])]);
     }
 
     setAgentType(metadata.agentType || 'comercial');

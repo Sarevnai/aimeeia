@@ -144,7 +144,8 @@ ${turnContext}
 Analise este turno e retorne a avaliação em JSON.`;
 
     // Call Google Gemini via REST API
-    const geminiModel = 'gemini-2.5-pro';
+    // Use gemini-2.5-flash: fast, cheap, and sufficient for evaluation tasks
+    const geminiModel = 'gemini-2.5-flash';
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
 
     const response = await fetch(endpoint, {
@@ -164,7 +165,6 @@ Analise este turno e retorne a avaliação em JSON.`;
     if (!response.ok) {
       const error = await response.text();
       console.error('Gemini API error:', error);
-      // Return a graceful fallback instead of error so the UI doesn't break
       return jsonResponse({
         score: 0,
         max_score: 10,
@@ -176,12 +176,23 @@ Analise este turno e retorne a avaliação em JSON.`;
     }
 
     const data = await response.json();
-    // Gemini 2.5 Flash returns thinking tokens as parts[0] (thought: true) before the actual JSON.
-    // Skip thought parts and take the first non-thought part.
+
+    // --- Robust text extraction from Gemini response ---
+    // Gemini 2.5 models return thinking parts (thought: true) before actual content.
+    // With responseMimeType: 'application/json', the JSON is in non-thought parts.
     const parts = data.candidates?.[0]?.content?.parts || [];
-    const rawText = (parts.find((p: any) => !p.thought) ?? parts[0])?.text || '';
+
+    // Strategy 1: Get all non-thought text parts
+    const nonThoughtParts = parts.filter((p: any) => !p.thought && p.text);
+    // Strategy 2: If no non-thought parts, try all text parts
+    const textParts = nonThoughtParts.length > 0 ? nonThoughtParts : parts.filter((p: any) => p.text);
+    // Combine all text (some models split JSON across multiple parts)
+    const rawText = textParts.map((p: any) => p.text).join('').trim();
+
+    console.log('[analyze] Model response length:', rawText.length, 'parts:', parts.length, 'nonThought:', nonThoughtParts.length);
 
     if (!rawText) {
+      console.error('[analyze] Empty response. Full data:', JSON.stringify(data).slice(0, 1000));
       return jsonResponse({
         score: 0,
         max_score: 10,
@@ -192,28 +203,55 @@ Analise este turno e retorne a avaliação em JSON.`;
       });
     }
 
-    // Parse JSON from response
+    // --- Robust JSON parsing with multiple fallback strategies ---
     let analysis: AnalysisResult;
     try {
-      let jsonStr = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      // Gemini may produce literal newlines/tabs inside JSON string values — sanitize control chars
-      jsonStr = jsonStr.replace(/[\x00-\x1f\x7f]/g, (ch: string) => {
-        if (ch === '\n') return '\\n';
-        if (ch === '\r') return '\\r';
-        if (ch === '\t') return '\\t';
-        return '';
-      });
-      analysis = JSON.parse(jsonStr);
-    } catch (parseErr) {
-      console.error('Failed to parse analysis JSON:', rawText.slice(0, 500));
-      analysis = {
-        score: 0,
-        max_score: 10,
-        criteria: [],
-        errors: [{ type: 'parse_error', severity: 'high', description: 'Falha ao parsear resposta do avaliador', suggestion: 'Verificar formato do response', affected_file: 'ai-agent-analyze/index.ts' }],
-        summary: rawText.slice(0, 200),
-        is_production_ready: false,
-      };
+      // Strategy 1: Direct parse (responseMimeType should give clean JSON)
+      analysis = JSON.parse(rawText);
+    } catch (_e1) {
+      try {
+        // Strategy 2: Strip markdown code fences
+        let jsonStr = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        analysis = JSON.parse(jsonStr);
+      } catch (_e2) {
+        try {
+          // Strategy 3: Extract JSON object from text (find first { to last })
+          const firstBrace = rawText.indexOf('{');
+          const lastBrace = rawText.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace > firstBrace) {
+            const jsonStr = rawText.slice(firstBrace, lastBrace + 1);
+            analysis = JSON.parse(jsonStr);
+          } else {
+            throw new Error('No JSON object found');
+          }
+        } catch (_e3) {
+          try {
+            // Strategy 4: Sanitize control chars inside string values and retry
+            let jsonStr = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const firstBrace = jsonStr.indexOf('{');
+            const lastBrace = jsonStr.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace > firstBrace) {
+              jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+            }
+            // Replace unescaped control chars inside JSON strings
+            jsonStr = jsonStr.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+            // Fix unescaped newlines/tabs inside string values
+            jsonStr = jsonStr.replace(/(?<=":[\s]*"[^"]*)\n/g, '\\n');
+            jsonStr = jsonStr.replace(/(?<=":[\s]*"[^"]*)\t/g, '\\t');
+            analysis = JSON.parse(jsonStr);
+          } catch (finalErr) {
+            console.error('[analyze] All parse strategies failed. Raw:', rawText.slice(0, 500));
+            analysis = {
+              score: 0,
+              max_score: 10,
+              criteria: [],
+              errors: [{ type: 'parse_error', severity: 'high', description: 'Falha ao parsear resposta do avaliador', suggestion: 'Verificar formato do response', affected_file: 'ai-agent-analyze/index.ts' }],
+              summary: rawText.slice(0, 200),
+              is_production_ready: false,
+            };
+          }
+        }
+      }
     }
 
     // Persist analysis to DB

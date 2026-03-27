@@ -293,7 +293,37 @@ function detectBedrooms(lower: string): number | null {
 }
 
 function detectBudget(lower: string): number | null {
-  // 1. Check "milhão/milhões" patterns FIRST (highest priority — natural speech)
+  // 0. Range detection: "500 mil a 700 mil", "de 400k a 600k", "entre 300 e 500 mil"
+  // Always take the UPPER bound of the range (detected_budget_max)
+  const rangePatterns = [
+    // "500 mil a 700 mil", "500k a 700k", "500 mil até 700 mil"
+    /([\d.,]+)\s*(?:mil|k)\s*(?:a|até|e|ou)\s*([\d.,]+)\s*(?:mil|k)/i,
+    // "de 500 a 700 mil", "entre 500 e 700 mil"
+    /(?:de|entre)\s*([\d.,]+)\s*(?:a|até|e)\s*([\d.,]+)\s*(?:mil|k)/i,
+    // "R$ 500.000 a R$ 700.000"
+    /r\$\s*([\d.,]+)\s*(?:a|até|e)\s*r?\$?\s*([\d.,]+)/i,
+    // "500 a 700 mil"
+    /([\d.,]+)\s*(?:a|até|e)\s*([\d.,]+)\s*(?:mil|k)/i,
+  ];
+
+  for (const pattern of rangePatterns) {
+    const match = lower.match(pattern);
+    if (match) {
+      // Take the SECOND value (upper bound) as budget_max
+      let rawMax = match[2].replace(/\./g, '').replace(',', '.');
+      let numMax = parseFloat(rawMax);
+      if (isNaN(numMax)) continue;
+
+      // Apply "mil"/"k" multiplier
+      if (/mil|k/i.test(match[0])) {
+        if (numMax < 1000) numMax *= 1000;
+      }
+
+      if (numMax >= 100 && numMax <= 50_000_000) return numMax;
+    }
+  }
+
+  // 1. Check "milhão/milhões" patterns (highest priority — natural speech)
   const milhaoPatterns = [
     /r?\$?\s*([\d.,]+)\s*milh[aãoõ][oe]?s?/i,           // "5 milhões", "R$ 2,5 milhões", "1 milhão"
     /([\d.,]+)\s*milh[aãoõ][oe]?s?\s*(?:de\s+)?(?:reais)?/i, // "5 milhões de reais"

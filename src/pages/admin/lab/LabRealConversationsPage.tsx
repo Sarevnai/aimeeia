@@ -203,13 +203,13 @@ export default function LabRealConversationsPage() {
       {/* Right: Analyzer or Prompt Tracker */}
       <div className="flex-1 flex flex-col min-w-0">
         {selectedConvId ? (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-            <TabsList className="w-fit mx-3 mt-2 h-7">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+            <TabsList className="w-fit mx-3 mt-2 h-7 shrink-0">
               <TabsTrigger value="analyzer" className="text-xs h-6 px-3">Analise</TabsTrigger>
               <TabsTrigger value="prompts" className="text-xs h-6 px-3">Prompt Versions</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="analyzer" className="flex-1 mt-0">
+            <TabsContent value="analyzer" className="flex-1 mt-0 overflow-hidden" style={{ display: activeTab === 'analyzer' ? 'flex' : 'none', flexDirection: 'column' }}>
               <RealConversationAnalyzer
                 tenantId={tenantId}
                 conversationId={selectedConvId}

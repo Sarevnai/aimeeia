@@ -86,7 +86,7 @@ export default function RealConversationThread({
   let lastDate = '';
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-1.5">
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1.5">
       {messages.map((msg) => {
         const msgDate = formatDate(msg.created_at);
         const showDate = msgDate !== lastDate;

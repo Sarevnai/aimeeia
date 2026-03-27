@@ -568,13 +568,13 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
                   Nenhum template aprovado encontrado.
                 </p>
               ) : (
-                <ScrollArea className="max-h-[300px]">
-                  <div className="flex flex-col gap-1">
+                <ScrollArea className="h-[400px]">
+                  <div className="flex flex-col gap-1 pr-3">
                     {templates.map((t) => (
                       <Button
                         key={t.id}
                         variant="ghost"
-                        className="justify-start text-sm h-auto py-2 px-3"
+                        className="justify-start text-sm h-auto py-2 px-3 whitespace-normal text-left"
                         onClick={() => handleTemplateSend(t)}
                       >
                         <FileText className="w-4 h-4 mr-2 shrink-0 text-muted-foreground" />

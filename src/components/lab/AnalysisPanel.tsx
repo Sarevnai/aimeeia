@@ -48,6 +48,9 @@ function ScoreCircle({ score, maxScore }: { score: number; maxScore: number }) {
   } else if (score >= 7) {
     color = "text-yellow-500";
     strokeColor = "#eab308";
+  } else if (score >= 5) {
+    color = "text-orange-500";
+    strokeColor = "#f97316";
   }
 
   return (
@@ -77,7 +80,7 @@ function ScoreCircle({ score, maxScore }: { score: number; maxScore: number }) {
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
           <span className={`text-2xl font-bold ${color}`}>
-            {score}
+            {Number.isInteger(score) ? score : score.toFixed(1)}
           </span>
           <span className="text-xs text-gray-400 mt-1">/{maxScore}</span>
         </div>
@@ -86,8 +89,15 @@ function ScoreCircle({ score, maxScore }: { score: number; maxScore: number }) {
   );
 }
 
+function getCriterionColor(score: number) {
+  if (score >= 9) return { bar: "bg-green-500", text: "text-green-600" };
+  if (score >= 7) return { bar: "bg-yellow-500", text: "text-yellow-600" };
+  if (score >= 5) return { bar: "bg-orange-500", text: "text-orange-600" };
+  return { bar: "bg-red-400", text: "text-red-500" };
+}
+
 function CriterionBar({ criterion }: { criterion: Criterion }) {
-  const isPass = criterion.score >= 1;
+  const { bar, text } = getCriterionColor(criterion.score);
   return (
     <div className="flex items-center gap-2" title={criterion.comment}>
       <span className="text-[10px] text-gray-600 w-28 truncate">
@@ -95,13 +105,11 @@ function CriterionBar({ criterion }: { criterion: Criterion }) {
       </span>
       <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${
-            isPass ? "bg-green-500" : "bg-red-400"
-          }`}
-          style={{ width: `${Math.max(criterion.score * 100, 5)}%` }}
+          className={`h-full rounded-full transition-all duration-500 ${bar}`}
+          style={{ width: `${Math.max((criterion.score / 10) * 100, 5)}%` }}
         />
       </div>
-      <span className={`text-[10px] font-medium ${isPass ? "text-green-600" : "text-red-500"}`}>
+      <span className={`text-[10px] font-medium ${text}`}>
         {criterion.score}
       </span>
     </div>

@@ -8,7 +8,7 @@ import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorRespon
 
 interface AnalysisCriterion {
   name: string;
-  score: 0 | 1;
+  score: number; // 1-10
   comment: string;
   severity?: 'high' | 'medium' | 'low';
 }
@@ -30,57 +30,100 @@ interface AnalysisResult {
   is_production_ready: boolean;
 }
 
-const ANALYSIS_SYSTEM_PROMPT = `Você é um avaliador especialista de agentes de IA conversacionais para o mercado imobiliário brasileiro. Sua função é analisar cada turno de uma conversa simulada e atribuir uma pontuação de qualidade de 0 a 10.
+const ANALYSIS_SYSTEM_PROMPT = `Você é um avaliador especialista de agentes de IA conversacionais para o mercado imobiliário brasileiro. Sua função é analisar cada turno de uma conversa simulada e atribuir uma pontuação de qualidade para cada critério.
 
-CRITÉRIOS DE AVALIAÇÃO (cada um vale 1 ponto):
+CRITÉRIOS DE AVALIAÇÃO (cada um recebe nota de 1 a 10):
 
 1. NATURALIDADE — A resposta soa como uma pessoa real conversando por WhatsApp? O tom é adequado à configuração (friendly/professional)? Sem linguagem robótica?
+   - 10: Indistinguível de humano, tom perfeito
+   - 7-9: Natural com pequenas falhas de tom ou expressão
+   - 4-6: Parcialmente robótico ou tom desalinhado
+   - 1-3: Muito artificial, robótico ou tom totalmente inadequado
 
 2. ADEQUAÇÃO AO MÓDULO — Se um módulo está ativo (anamnese, busca-imoveis, contrato-parceria, etc.), a resposta segue as instruções daquele módulo? Está no escopo correto?
+   - 10: Segue perfeitamente o módulo ativo
+   - 7-9: Segue o módulo com desvios menores
+   - 4-6: Parcialmente fora do escopo do módulo
+   - 1-3: Ignora completamente o módulo ativo
 
 3. EXTRAÇÃO DE DADOS — Se o cliente mencionou informações de qualificação (bairro, tipo de imóvel, orçamento, quartos, prazo), elas foram detectadas e registradas corretamente? Algum dado foi perdido?
+   - 10: Todos os dados extraídos corretamente
+   - 7-9: Extraiu maioria dos dados, perdeu detalhes menores
+   - 4-6: Perdeu dados importantes ou extraiu incorretamente
+   - 1-3: Falhou em extrair dados críticos fornecidos pelo cliente
 
 4. PROGRESSÃO DO FLUXO — O fluxo avançou corretamente? (triage → qualificação → busca → handoff). Não ficou preso em loop? Não pulou etapas?
+   - 10: Progressão perfeita e natural
+   - 7-9: Progrediu bem com hesitação menor
+   - 4-6: Progrediu mas com atraso ou repetição parcial
+   - 1-3: Preso em loop, pulou etapas ou regrediu
 
 5. CONSISTÊNCIA — A resposta não contradiz informações anteriores da conversa? Não inventou dados que o cliente não forneceu?
+   - 10: Totalmente consistente com o histórico
+   - 7-9: Consistente com imprecisões menores
+   - 4-6: Contradição menor ou dado levemente distorcido
+   - 1-3: Contradição grave ou inventou informações
 
 6. COMPLETUDE — Respondeu ao que o cliente perguntou ou pediu? Não ignorou a mensagem? Não desviou do assunto?
+   - 10: Respondeu completamente a tudo que foi perguntado
+   - 7-9: Respondeu a maioria, faltou um detalhe
+   - 4-6: Resposta parcial ou desviou parcialmente
+   - 1-3: Ignorou a pergunta ou desviou completamente
 
 7. GUARDRAILS — Não inventou imóveis, preços ou características? Não prometeu o que não pode cumprir? Não saiu do escopo imobiliário?
+   - 10: Guardrails perfeitos, nenhuma fabricação
+   - 7-9: Guardrails bons, talvez uma imprecisão leve
+   - 4-6: Fabricou ou prometeu algo questionável
+   - 1-3: Inventou informações ou fez promessas falsas
 
-8. APRESENTAÇÃO DE IMÓVEIS — (se aplicável, caso contrário dê 1) O imóvel apresentado condiz com os critérios do cliente? O caption é personalizado e não genérico?
+8. APRESENTAÇÃO DE IMÓVEIS — (se não aplicável, dê 10) O imóvel apresentado condiz com os critérios do cliente? O caption é personalizado e não genérico?
+   - 10: Imóveis perfeitamente filtrados, captions personalizados (ou N/A)
+   - 7-9: Bons imóveis, captions poderiam ser melhores
+   - 4-6: Imóveis parcialmente desalinhados ou captions genéricos
+   - 1-3: Imóveis totalmente fora dos critérios do cliente
 
-9. HANDOFF — (se aplicável, caso contrário dê 1) O handoff ocorreu no momento certo? O dossiê está completo? Se não houve handoff, o agente manteve a conversa sem encaminhar prematuramente?
+9. HANDOFF — (se não aplicável, dê 10) O handoff ocorreu no momento certo? O dossiê está completo? Se não houve handoff, o agente manteve a conversa sem encaminhar prematuramente?
+   - 10: Handoff no momento perfeito com dossiê completo (ou N/A)
+   - 7-9: Handoff bom, dossiê com falhas menores
+   - 4-6: Handoff prematuro/tardio ou dossiê incompleto
+   - 1-3: Handoff totalmente errado ou dossiê inútil
 
 10. FORMATAÇÃO — Mensagem no tamanho adequado para WhatsApp? Sem emojis excessivos? Sem formatação quebrada? Sem listas quando deveria ser texto corrido?
+   - 10: Formatação perfeita para WhatsApp
+   - 7-9: Boa formatação com falhas menores
+   - 4-6: Mensagem longa demais ou formatação inadequada
+   - 1-3: Formatação totalmente quebrada ou ilegível
 
 REGRAS:
-- Se um critério não se aplica ao turno (ex: "Apresentação de Imóveis" quando não houve busca), dê score 1 automaticamente e comente "N/A — critério não aplicável neste turno".
-- Seja rigoroso mas justo. Score 10 significa PERFEITO.
-- Para cada critério com score 0, OBRIGATORIAMENTE inclua um objeto em "errors" com: type, severity, description detalhada, suggestion de como corrigir, e affected_file se souber qual arquivo do backend causa o problema.
+- Cada critério recebe nota de 1 a 10 (nunca 0).
+- Se um critério não se aplica ao turno (ex: "Apresentação de Imóveis" quando não houve busca), dê score 10 e comente "N/A — critério não aplicável neste turno".
+- O score final é a MÉDIA ARITMÉTICA das notas dos 10 critérios, arredondada para 1 casa decimal.
+- Seja rigoroso mas justo. Score 10.0 significa PERFEITO em todos os critérios.
+- Para cada critério com score <= 5, OBRIGATORIAMENTE inclua um objeto em "errors" com: type, severity, description detalhada, suggestion de como corrigir, e affected_file se souber qual arquivo do backend causa o problema.
+- Para critérios com score 6-7, inclua em "errors" com severity "low" se houver algo relevante a melhorar.
 - Arquivos comuns de problemas: qualification.ts (extração), triage.ts (fluxo de triage), comercial.ts/admin.ts/remarketing.ts (agentes), prompts.ts (system prompt), tool-executors.ts (busca/handoff).
 
 RESPONDA EXCLUSIVAMENTE em JSON válido, sem markdown, sem backticks. O formato exato:
 {
-  "score": <0-10>,
+  "score": <média aritmética dos 10 critérios, 1 casa decimal>,
   "max_score": 10,
   "criteria": [
-    {"name": "Naturalidade", "score": <0|1>, "comment": "..."},
-    {"name": "Adequação ao Módulo", "score": <0|1>, "comment": "..."},
-    {"name": "Extração de Dados", "score": <0|1>, "comment": "...", "severity": "high|medium|low"},
-    {"name": "Progressão do Fluxo", "score": <0|1>, "comment": "..."},
-    {"name": "Consistência", "score": <0|1>, "comment": "..."},
-    {"name": "Completude", "score": <0|1>, "comment": "..."},
-    {"name": "Guardrails", "score": <0|1>, "comment": "..."},
-    {"name": "Apresentação de Imóveis", "score": <0|1>, "comment": "..."},
-    {"name": "Handoff", "score": <0|1>, "comment": "..."},
-    {"name": "Formatação", "score": <0|1>, "comment": "..."}
+    {"name": "Naturalidade", "score": <1-10>, "comment": "..."},
+    {"name": "Adequação ao Módulo", "score": <1-10>, "comment": "..."},
+    {"name": "Extração de Dados", "score": <1-10>, "comment": "...", "severity": "high|medium|low"},
+    {"name": "Progressão do Fluxo", "score": <1-10>, "comment": "..."},
+    {"name": "Consistência", "score": <1-10>, "comment": "..."},
+    {"name": "Completude", "score": <1-10>, "comment": "..."},
+    {"name": "Guardrails", "score": <1-10>, "comment": "..."},
+    {"name": "Apresentação de Imóveis", "score": <1-10>, "comment": "..."},
+    {"name": "Handoff", "score": <1-10>, "comment": "..."},
+    {"name": "Formatação", "score": <1-10>, "comment": "..."}
   ],
   "errors": [
     {"type": "...", "severity": "high|medium|low", "description": "...", "suggestion": "...", "affected_file": "..."}
   ],
   "summary": "Resumo de 1-2 frases da avaliação geral.",
-  "is_production_ready": <true|false>
+  "is_production_ready": <true se score >= 9.0, false caso contrário>
 }`;
 
 serve(async (req: Request) => {
@@ -288,8 +331,8 @@ Analise este turno e retorne a avaliação em JSON.`;
           .update({
             total_turns: scores.length,
             avg_score: Math.round(avgScore * 10) / 10,
-            min_score: minScore,
-            is_perfect: minScore === 10,
+            min_score: Math.round(minScore * 10) / 10,
+            is_perfect: minScore >= 9.0,
           })
           .eq('id', run_id);
       }

@@ -105,7 +105,7 @@ export default function LabSimulatorPage() {
 
       // Track production runs
       const score = metadata.analysis.score ?? 0;
-      const isPerfect = score === 10;
+      const isPerfect = score >= 9.0;
       const newRun = { score, isPerfect, timestamp: new Date() };
       setProductionRuns(prev => [...prev, newRun]);
 

@@ -42,7 +42,7 @@ export function ProductionTracker({
             key={idx}
             title={
               run
-                ? `${run.score}/${10} - ${run.timestamp.toLocaleString("pt-BR")}`
+                ? `${Number.isInteger(run.score) ? run.score : run.score.toFixed(1)}/${10} - ${run.timestamp.toLocaleString("pt-BR")}`
                 : "Sem dados"
             }
             className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all ${
@@ -61,7 +61,7 @@ export function ProductionTracker({
               <div className="flex flex-col items-center">
                 <X className="w-3 h-3 text-red-500" />
                 <span className="text-[8px] text-red-500 font-bold leading-none">
-                  {run.score}
+                  {Number.isInteger(run.score) ? run.score : run.score.toFixed(1)}
                 </span>
               </div>
             )}

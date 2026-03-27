@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface Tenant {
   id: string;
-  name: string;
+  company_name: string;
 }
 
 interface ConversationItem {
@@ -46,7 +46,11 @@ export default function LabRealConversationsPage() {
   // Load tenants
   useEffect(() => {
     async function loadTenants() {
-      const { data } = await supabase.from('tenants').select('id, name').order('name');
+      const { data } = await supabase
+        .from('tenants')
+        .select('id, company_name')
+        .eq('is_active', true)
+        .order('company_name');
       setTenants((data || []) as Tenant[]);
       if (data?.length === 1) setTenantId(data[0].id);
     }
@@ -180,7 +184,7 @@ export default function LabRealConversationsPage() {
             </SelectTrigger>
             <SelectContent>
               {tenants.map(t => (
-                <SelectItem key={t.id} value={t.id} className="text-xs">{t.name}</SelectItem>
+                <SelectItem key={t.id} value={t.id} className="text-xs">{t.company_name}</SelectItem>
               ))}
             </SelectContent>
           </Select>

@@ -208,7 +208,7 @@ export async function callAnalysis(userMessage: string): Promise<AnalysisResult>
         { role: 'user', content: userMessage },
       ],
       temperature: 0.3,
-      max_tokens: 8192,
+      max_completion_tokens: 8192,
       response_format: { type: 'json_object' },
     }),
   });

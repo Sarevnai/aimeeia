@@ -352,7 +352,7 @@ serve(async (req: Request) => {
         conversation_id,
         action: 'handoff_direct',
         triage_stage: 'completed',
-        active_module: null,
+        active_module: { slug: 'handoff', name: 'Handoff - Encaminhamento ao Corretor' },
         qualification: {
           detected_interest: mergedQual.detected_interest || null,
           detected_property_type: mergedQual.detected_property_type || null,
@@ -559,10 +559,33 @@ serve(async (req: Request) => {
     // ========== PERSIST MODULE ==========
 
     let activeModuleInfo: { slug: string; name: string } | null = null;
+
+    // Infer module from tools executed if agent didn't set it explicitly
+    if (!ctx.currentModuleSlug && ctx.toolsExecuted.length > 0) {
+      if (ctx.toolsExecuted.includes('buscar_imoveis')) {
+        ctx.currentModuleSlug = 'apresentacao-imoveis';
+      } else if (ctx.toolsExecuted.includes('enviar_lead_c2s') || ctx.toolsExecuted.includes('handoff_mc1')) {
+        ctx.currentModuleSlug = 'handoff';
+      }
+    }
+    // Also infer from handoff detection
+    if (handoffDetected && !ctx.currentModuleSlug) {
+      ctx.currentModuleSlug = 'handoff';
+    }
+
     if (ctx.currentModuleSlug) {
       const resolvedModule = (activeModules as AiModule[])?.find(m => m.slug === ctx.currentModuleSlug);
       if (resolvedModule) {
         activeModuleInfo = { slug: ctx.currentModuleSlug, name: resolvedModule.name };
+      } else {
+        // Fallback names for inferred modules not in DB
+        const fallbackNames: Record<string, string> = {
+          'apresentacao-imoveis': 'Apresentação de Imóveis',
+          'handoff': 'Handoff - Encaminhamento ao Corretor',
+        };
+        if (fallbackNames[ctx.currentModuleSlug]) {
+          activeModuleInfo = { slug: ctx.currentModuleSlug, name: fallbackNames[ctx.currentModuleSlug] };
+        }
       }
       if (ctx.currentModuleSlug !== currentModuleSlug) {
         await supabase

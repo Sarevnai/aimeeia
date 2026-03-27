@@ -285,15 +285,21 @@ function detectNeighborhood(
     /(?:meu\s+trabalho|minha\s+empresa|meu\s+escrit[oó]rio)\s+(?:[eé]|fica)\s+(?:em|no|na)\s+/i,
   ];
 
-  // Check which neighborhoods appear in desired vs work contexts
+  // Check which neighborhoods appear in desired context
+  const desiredContextMatches: string[] = [];
   for (const match of allMatches) {
     const normMatch = removeAccents(match.toLowerCase());
     for (const pattern of desiredPatterns) {
       const regex = new RegExp(pattern.source + '[^.!?]*' + normMatch, 'i');
       if (regex.test(normalizedInput)) {
-        return match; // Found in desired context — return immediately
+        if (!desiredContextMatches.includes(match)) desiredContextMatches.push(match);
+        break;
       }
     }
+  }
+  // If we found neighborhoods in desired context, use those (may be multiple)
+  if (desiredContextMatches.length > 0) {
+    return desiredContextMatches.join(', ');
   }
 
   // Filter out neighborhoods that only appear in work context
@@ -353,6 +359,18 @@ function detectBedrooms(lower: string): number | null {
 }
 
 function detectBudget(lower: string): number | null {
+  // -1. Compound pattern: "X à vista + Y financiado" → SUM both values
+  const compoundPattern = /([\d.,]+)\s*milh[aãoõ][oe]?s?\s*(?:[aà]\s*vista|de\s*entrada).*?([\d.,]+)\s*milh[aãoõ][oe]?s?\s*(?:financiad|parcelad)/i;
+  const compoundMatch = lower.match(compoundPattern);
+  if (compoundMatch) {
+    const v1 = parseFloat(compoundMatch[1].replace(/\./g, '').replace(',', '.'));
+    const v2 = parseFloat(compoundMatch[2].replace(/\./g, '').replace(',', '.'));
+    if (!isNaN(v1) && !isNaN(v2)) {
+      const total = (v1 + v2) * 1_000_000;
+      if (total >= 100_000 && total <= 50_000_000) return total;
+    }
+  }
+
   // 0. Range detection: "500 mil a 700 mil", "de 400k a 600k", "entre 300 e 500 mil"
   // Always take the UPPER bound of the range (detected_budget_max)
   const rangePatterns = [

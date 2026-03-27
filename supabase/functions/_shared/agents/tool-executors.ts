@@ -440,17 +440,25 @@ export async function executePropertySearch(
         }, { onConflict: 'tenant_id,phone_number' });
     }
 
-    // Persist lead qualification data — use bairro from args or first result, NOT the full semantic query
+    // Persist lead qualification data — MERGE with existing data, never overwrite with null
     const detectedBairro = args.bairro || (formattedProperties.length > 0 ? formattedProperties[0].bairro : null);
+    const { data: existingQual } = await ctx.supabase
+      .from('lead_qualification')
+      .select('*')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('phone_number', ctx.phoneNumber)
+      .maybeSingle();
+
     await ctx.supabase
       .from('lead_qualification')
       .upsert({
         tenant_id: ctx.tenantId,
         phone_number: ctx.phoneNumber,
-        detected_property_type: args.tipo_imovel || null,
-        detected_budget_max: args.preco_max || null,
-        detected_interest: args.finalidade || null,
-        detected_neighborhood: detectedBairro || null,
+        detected_property_type: args.tipo_imovel || existingQual?.detected_property_type || null,
+        detected_budget_max: clientBudget || existingQual?.detected_budget_max || null,
+        detected_interest: args.finalidade || existingQual?.detected_interest || null,
+        detected_neighborhood: detectedBairro || existingQual?.detected_neighborhood || null,
+        detected_bedrooms: args.quartos || existingQual?.detected_bedrooms || null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 

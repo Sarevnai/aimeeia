@@ -195,7 +195,14 @@ Analise este turno e retorne a avaliação em JSON.`;
     // Parse JSON from response
     let analysis: AnalysisResult;
     try {
-      const jsonStr = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      let jsonStr = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      // Gemini may produce literal newlines/tabs inside JSON string values — sanitize control chars
+      jsonStr = jsonStr.replace(/[\x00-\x1f\x7f]/g, (ch: string) => {
+        if (ch === '\n') return '\\n';
+        if (ch === '\r') return '\\r';
+        if (ch === '\t') return '\\t';
+        return '';
+      });
       analysis = JSON.parse(jsonStr);
     } catch (parseErr) {
       console.error('Failed to parse analysis JSON:', rawText.slice(0, 500));

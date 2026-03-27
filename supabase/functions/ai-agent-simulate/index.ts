@@ -500,7 +500,7 @@ serve(async (req: Request) => {
 
     const systemPrompt = agent.buildSystemPrompt(ctx);
     const tools = agent.getTools(ctx);
-    const modelUsed = aiConfig.ai_model || 'google/gemini-2.5-flash';
+    const modelUsed = aiConfig.ai_model || 'google/gemini-2.5-pro';
 
     // Collapse ALL assistant messages containing ___ separator (contract format).
     // The ___ separator is only used by the contract module and triage VIP pitch.

@@ -3,7 +3,7 @@
 
 const META_API_VERSION = 'v21.0';
 const META_API_BASE = 'https://graph.facebook.com';
-const GEMINI_TRANSCRIPTION_MODEL = 'gemini-2.5-flash';
+const GEMINI_TRANSCRIPTION_MODEL = 'gemini-2.5-pro';
 
 function getGeminiApiKey(): string {
   const key = Deno.env.get('GOOGLE_AI_API_KEY')

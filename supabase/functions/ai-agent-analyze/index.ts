@@ -144,7 +144,7 @@ ${turnContext}
 Analise este turno e retorne a avaliação em JSON.`;
 
     // Call Google Gemini via REST API
-    const geminiModel = 'gemini-2.5-flash';
+    const geminiModel = 'gemini-2.5-pro';
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
 
     const response = await fetch(endpoint, {

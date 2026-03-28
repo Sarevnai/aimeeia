@@ -24,7 +24,7 @@ import AcessosPage from "@/pages/AcessosPage";
 import CaptacaoPage from "@/pages/CaptacaoPage";
 import GuiaPage from "@/pages/GuiaPage";
 import ModulosPage from "@/pages/ModulosPage";
-import SimulacaoPage from "@/pages/SimulacaoPage";
+
 import AtualizacaoPage from "@/pages/AtualizacaoPage";
 import FinancePage from "@/pages/FinancePage";
 import TicketsPage from "@/pages/TicketsPage";
@@ -43,7 +43,7 @@ import AdminCampaignsPage from "@/pages/admin/AdminCampaignsPage";
 import AgentsOverviewPage from "@/pages/admin/AgentsOverviewPage";
 import AgentDetailPage from "@/pages/admin/AgentDetailPage";
 import AgentGlobalSettingsPage from "@/pages/admin/AgentGlobalSettingsPage";
-import AdminSimulacaoPage from "@/pages/admin/AdminSimulacaoPage";
+
 import AdminModulosPage from "@/pages/admin/AdminModulosPage";
 
 // AI Lab
@@ -89,7 +89,7 @@ const App = () => (
                   <Route path="/chamados" element={<TicketsPage />} />
                   <Route path="/chamados/:id" element={<TicketDetailPage />} />
                   <Route path="/modulos" element={<ModulosPage />} />
-                  <Route path="/simulacao" element={<SimulacaoPage />} />
+
                   <Route path="/guia" element={<GuiaPage />} />
                 </Route>
                 {/* Admin Central — super_admin only */}
@@ -104,7 +104,7 @@ const App = () => (
                   <Route path="agent" element={<Navigate to="/admin/agents" replace />} />
                   <Route path="metrics" element={<AdminMetricsPage />} />
                   <Route path="campanhas" element={<AdminCampaignsPage />} />
-                  <Route path="simulacao" element={<AdminSimulacaoPage />} />
+
                   <Route path="modulos" element={<AdminModulosPage />} />
                   <Route path="lab" element={<LabLayout />}>
                     <Route index element={<LabSimulatorPage />} />

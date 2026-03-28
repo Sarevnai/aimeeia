@@ -13,7 +13,6 @@ import {
     ScrollText,
     Database,
     Megaphone,
-    MessageSquareText,
     Brain,
     FlaskConical,
 } from 'lucide-react';
@@ -64,7 +63,6 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
                 { label: 'Agentes IA', icon: Bot, path: '/admin/agents' },
                 { label: 'Módulos', icon: Brain, path: '/admin/modulos' },
                 { label: 'AI Lab', icon: FlaskConical, path: '/admin/lab' },
-                { label: 'Simulação', icon: MessageSquareText, path: '/admin/simulacao' },
                 { label: 'Planos', icon: ScrollText, path: '/admin/billing' },
             ],
         },

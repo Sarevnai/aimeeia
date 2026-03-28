@@ -52,6 +52,13 @@ const AdminMetricsPage: React.FC = () => {
     }, []);
 
     const loadMetrics = async () => {
+        // Pre-fetch terminal stage IDs for open ticket counting
+        const { data: terminalStages } = await supabase
+            .from('ticket_stages')
+            .select('id')
+            .eq('is_terminal', true);
+        const terminalIds = (terminalStages || []).map(s => s.id);
+
         setLoading(true);
         try {
             // Parallel queries for all metrics
@@ -87,8 +94,10 @@ const AdminMetricsPage: React.FC = () => {
                 supabase.from('contacts').select('id', { count: 'exact', head: true }),
                 supabase.from('lead_qualification').select('id', { count: 'exact', head: true }),
                 supabase.from('tickets').select('id', { count: 'exact', head: true }),
-                supabase.from('tickets').select('id', { count: 'exact', head: true })
-                    .not('stage_id', 'is', null),
+                terminalIds.length > 0
+                    ? supabase.from('tickets').select('id', { count: 'exact', head: true })
+                        .not('stage_id', 'in', `(${terminalIds.join(',')})`)
+                    : supabase.from('tickets').select('id', { count: 'exact', head: true }),
                 supabase.from('tenants').select('id, company_name, is_active'),
                 supabase.from('tenants').select('id', { count: 'exact', head: true })
                     .eq('is_active', true),

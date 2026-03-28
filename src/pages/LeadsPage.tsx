@@ -308,7 +308,7 @@ const LeadsPage: React.FC = () => {
                       <TableCell>
                         <div className="space-y-1">
                           <p className="font-medium text-foreground text-[14px] leading-none">{DEPT_LABELS[lead.departmentCode || ''] || 'Compra'}</p>
-                          <p className="text-xs text-muted-foreground">#{lead.propertyId || Math.floor(Math.random() * 90000) + 10000}</p>
+                          <p className="text-xs text-muted-foreground">{lead.propertyId ? `#${lead.propertyId}` : '—'}</p>
                         </div>
                       </TableCell>
 

@@ -228,7 +228,7 @@ const AdminTenantDetailPage: React.FC = () => {
                 .from('ai_agent_config')
                 .select('agent_name, tone, ai_model, greeting_message, fallback_message, audio_enabled, emoji_intensity, vista_integration_enabled')
                 .eq('tenant_id', tenantId)
-                .single();
+                .maybeSingle();
 
             if (agentData) {
                 setAgentConfig({

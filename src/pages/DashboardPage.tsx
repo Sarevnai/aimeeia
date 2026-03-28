@@ -176,14 +176,18 @@ const DashboardPage: React.FC = () => {
         .from('conversation_states')
         .select('phone_number', { count: 'exact', head: true })
         .eq('tenant_id', tenantId)
-        .eq('triage_stage', 'completed');
+        .eq('triage_stage', 'completed')
+        .gte('created_at', monthStart)
+        .lte('created_at', monthEnd);
       setAiAttended(attended ?? 0);
 
       const { count: fwd } = await supabase
         .from('conversation_states')
         .select('phone_number', { count: 'exact', head: true })
         .eq('tenant_id', tenantId)
-        .eq('is_ai_active', false);
+        .eq('is_ai_active', false)
+        .gte('created_at', monthStart)
+        .lte('created_at', monthEnd);
       setForwarded(fwd ?? 0);
 
       // ── Row 2a: Channel pie ──

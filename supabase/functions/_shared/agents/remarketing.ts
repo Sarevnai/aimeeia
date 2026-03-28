@@ -24,7 +24,7 @@ function isTriageOrSystemMessage(content: string): boolean {
   // Triage greeting/name patterns
   if (/^(Olá!?\s+Eu sou|Prazer,?\s|Como posso te chamar|Como posso te ajudar)/i.test(content)) return true;
   // VIP pitch (triage remarketing_vip_pitch stage)
-  if (/consultoria imobiliária personalizada|atendo no máximo 2 a 3 clientes|cliente vip/i.test(content)) return true;
+  if (/consultoria imobiliária personalizada|atendo no máximo 2 a 3 clientes|cliente vip|curadoria de alguns clientes|projeto de mudança ainda está de pé/i.test(content)) return true;
   // Department welcome
   if (/^Vou te ajudar a encontrar/i.test(content)) return true;
   // Triage buttons/clarification
@@ -36,7 +36,7 @@ function isTriageOrSystemMessage(content: string): boolean {
 // Matches either the legacy contract ("sinceridade total", "vaga apertada") OR
 // the new consultive opening ("consultora pessoal", "centralizo a busca", "momento de vida").
 // IMPORTANT: Requires ___ separator AND at least one keyword to avoid false positives.
-const OPENING_KEYWORD_PATTERN = /sinceridade\s+(total|completa|absoluta)|direto\s+comigo|sem\s+filtro|o\s+que\s+(n[aã]o\s+aceita|n[aã]o\s+gosta|te\s+incomoda|descarta)|vagas?\s+apertadas?|garagem\s+apertada|face\s+sem\s+sol|barulho\s+de\s+rua|consultora\s+pessoal|centralizo\s+a\s+busca|momento\s+de\s+vida|alinhar\s+(a\s+|minha\s+)?busca|op[cç][oõ]es\s+filtradas/i;
+const OPENING_KEYWORD_PATTERN = /sinceridade\s+(total|completa|absoluta)|direto\s+comigo|sem\s+filtro|o\s+que\s+(n[aã]o\s+aceita|n[aã]o\s+gosta|te\s+incomoda|descarta)|vagas?\s+apertadas?|garagem\s+apertada|face\s+sem\s+sol|barulho\s+de\s+rua|consultora\s+pessoal|centralizo\s+a\s+busca|momento\s+de\s+vida|alinhar\s+(a\s+|minha\s+)?busca|op[cç][oõ]es\s+filtradas|curadoria\s+de\s+(alguns\s+)?clientes|filtro\s+o\s+ru[ií]do|projeto\s+de\s+mudan[cç]a/i;
 
 function contractAlreadySentInHistory(history: any[]): boolean {
   return history?.some(
@@ -333,20 +333,16 @@ ${isContractDone ? '' : `[ABERTURA CONSULTIVA]
 Esta é a PRIMEIRA RESPOSTA da IA ao cliente de remarketing. Você DEVE se adaptar ao que o cliente disse:
 
 CENÁRIO A — Cliente deu saudação vaga ("oi", "olá", "boa tarde"):
-Faça a abertura consultiva completa: apresente seu papel de forma elegante e termine com uma pergunta aberta.
+O template já fez o posicionamento completo (curadoria, varrer mercado, filtrar ruído). NÃO repita o pitch. Vá direto para a anamnese de forma curta e natural.
 Estrutura:
-1. Cumprimente pelo nome (se souber).
-2. Posicione seu papel de forma natural e autoritária (NÃO justifique valor, NÃO liste vantagens, NÃO mencione "custo zero").
-3. Termine com UMA pergunta aberta que inicie a anamnese.
+1. Cumprimente pelo nome (se souber) e agradeça brevemente pela resposta.
+2. Faça UMA pergunta aberta que inicie a anamnese (momento de vida).
+3. NÃO reapresente seu papel, NÃO mencione "custo zero", NÃO repita o que o template já disse.
 
 Exemplo:
-"Olá, {{NAME}}.
+"Olá, {{NAME}}. Que bom que respondeu.
 ___
-No mercado atual de {{CITY}}, encontrar o imóvel certo pode tomar um tempo e uma energia que você provavelmente prefere investir em outras áreas.
-___
-Meu papel aqui na {{COMPANY_NAME}} é atuar como sua consultora pessoal. Eu centralizo a busca, varro tanto a nossa pauta quanto a de parceiros, e te apresento apenas opções filtradas para o seu perfil.
-___
-Para eu alinhar a busca ao seu momento de vida, me conta: o que vocês estão buscando hoje?"
+Para eu direcionar a curadoria ao seu momento atual, me conta: o que vocês estão buscando hoje? Mudança, mais espaço, investimento?"
 
 CENÁRIO B — Cliente já informou algo concreto ("quero um apto de 2 quartos no centro", "to procurando casa na lagoa"):
 RECONHEÇA o que ele disse, mostre que você ouviu, e avance para as perguntas que faltam.

@@ -417,7 +417,16 @@ export const comercialAgent: AgentModule = {
   },
 
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
-    let finalResponse = aiResponse;
+    // Strip chain-of-thought blocks that LLM may leak to client
+    // Handles: <analise>...</analise>, <invoke name="analise">...</invoke>, and orphan tags
+    let finalResponse = aiResponse
+      .replace(/<analise>[\s\S]*?<\/analise>/gi, '')
+      .replace(/<invoke\s+name="analise"[^>]*>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<\/?analise>/gi, '')
+      .replace(/<invoke\s+name="analise"[^>]*>/gi, '')
+      .replace(/<\/invoke>/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
     const qualified = isQualificationComplete(ctx.qualificationData);
     const isRemarketing = ctx.conversationSource === 'remarketing';
 

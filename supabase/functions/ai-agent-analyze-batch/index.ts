@@ -139,51 +139,72 @@ serve(async (req: Request) => {
       return errorResponse(`Erro ao criar report: ${reportError?.message}`, 500);
     }
 
-    // 8. Analyze each turn
+    // 8. Analyze each turn (with individual error handling — partial results are saved)
     const analyses: (AnalysisResult & { turn_number: number; sender_type: string })[] = [];
+    const executionErrors: { turn_number: number; error: string }[] = [];
     const conversationHistory: { role: string; content: string }[] = [];
 
     for (const turn of turns) {
-      // Build conversation history up to this point
-      const analysis = await callAnalysis(
-        buildAnalysisUserMessage({
-          conversation_history: [...conversationHistory],
-          current_turn: {
-            user_message: turn.user_message,
-            ai_response: turn.ai_response,
-            qualification: qualification || undefined,
-          },
-          flow_type: conversation.department_code || 'vendas',
-          agent_config: agentConfig ? { agent_name: agentConfig.agent_name, tone: agentConfig.tone } : undefined,
+      try {
+        const analysis = await callAnalysis(
+          buildAnalysisUserMessage({
+            conversation_history: [...conversationHistory],
+            current_turn: {
+              user_message: turn.user_message,
+              ai_response: turn.ai_response,
+              qualification: qualification || undefined,
+            },
+            flow_type: conversation.department_code || 'vendas',
+            agent_config: agentConfig ? { agent_name: agentConfig.agent_name, tone: agentConfig.tone } : undefined,
+            turn_number: turn.turn_number,
+          }),
+          { supabase, tenant_id, conversation_id }
+        );
+
+        // Persist per-turn analysis
+        await supabase.from('conversation_analyses').insert({
+          tenant_id,
+          report_id: report.id,
           turn_number: turn.turn_number,
-        }),
-        { supabase, tenant_id, conversation_id }
-      );
+          user_message: turn.user_message,
+          ai_response: turn.ai_response,
+          sender_type: turn.sender_type,
+          action: 'ai_response',
+          score: analysis.score,
+          criteria: analysis.criteria,
+          errors: analysis.errors || [],
+          summary: analysis.summary,
+        });
 
-      // Persist per-turn analysis
-      await supabase.from('conversation_analyses').insert({
-        tenant_id,
-        report_id: report.id,
-        turn_number: turn.turn_number,
-        user_message: turn.user_message,
-        ai_response: turn.ai_response,
-        sender_type: turn.sender_type,
-        action: 'ai_response',
-        score: analysis.score,
-        criteria: analysis.criteria,
-        errors: analysis.errors || [],
-        summary: analysis.summary,
-      });
+        analyses.push({ ...analysis, turn_number: turn.turn_number, sender_type: turn.sender_type });
+      } catch (turnError) {
+        const errorMsg = (turnError as Error).message || 'Erro desconhecido';
+        console.error(`⚠️ Turno ${turn.turn_number} falhou:`, errorMsg);
+        executionErrors.push({ turn_number: turn.turn_number, error: errorMsg });
 
-      analyses.push({ ...analysis, turn_number: turn.turn_number, sender_type: turn.sender_type });
+        // Persist failed turn with score 0 and execution error
+        await supabase.from('conversation_analyses').insert({
+          tenant_id,
+          report_id: report.id,
+          turn_number: turn.turn_number,
+          user_message: turn.user_message,
+          ai_response: turn.ai_response,
+          sender_type: turn.sender_type,
+          action: 'ai_response',
+          score: 0,
+          criteria: [],
+          errors: [{ type: 'execution_error', severity: 'high', description: errorMsg, suggestion: 'Verificar logs da Edge Function e status da API de IA.' }],
+          summary: `Falha na análise: ${errorMsg}`,
+        });
+      }
 
-      // Update conversation history for next turn
+      // Update conversation history for next turn regardless of success/failure
       conversationHistory.push(
         { role: 'user', content: turn.user_message },
         { role: 'assistant', content: turn.ai_response }
       );
 
-      // Small delay to respect rate limits (Gemini free tier)
+      // Small delay to respect rate limits
       if (turn.turn_number < turns.length) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
@@ -197,13 +218,17 @@ serve(async (req: Request) => {
     const minScore = scores.length > 0 ? Math.round(Math.min(...scores) * 10) / 10 : 0;
     const maxScore = scores.length > 0 ? Math.round(Math.max(...scores) * 10) / 10 : 0;
 
-    // Count error patterns
+    // Count error patterns (includes both analysis-detected and execution errors)
     const errorPatterns: Record<string, number> = {};
     for (const a of analyses) {
       for (const err of (a.errors || [])) {
         const key = err.type || 'unknown';
         errorPatterns[key] = (errorPatterns[key] || 0) + 1;
       }
+    }
+    // Add execution errors to patterns
+    if (executionErrors.length > 0) {
+      errorPatterns['execution_error'] = (errorPatterns['execution_error'] || 0) + executionErrors.length;
     }
 
     // Generate recommendations
@@ -228,17 +253,20 @@ serve(async (req: Request) => {
       })
       .eq('id', report.id);
 
-    // 11. Return complete report
+    // 11. Return complete report (including execution error info)
     return jsonResponse({
       report_id: report.id,
       version: nextVersion,
       conversation_id,
       total_turns: turns.length,
+      analyzed_turns: analyses.length,
+      failed_turns: executionErrors.length,
       avg_score: avgScore,
       min_score: minScore,
       max_score: maxScore,
-      is_production_ready: minScore >= 9.0,
+      is_production_ready: minScore >= 9.0 && executionErrors.length === 0,
       error_patterns: errorPatterns,
+      execution_errors: executionErrors,
       recommendations,
       analyses: analyses.map(a => ({
         turn_number: a.turn_number,

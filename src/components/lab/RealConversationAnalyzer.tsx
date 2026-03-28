@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { Play, Loader2, RotateCcw } from 'lucide-react';
+import { toast } from 'sonner';
 import RealConversationThread from './RealConversationThread';
 import { AnalysisPanel } from './AnalysisPanel';
 import AnalysisReportHistory from './AnalysisReportHistory';
@@ -106,11 +107,25 @@ export default function RealConversationAnalyzer({
 
       setProgress(100);
 
+      // Show feedback about partial failures
+      if (data?.failed_turns > 0) {
+        toast.warning(
+          `Análise parcial: ${data.analyzed_turns}/${data.total_turns} turnos analisados. ${data.failed_turns} turno(s) falharam.`,
+          { duration: 6000 }
+        );
+      } else if (data?.total_turns > 0) {
+        toast.success(`Análise completa: ${data.total_turns} turnos analisados (v${data.version})`);
+      }
+
       // Reload reports
       await loadReports();
       onAnalysisComplete?.();
     } catch (err) {
       console.error('Analysis error:', err);
+      toast.error(
+        `Erro ao analisar conversa: ${err instanceof Error ? err.message : 'Erro desconhecido'}`,
+        { duration: 6000 }
+      );
     } finally {
       setAnalyzing(false);
       setProgress(0);

@@ -87,11 +87,11 @@ export async function handleTriage(
 ): Promise<TriageResult> {
   let stage = state?.triage_stage || 'greeting';
 
-  // For remarketing conversations, skip generic greeting (template already introduced the agent)
-  // Jump straight to the VIP pitch stage on first contact
+  // For remarketing conversations, skip ALL triage — the client already engaged by replying
+  // to the template. Let the AI agent handle everything contextually from the first message.
   if (stage === 'greeting' && conversationSource === 'remarketing') {
-    await updateTriageStage(supabase, tenant.id, phoneNumber, 'remarketing_vip_pitch');
-    stage = 'remarketing_vip_pitch';
+    await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
+    return { shouldContinue: false };
   }
   const agentName = config.agent_name || 'Aimee';
 
@@ -201,94 +201,18 @@ export async function handleTriage(
     };
   }
 
-  // ========== STAGE: REMARKETING VIP PITCH ==========
+  // ========== STAGE: REMARKETING VIP PITCH (legacy — migrate to completed) ==========
+  // Leads that were stuck on this stage before the triage-skip change: complete immediately.
   if (stage === 'remarketing_vip_pitch') {
-    const rmkConfig = triageConfig?.remarketing;
-
-    // Build VIP pitch messages (configurable or default)
-    // NOTE: The remarketing template already introduces the agent, so skip self-introduction here.
-    const pitchMessages = rmkConfig?.vip_pitch?.map(msg => replaceTvars(msg, contactName || undefined)) || [
-      replaceTvars(
-        `Meu trabalho é diferente dos corretores tradicionais. Trabalho com *consultoria imobiliária personalizada* — ` +
-        `atendo no máximo 2 a 3 clientes por vez, pra garantir que cada um tenha um atendimento exclusivo e dedicado.\n\n` +
-        `Vou buscar o imóvel ideal pra você com todo o empenho e dedicação.`,
-        contactName || undefined
-      ),
-      replaceTvars(
-        `As vantagens pra você:\n` +
-        `- Custo zero — quem paga é o proprietário\n` +
-        `- A {{COMPANY_NAME}} tem uma das maiores pautas de {{CITY}}. Se não tiver na nossa pauta, fazemos parceria com outras imobiliárias\n` +
-        `- Centraliza tudo em uma consultora dedicada a você\n\n` +
-        `Se você enxerga valor nesse tipo de atendimento exclusivo, me sinaliza que eu vou te colocar como meu *cliente vip*!`,
-        contactName || undefined
-      ),
-    ];
-
-    await updateTriageStage(supabase, tenant.id, phoneNumber, 'remarketing_buyin');
-
-    return {
-      shouldContinue: true,
-      responseMessages: pitchMessages,
-    };
+    await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
+    return { shouldContinue: false };
   }
 
-  // ========== STAGE: REMARKETING BUY-IN ==========
+  // ========== STAGE: REMARKETING BUY-IN (legacy — migrate to completed) ==========
+  // Leads that were stuck on remarketing_buyin: complete immediately and let the AI handle.
   if (stage === 'remarketing_buyin') {
-    const rmkConfig = triageConfig?.remarketing;
-    const lower = messageBody.toLowerCase().trim();
-
-    // Detect positive response
-    const positivePatterns = /\b(sim|quero|ok|pode ser|pode seguir|pode sim|pode|bora|vamos|aceito|faz sentido|top|com certeza|gostei|interessante|claro|massa|ótimo|show|beleza|perfeito|tô dentro|to dentro|fechou|valeu|legal|bacana|demais|seguir|segue|manda|manda ver|por favor|pfv|pfvr)\b/i;
-    // Detect negative response
-    const negativePatterns = /\b(não|nao|sem interesse|agora não|agora nao|depois|paro|obrigado mas|dispenso|sem tempo|ocupado)\b/i;
-
-    if (positivePatterns.test(lower)) {
-      // Buy-in confirmed! Complete triage and let the remarketing AI agent
-      // generate a personalized partnership contract (instead of hardcoded text)
-      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
-
-      // Return shouldContinue: false so the flow continues to the AI agent,
-      // which will generate the partnership contract dynamically
-      return { shouldContinue: false };
-    }
-
-    if (negativePatterns.test(lower) && !positivePatterns.test(lower)) {
-      // Declined — send cordial message, keep triage_stage at remarketing_buyin for re-engagement
-      const declineMsg = rmkConfig?.decline_message
-        ? replaceTvars(rmkConfig.decline_message, contactName || undefined)
-        : replaceTvars(
-            `Sem problemas, {{NAME}}! Fico à disposição caso mude de ideia. É só me chamar aqui que retomo seu atendimento.`,
-            contactName || undefined
-          );
-
-      // Keep triage_stage at remarketing_buyin (don't advance) so if they message again, same treatment
-      return {
-        shouldContinue: true,
-        responseMessages: [declineMsg],
-      };
-    }
-
-    // Audio/media messages are engagement signals — treat as positive
-    if (lower.startsWith('[áudio]') || lower.startsWith('[audio]') || lower.startsWith('[transcrição') || lower.startsWith('[imagem]') || lower.startsWith('[documento')) {
-      // Complete triage and let the AI agent handle naturally
-      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
-      return {
-        shouldContinue: true,
-        responseMessages: [],
-        department: 'remarketing',
-      };
-    }
-
-    // Ambiguous response — ask for clarification
-    const clarificationMsg = replaceTvars(
-      `{{NAME}}, seria ótimo poder te ajudar! Posso seguir com seu atendimento VIP de consultoria imobiliária?`,
-      contactName || undefined
-    );
-
-    return {
-      shouldContinue: true,
-      responseMessages: [clarificationMsg],
-    };
+    await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
+    return { shouldContinue: false };
   }
 
   // ========== COMPLETED — pass through to AI ==========

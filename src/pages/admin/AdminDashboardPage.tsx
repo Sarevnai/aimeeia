@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
 import TenantStatusBadge from '@/components/admin/TenantStatusBadge';
+import AIMetricsPanel from '@/components/admin/AIMetricsPanel';
 
 // ── Mock data (will be replaced by Supabase queries) ─────────────────
 
@@ -211,6 +212,9 @@ const AdminDashboardPage: React.FC = () => {
                     </table>
                 </div>
             </div>
+
+            {/* AI Metrics */}
+            <AIMetricsPanel />
         </div>
     );
 };

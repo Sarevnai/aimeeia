@@ -9,6 +9,7 @@ import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../anti-loop.ts';
 import { isQualificationComplete, calculateQualificationScore } from '../qualification.ts';
 import { SkillConfig, AiModule } from '../types.ts';
+import { runPreCompletionChecks } from './pre-completion-check.ts';
 
 // ========== SERVER-SIDE MODULE RESOLUTION ==========
 // Decides which module to activate based on conversation state,
@@ -750,13 +751,16 @@ export const remarketingAgent: AgentModule = {
   },
 
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
-    // Strip chain-of-thought blocks that LLM may leak to client
-    // Handles: <analise>...</analise>, <invoke name="analise">...</invoke>, and orphan tags
-    let finalResponse = aiResponse
-      .replace(/<analise>[\s\S]*?<\/analise>/gi, '')
-      .replace(/<invoke\s+name="analise"[^>]*>[\s\S]*?<\/invoke>/gi, '')
-      .replace(/<\/?analise>/gi, '')
-      .replace(/<invoke\s+name="analise"[^>]*>/gi, '')
+    // Pre-completion verification (Harness Engineering pattern)
+    const preCheck = runPreCompletionChecks(ctx, ctx.userMessage || '', aiResponse);
+    let finalResponse = preCheck.hasCriticalIssue ? preCheck.sanitizedResponse : aiResponse;
+
+    // Strip chain-of-thought blocks that LLM may leak to client (safety net)
+    finalResponse = finalResponse
+      .replace(/<an[aá]li[sz]e>[\s\S]*?<\/an[aá]li[sz]e>/gi, '')
+      .replace(/<invoke\s+name="an[aá]li[sz]e"[^>]*>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<\/?an[aá]li[sz]e>/gi, '')
+      .replace(/<invoke\s+name="an[aá]li[sz]e"[^>]*>/gi, '')
       .replace(/<\/invoke>/gi, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
@@ -765,14 +769,14 @@ export const remarketingAgent: AgentModule = {
     // Detect loop: AI re-asking questions already answered
     if (isLoopingQuestion(finalResponse, ctx.qualificationData)) {
       console.log('🔄 [Remarketing] Loop detected → rotating fallback');
-      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, true);
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, true, ctx.qualificationData);
       ctx._loopDetected = true;
     }
 
     // Detect repetition: AI sending same/similar message multiple times
     if (!ctx._loopDetected && isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
       console.log('🔄 [Remarketing] Repetition detected → rotating fallback');
-      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, true);
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, true, ctx.qualificationData);
       ctx._loopDetected = true;
     }
 

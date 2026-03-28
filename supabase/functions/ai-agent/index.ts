@@ -5,7 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
-import { callLLMWithToolExecution } from '../_shared/ai-call.ts';
+import { callLLMWithToolExecution, TraceData } from '../_shared/ai-call.ts';
 import { sendWhatsAppMessage, sendWhatsAppButtons, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
@@ -240,6 +240,7 @@ serve(async (req: Request) => {
         directive: null, structuredConfig: null, remarketingContext: null,
         isReturningLead: false, previousQualificationData: null,
         tenantApiKey, tenantProvider, supabase, lastAiMessages: [], toolsExecuted: [],
+        userMessage: message_body,
         activeModules: [], currentModuleSlug: null,
       };
 
@@ -461,6 +462,7 @@ serve(async (req: Request) => {
         tenantProvider,
         lastAiMessages: state?.last_ai_messages || [],
         toolsExecuted: [],
+        userMessage: enrichedMessageBody || message_body,
         activeModules: (activeModules as AiModule[]) || [],
         currentModuleSlug,
         supabase,
@@ -507,7 +509,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
         return msg;
       });
 
-      const aiResponse = await callLLMWithToolExecution(
+      const llmResult = await callLLMWithToolExecution(
         systemPrompt,
         agentLlmHistory,
         enrichedMessageBody,
@@ -525,7 +527,26 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
         }
       );
 
-      finalResponse = await agent.postProcess(ctx, aiResponse);
+      // Persist trace (fire-and-forget)
+      supabase.from('ai_traces').insert({
+        tenant_id,
+        conversation_id,
+        agent_type: agentType,
+        model: llmResult.trace.model,
+        provider: llmResult.trace.provider,
+        prompt_tokens: llmResult.trace.prompt_tokens,
+        completion_tokens: llmResult.trace.completion_tokens,
+        total_tokens: llmResult.trace.total_tokens,
+        latency_ms: llmResult.trace.latency_ms,
+        cost_usd: llmResult.trace.cost_usd,
+        tool_calls_count: llmResult.trace.tool_calls_count,
+        tool_names: llmResult.trace.tool_names,
+        iterations: llmResult.trace.iterations,
+        success: llmResult.trace.success,
+        error_message: llmResult.trace.error_message || null,
+      }).then(({ error }) => { if (error) console.error('⚠️ Trace insert error:', error.message); });
+
+      finalResponse = await agent.postProcess(ctx, llmResult.content);
 
       // Persist server-resolved module slug if it changed
       if (ctx.currentModuleSlug && ctx.currentModuleSlug !== currentModuleSlug) {
@@ -567,7 +588,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 
       const tools = getToolsForDepartment(effectiveDepartment, structuredConfig?.skills);
 
-      const aiResponse = await callLLMWithToolExecution(
+      const legacyLlmResult = await callLLMWithToolExecution(
         systemPrompt,
         history,
         enrichedMessageBody,
@@ -584,18 +605,37 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
         }
       );
 
-      finalResponse = aiResponse;
+      // Persist trace (fire-and-forget)
+      supabase.from('ai_traces').insert({
+        tenant_id,
+        conversation_id,
+        agent_type: 'legacy',
+        model: legacyLlmResult.trace.model,
+        provider: legacyLlmResult.trace.provider,
+        prompt_tokens: legacyLlmResult.trace.prompt_tokens,
+        completion_tokens: legacyLlmResult.trace.completion_tokens,
+        total_tokens: legacyLlmResult.trace.total_tokens,
+        latency_ms: legacyLlmResult.trace.latency_ms,
+        cost_usd: legacyLlmResult.trace.cost_usd,
+        tool_calls_count: legacyLlmResult.trace.tool_calls_count,
+        tool_names: legacyLlmResult.trace.tool_names,
+        iterations: legacyLlmResult.trace.iterations,
+        success: legacyLlmResult.trace.success,
+        error_message: legacyLlmResult.trace.error_message || null,
+      }).then(({ error }) => { if (error) console.error('⚠️ Trace insert error:', error.message); });
+
+      finalResponse = legacyLlmResult.content;
       const lastMsgs = state?.last_ai_messages || [];
       const legacyQualified = isQualificationComplete(mergedQual);
 
       if (isLoopingQuestion(finalResponse, mergedQual)) {
         console.log('🔄 [Legacy] Loop detected → rotating fallback');
-        finalResponse = getRotatingFallback(legacyQualified, lastMsgs);
+        finalResponse = getRotatingFallback(legacyQualified, lastMsgs, false, mergedQual);
       }
 
       if (isRepetitiveMessage(finalResponse, lastMsgs)) {
         console.log('🔄 [Legacy] Repetition detected → rotating fallback');
-        finalResponse = getRotatingFallback(legacyQualified, lastMsgs);
+        finalResponse = getRotatingFallback(legacyQualified, lastMsgs, false, mergedQual);
       }
 
       await updateAntiLoopState(supabase, tenant_id, phone_number, finalResponse);
@@ -608,11 +648,12 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 
     // ========== STRIP CHAIN-OF-THOUGHT (global safety net) ==========
     // Ensures <analise> blocks NEVER reach the client, regardless of agent path (modular or legacy)
+    // Covers LLM typo variants: <analize>, <análise>, <analyze>
     finalResponse = finalResponse
-      .replace(/<analise>[\s\S]*?<\/analise>/gi, '')
-      .replace(/<invoke\s+name="analise"[^>]*>[\s\S]*?<\/invoke>/gi, '')
-      .replace(/<\/?analise>/gi, '')
-      .replace(/<invoke\s+name="analise"[^>]*>/gi, '')
+      .replace(/<an[aá]li[sz]e>[\s\S]*?<\/an[aá]li[sz]e>/gi, '')
+      .replace(/<invoke\s+name="an[aá]li[sz]e"[^>]*>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<\/?an[aá]li[sz]e>/gi, '')
+      .replace(/<invoke\s+name="an[aá]li[sz]e"[^>]*>/gi, '')
       .replace(/<\/invoke>/gi, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();

@@ -30,6 +30,7 @@ export interface AgentContext {
   tenantProvider: string;
   lastAiMessages: string[];
   toolsExecuted: string[];               // MC-5: Track which tools were called this turn
+  userMessage: string;                    // Current user message (for pre-completion checks)
   activeModules: AiModule[];              // Intelligence modules for this tenant
   currentModuleSlug: string | null;       // Currently active module slug
   _loopDetected?: boolean;                // Set by postProcess to signal loop to caller

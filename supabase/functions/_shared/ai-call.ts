@@ -1,5 +1,5 @@
-// ========== AIMEE.iA - AI CALL v3 ==========
-// Multi-provider LLM gateway.
+// ========== AIMEE.iA - AI CALL v4 ==========
+// Multi-provider LLM gateway with structured tracing.
 // Supports: OpenAI, Anthropic, Google Gemini + Tool Calling.
 // Falls back to env-level OPENAI_API_KEY if no tenant key is provided.
 
@@ -8,6 +8,51 @@ import { ConversationMessage } from './types.ts';
 export interface LLMResponse {
   content: string;
   toolCalls: any[];
+}
+
+// ─────────────────────────────────────────────
+// Trace data returned alongside LLM responses
+// ─────────────────────────────────────────────
+
+export interface TraceData {
+  model: string;
+  provider: string;
+  latency_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  tool_calls_count: number;
+  tool_names: string[];
+  iterations: number;
+  success: boolean;
+  error_message?: string;
+}
+
+export interface LLMResultWithTrace {
+  content: string;
+  trace: TraceData;
+}
+
+// Cost per token (USD) by model — chars/4 estimation
+const MODEL_COSTS: Record<string, { input: number; output: number }> = {
+  'gemini-2.5-pro':    { input: 1.25 / 1_000_000, output: 10.0 / 1_000_000 },
+  'gemini-2.5-flash':  { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
+  'claude-sonnet-4-6': { input: 3.0 / 1_000_000,  output: 15.0 / 1_000_000 },
+  'claude-sonnet-4-5-20250514': { input: 3.0 / 1_000_000, output: 15.0 / 1_000_000 },
+  'gpt-4o':            { input: 2.5 / 1_000_000,  output: 10.0 / 1_000_000 },
+  'gpt-4o-mini':       { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
+};
+
+function estimateTokens(text: string): number {
+  return Math.ceil((text || '').length / 4);
+}
+
+function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
+  const normalizedModel = model.replace(/^google\//, '');
+  const costs = MODEL_COSTS[normalizedModel];
+  if (!costs) return 0;
+  return promptTokens * costs.input + completionTokens * costs.output;
 }
 
 // ─────────────────────────────────────────────
@@ -325,12 +370,18 @@ export async function callLLMWithToolExecution(
   tools: any[],
   toolExecutor: (name: string, args: any) => Promise<string>,
   options: LLMCallOptions & { maxIterations?: number } = {}
-): Promise<string> {
+): Promise<LLMResultWithTrace> {
   const model = options.model || 'gpt-4o-mini';
   const provider = detectProvider(model, options.provider);
   const apiKey = resolveApiKey(provider, options.apiKey);
 
   if (!apiKey) throw new Error(`No API key found for provider: ${provider}. Configure it in Admin > Agente Aimee.`);
+
+  const startTime = Date.now();
+  const toolNamesSet = new Set<string>();
+  let toolCallsTotal = 0;
+  let iterationsCount = 0;
+  let errorMessage: string | undefined;
 
   const maxIterations = options.maxIterations ?? 3;
   let messages: any[] = [
@@ -339,56 +390,101 @@ export async function callLLMWithToolExecution(
     { role: 'user', content: userMessage }
   ];
 
-  for (let i = 0; i < maxIterations; i++) {
-    const result = await callProviderOnce(provider, apiKey, model, messages, tools, options);
+  // Estimate prompt tokens from initial messages
+  const promptChars = messages.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0);
+  const promptTokens = estimateTokens(new Array(promptChars).fill('x').join(''));
 
-    // No tool calls → return text
-    if (!result.toolCalls || result.toolCalls.length === 0) {
-      return result.content || '';
-    }
+  let finalContent = '';
 
-    // Append assistant message with tool calls (OpenAI format for state tracking)
-    messages.push({
-      role: 'assistant',
-      content: result.content || null,
-      tool_calls: result.toolCalls,
-    });
+  try {
+    for (let i = 0; i < maxIterations; i++) {
+      iterationsCount++;
+      const result = await callProviderOnce(provider, apiKey, model, messages, tools, options);
 
-    // Execute each tool call
-    for (const toolCall of result.toolCalls) {
-      const args = JSON.parse(toolCall.function.arguments);
-      console.log(`🔧 Tool call: ${toolCall.function.name}`, args);
+      // No tool calls → done
+      if (!result.toolCalls || result.toolCalls.length === 0) {
+        finalContent = result.content || '';
+        break;
+      }
 
-      try {
-        const toolResult = await toolExecutor(toolCall.function.name, args);
-        messages.push({
-          role: 'tool',
-          content: toolResult,
-          tool_call_id: toolCall.id,
-        });
-      } catch (e) {
-        messages.push({
-          role: 'tool',
-          content: `Error: ${(e as Error).message}`,
-          tool_call_id: toolCall.id,
-        });
+      // Track tool calls
+      for (const tc of result.toolCalls) {
+        toolNamesSet.add(tc.function.name);
+        toolCallsTotal++;
+      }
+
+      // Append assistant message with tool calls (OpenAI format for state tracking)
+      messages.push({
+        role: 'assistant',
+        content: result.content || null,
+        tool_calls: result.toolCalls,
+      });
+
+      // Execute each tool call
+      for (const toolCall of result.toolCalls) {
+        const args = JSON.parse(toolCall.function.arguments);
+        console.log(`🔧 Tool call: ${toolCall.function.name}`, args);
+
+        try {
+          const toolResult = await toolExecutor(toolCall.function.name, args);
+          messages.push({
+            role: 'tool',
+            content: toolResult,
+            tool_call_id: toolCall.id,
+          });
+        } catch (e) {
+          messages.push({
+            role: 'tool',
+            content: `Error: ${(e as Error).message}`,
+            tool_call_id: toolCall.id,
+          });
+        }
+      }
+
+      // C5 bypass: if any tool returned a SISTEMA CRÍTICA instruction (property cards already sent),
+      // extract the example phrase and return directly — do NOT make another LLM call that may list properties.
+      const sistemaMsg = messages
+        .filter((m: any) => m.role === 'tool')
+        .map((m: any) => m.content as string)
+        .find((c: string) => typeof c === 'string' && c.startsWith('[SISTEMA — INSTRUÇÃO CRÍTICA]'));
+
+      if (sistemaMsg) {
+        const exampleMatch = sistemaMsg.match(/Exemplo:\s*"([^"]+)"/);
+        finalContent = exampleMatch ? exampleMatch[1] : 'Dá uma olhada no que te enviei e me conta o que achou.';
+        break;
+      }
+
+      // If last iteration, do final call without tools
+      if (i === maxIterations - 1) {
+        const finalResult = await callProviderOnce(provider, apiKey, model, messages, [], options);
+        finalContent = finalResult.content || 'Desculpe, tive um problema ao processar sua solicitação.';
       }
     }
-
-    // C5 bypass: if any tool returned a SISTEMA CRÍTICA instruction (property cards already sent),
-    // extract the example phrase and return directly — do NOT make another LLM call that may list properties.
-    const sistemaMsg = messages
-      .filter((m: any) => m.role === 'tool')
-      .map((m: any) => m.content as string)
-      .find((c: string) => typeof c === 'string' && c.startsWith('[SISTEMA — INSTRUÇÃO CRÍTICA]'));
-
-    if (sistemaMsg) {
-      const exampleMatch = sistemaMsg.match(/Exemplo:\s*"([^"]+)"/);
-      return exampleMatch ? exampleMatch[1] : 'Dá uma olhada no que te enviei e me conta o que achou.';
-    }
+  } catch (e) {
+    errorMessage = (e as Error).message;
+    finalContent = finalContent || 'Desculpe, tive um problema ao processar sua solicitação.';
   }
 
-  // Final call without tools
-  const finalResult = await callProviderOnce(provider, apiKey, model, messages, [], options);
-  return finalResult.content || 'Desculpe, tive um problema ao processar sua solicitação.';
+  const latencyMs = Date.now() - startTime;
+  const completionTokens = estimateTokens(finalContent);
+  const costUsd = estimateCost(model, promptTokens, completionTokens);
+
+  const trace: TraceData = {
+    model,
+    provider,
+    latency_ms: latencyMs,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    cost_usd: costUsd,
+    tool_calls_count: toolCallsTotal,
+    tool_names: Array.from(toolNamesSet),
+    iterations: iterationsCount,
+    success: !errorMessage,
+    error_message: errorMessage,
+  };
+
+  console.log(`📊 Trace: ${model} | ${latencyMs}ms | ~${trace.total_tokens} tokens | $${costUsd.toFixed(6)} | tools: ${trace.tool_names.join(',') || 'none'}`);
+
+  return { content: finalContent, trace };
 }

@@ -9,6 +9,7 @@ import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../anti-loop.ts';
 import { isQualificationComplete } from '../qualification.ts';
 import { SkillConfig, StructuredConfig, AiModule } from '../types.ts';
+import { runPreCompletionChecks } from './pre-completion-check.ts';
 
 // ========== MODULE-BASED PROMPT ==========
 
@@ -417,13 +418,16 @@ export const comercialAgent: AgentModule = {
   },
 
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
-    // Strip chain-of-thought blocks that LLM may leak to client
-    // Handles: <analise>...</analise>, <invoke name="analise">...</invoke>, and orphan tags
-    let finalResponse = aiResponse
-      .replace(/<analise>[\s\S]*?<\/analise>/gi, '')
-      .replace(/<invoke\s+name="analise"[^>]*>[\s\S]*?<\/invoke>/gi, '')
-      .replace(/<\/?analise>/gi, '')
-      .replace(/<invoke\s+name="analise"[^>]*>/gi, '')
+    // Pre-completion verification (Harness Engineering pattern)
+    const preCheck = runPreCompletionChecks(ctx, ctx.userMessage || '', aiResponse);
+    let finalResponse = preCheck.hasCriticalIssue ? preCheck.sanitizedResponse : aiResponse;
+
+    // Strip chain-of-thought blocks that LLM may leak to client (safety net)
+    finalResponse = finalResponse
+      .replace(/<an[aá]li[sz]e>[\s\S]*?<\/an[aá]li[sz]e>/gi, '')
+      .replace(/<invoke\s+name="an[aá]li[sz]e"[^>]*>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<\/?an[aá]li[sz]e>/gi, '')
+      .replace(/<invoke\s+name="an[aá]li[sz]e"[^>]*>/gi, '')
       .replace(/<\/invoke>/gi, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
@@ -432,13 +436,13 @@ export const comercialAgent: AgentModule = {
 
     if (isLoopingQuestion(finalResponse, ctx.qualificationData)) {
       console.log('🔄 [Comercial] Loop detected → rotating fallback');
-      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, isRemarketing);
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, isRemarketing, ctx.qualificationData);
       ctx._loopDetected = true;
     }
 
     if (!ctx._loopDetected && isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
       console.log('🔄 [Comercial] Repetition detected → rotating fallback');
-      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, isRemarketing);
+      finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, isRemarketing, ctx.qualificationData);
       ctx._loopDetected = true;
     }
 

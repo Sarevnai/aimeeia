@@ -606,6 +606,17 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
     // Strip any tags the LLM may still emit for backward compat.
     finalResponse = finalResponse.replace(/\[\s*MODULO\s*:\s*[^\]\n]*?\s*\]\s*/gi, '').trim();
 
+    // ========== STRIP CHAIN-OF-THOUGHT (global safety net) ==========
+    // Ensures <analise> blocks NEVER reach the client, regardless of agent path (modular or legacy)
+    finalResponse = finalResponse
+      .replace(/<analise>[\s\S]*?<\/analise>/gi, '')
+      .replace(/<invoke\s+name="analise"[^>]*>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<\/?analise>/gi, '')
+      .replace(/<invoke\s+name="analise"[^>]*>/gi, '')
+      .replace(/<\/invoke>/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
     // ========== SEND RESPONSE ==========
 
     // Prefixar com nome do agente para identificação no WhatsApp

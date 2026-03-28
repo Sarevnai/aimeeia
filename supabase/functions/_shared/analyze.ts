@@ -3,6 +3,8 @@
 // and ai-agent-analyze-batch (full conversation).
 // Model: GPT 5.4 Mini (OpenAI)
 
+import { insertTrace, estimateTokens, estimateCost } from './ai-call.ts';
+
 export interface AnalysisCriterion {
   name: string;
   score: number; // 1-10
@@ -185,8 +187,12 @@ Analise este turno e retorne a avaliação em JSON.`;
 
 /**
  * Call OpenAI API (GPT 5.4 Mini) and return the analysis result.
+ * Pass supabase client + tenant_id/conversation_id to enable cost tracking.
  */
-export async function callAnalysis(userMessage: string): Promise<AnalysisResult> {
+export async function callAnalysis(
+  userMessage: string,
+  traceCtx?: { supabase: any; tenant_id?: string; conversation_id?: string }
+): Promise<AnalysisResult> {
   const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) {
     throw new Error('OpenAI API key not configured (OPENAI_API_KEY)');
@@ -194,6 +200,7 @@ export async function callAnalysis(userMessage: string): Promise<AnalysisResult>
 
   const model = 'gpt-5.4-mini';
   const endpoint = 'https://api.openai.com/v1/chat/completions';
+  const startTime = Date.now();
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -213,9 +220,26 @@ export async function callAnalysis(userMessage: string): Promise<AnalysisResult>
     }),
   });
 
+  const latencyMs = Date.now() - startTime;
+
   if (!response.ok) {
     const error = await response.text();
     console.error('OpenAI API error:', error);
+
+    if (traceCtx?.supabase) {
+      const promptTokens = estimateTokens(ANALYSIS_SYSTEM_PROMPT + userMessage);
+      insertTrace(traceCtx.supabase, {
+        tenant_id: traceCtx.tenant_id,
+        conversation_id: traceCtx.conversation_id,
+        call_type: 'evaluation',
+        model, provider: 'openai',
+        prompt_tokens: promptTokens, completion_tokens: 0,
+        latency_ms: latencyMs,
+        cost_usd: estimateCost(model, promptTokens, 0),
+        success: false, error_message: `API error ${response.status}`,
+      });
+    }
+
     return {
       score: 0,
       max_score: 10,
@@ -227,7 +251,26 @@ export async function callAnalysis(userMessage: string): Promise<AnalysisResult>
   }
 
   const data = await response.json();
-  return parseAnalysisResponse(data);
+  const result = parseAnalysisResponse(data);
+
+  // Trace cost
+  if (traceCtx?.supabase) {
+    const rawText = data.choices?.[0]?.message?.content || '';
+    const promptTokens = data.usage?.prompt_tokens || estimateTokens(ANALYSIS_SYSTEM_PROMPT + userMessage);
+    const completionTokens = data.usage?.completion_tokens || estimateTokens(rawText);
+    insertTrace(traceCtx.supabase, {
+      tenant_id: traceCtx.tenant_id,
+      conversation_id: traceCtx.conversation_id,
+      call_type: 'evaluation',
+      model, provider: 'openai',
+      prompt_tokens: promptTokens, completion_tokens: completionTokens,
+      latency_ms: latencyMs,
+      cost_usd: estimateCost(model, promptTokens, completionTokens),
+      success: true,
+    });
+  }
+
+  return result;
 }
 
 /** @deprecated Use callAnalysis instead */

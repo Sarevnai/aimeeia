@@ -36,10 +36,8 @@ serve(async (req: Request) => {
       turn_number,
     });
 
-    const analysis: AnalysisResult = await callAnalysis(userMessage);
-
-    // Persist analysis to DB
     const supabase = getSupabaseClient();
+    const analysis: AnalysisResult = await callAnalysis(userMessage, { supabase, tenant_id, conversation_id });
     await supabase.from('simulation_analyses').insert({
       tenant_id,
       run_id: run_id || null,

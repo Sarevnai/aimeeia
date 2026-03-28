@@ -1,6 +1,8 @@
 // ========== AUDIO TRANSCRIPTION (WhatsApp → Gemini) ==========
 // Downloads audio from Meta Cloud API and transcribes via Gemini multimodal.
 
+import { insertTrace, estimateTokens, estimateCost } from './ai-call.ts';
+
 const META_API_VERSION = 'v21.0';
 const META_API_BASE = 'https://graph.facebook.com';
 const GEMINI_TRANSCRIPTION_MODEL = 'gemini-2.5-pro';
@@ -60,7 +62,8 @@ export async function downloadWhatsAppMedia(
  */
 export async function transcribeAudio(
   audioData: ArrayBuffer,
-  mimeType: string
+  mimeType: string,
+  traceCtx?: { supabase: any; tenant_id?: string; conversation_id?: string }
 ): Promise<string> {
   const apiKey = getGeminiApiKey();
 
@@ -76,6 +79,8 @@ export async function transcribeAudio(
   const cleanMime = mimeType.split(';')[0].trim();
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIPTION_MODEL}:generateContent?key=${apiKey}`;
+  const promptText = 'Transcreva este áudio em português brasileiro. Retorne APENAS o texto transcrito, sem formatação adicional, sem aspas, sem prefixos.';
+  const startTime = Date.now();
 
   const res = await fetch(url, {
     method: 'POST',
@@ -90,7 +95,7 @@ export async function transcribeAudio(
             },
           },
           {
-            text: 'Transcreva este áudio em português brasileiro. Retorne APENAS o texto transcrito, sem formatação adicional, sem aspas, sem prefixos.',
+            text: promptText,
           },
         ],
       }],
@@ -101,8 +106,23 @@ export async function transcribeAudio(
     }),
   });
 
+  const latencyMs = Date.now() - startTime;
+
   if (!res.ok) {
     const err = await res.text();
+    if (traceCtx?.supabase) {
+      const promptTokens = estimateTokens(promptText) + Math.ceil(base64.length / 16);
+      insertTrace(traceCtx.supabase, {
+        tenant_id: traceCtx.tenant_id,
+        conversation_id: traceCtx.conversation_id,
+        call_type: 'transcription',
+        model: GEMINI_TRANSCRIPTION_MODEL, provider: 'google',
+        prompt_tokens: promptTokens, completion_tokens: 0,
+        latency_ms: latencyMs,
+        cost_usd: estimateCost(GEMINI_TRANSCRIPTION_MODEL, promptTokens, 0),
+        success: false, error_message: `Gemini error ${res.status}`,
+      });
+    }
     throw new Error(`Gemini transcription failed (${res.status}): ${err}`);
   }
 
@@ -111,6 +131,22 @@ export async function transcribeAudio(
 
   if (!text) {
     throw new Error('Gemini returned empty transcription');
+  }
+
+  // Trace cost
+  if (traceCtx?.supabase) {
+    const promptTokens = estimateTokens(promptText) + Math.ceil(base64.length / 16);
+    const completionTokens = estimateTokens(text);
+    insertTrace(traceCtx.supabase, {
+      tenant_id: traceCtx.tenant_id,
+      conversation_id: traceCtx.conversation_id,
+      call_type: 'transcription',
+      model: GEMINI_TRANSCRIPTION_MODEL, provider: 'google',
+      prompt_tokens: promptTokens, completion_tokens: completionTokens,
+      latency_ms: latencyMs,
+      cost_usd: estimateCost(GEMINI_TRANSCRIPTION_MODEL, promptTokens, completionTokens),
+      success: true,
+    });
   }
 
   return text.trim();
@@ -122,8 +158,9 @@ export async function transcribeAudio(
 export async function transcribeWhatsAppAudio(
   mediaId: string,
   mimeType: string,
-  accessToken: string
+  accessToken: string,
+  traceCtx?: { supabase: any; tenant_id?: string; conversation_id?: string }
 ): Promise<string> {
   const media = await downloadWhatsAppMedia(mediaId, accessToken);
-  return await transcribeAudio(media.data, mimeType || media.mimeType);
+  return await transcribeAudio(media.data, mimeType || media.mimeType, traceCtx);
 }

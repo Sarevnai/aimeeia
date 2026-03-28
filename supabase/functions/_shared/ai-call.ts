@@ -42,13 +42,15 @@ const MODEL_COSTS: Record<string, { input: number; output: number }> = {
   'claude-sonnet-4-5-20250514': { input: 3.0 / 1_000_000, output: 15.0 / 1_000_000 },
   'gpt-4o':            { input: 2.5 / 1_000_000,  output: 10.0 / 1_000_000 },
   'gpt-4o-mini':       { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
+  'gpt-5.4-mini':      { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
+  'gemini-embedding-001': { input: 0.0, output: 0.0 },
 };
 
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   return Math.ceil((text || '').length / 4);
 }
 
-function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
+export function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
   const normalizedModel = model.replace(/^google\//, '');
   const costs = MODEL_COSTS[normalizedModel];
   if (!costs) return 0;
@@ -487,4 +489,49 @@ export async function callLLMWithToolExecution(
   console.log(`📊 Trace: ${model} | ${latencyMs}ms | ~${trace.total_tokens} tokens | $${costUsd.toFixed(6)} | tools: ${trace.tool_names.join(',') || 'none'}`);
 
   return { content: finalContent, trace };
+}
+
+// ─────────────────────────────────────────────
+// Fire-and-forget trace insertion for any AI call
+// ─────────────────────────────────────────────
+
+export interface InsertTraceData {
+  tenant_id?: string | null;
+  conversation_id?: string | null;
+  call_type: string;
+  agent_type?: string;
+  model: string;
+  provider: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  latency_ms: number;
+  cost_usd: number;
+  success: boolean;
+  error_message?: string | null;
+  tool_calls_count?: number;
+  tool_names?: string[];
+  iterations?: number;
+}
+
+export function insertTrace(supabase: any, data: InsertTraceData): void {
+  supabase.from('ai_traces').insert({
+    tenant_id: data.tenant_id || null,
+    conversation_id: data.conversation_id || null,
+    call_type: data.call_type,
+    agent_type: data.agent_type || null,
+    model: data.model,
+    provider: data.provider,
+    prompt_tokens: data.prompt_tokens,
+    completion_tokens: data.completion_tokens,
+    total_tokens: data.prompt_tokens + data.completion_tokens,
+    latency_ms: data.latency_ms,
+    cost_usd: data.cost_usd,
+    tool_calls_count: data.tool_calls_count ?? 0,
+    tool_names: data.tool_names ?? [],
+    iterations: data.iterations ?? 1,
+    success: data.success,
+    error_message: data.error_message || null,
+  }).then(({ error }: any) => {
+    if (error) console.error('⚠️ Trace insert error:', error.message);
+  });
 }

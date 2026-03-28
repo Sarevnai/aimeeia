@@ -155,7 +155,8 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
               const transcription = await transcribeWhatsAppAudio(
                 message.audio.id,
                 message.audio.mime_type || 'audio/ogg',
-                tenant.wa_access_token
+                tenant.wa_access_token,
+                { supabase, tenant_id: tenant.id }
               );
               if (transcription) {
                 messageBody = `[Transcrição de áudio]: ${transcription}`;

@@ -6,6 +6,7 @@ import { AgentContext } from './agent-interface.ts';
 import { sendWhatsAppMessage, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../whatsapp.ts';
 import { logActivity, formatCurrency } from '../utils.ts';
 import { ConversationMessage, PropertyResult } from '../types.ts';
+import { insertTrace, estimateTokens, estimateCost } from '../ai-call.ts';
 
 // ========== PROPERTY CAPTION GENERATION (AI) ==========
 
@@ -13,7 +14,8 @@ export async function generatePropertyCaption(
   property: PropertyResult,
   agentName: string,
   clientNeeds?: string,
-  nearbyPlaces?: string
+  nearbyPlaces?: string,
+  traceCtx?: { supabase: any; tenant_id?: string; conversation_id?: string }
 ): Promise<string> {
   // Truncar descrição do Vista para evitar que o modelo copie textos longos
   const descricaoResumo = property.descricao
@@ -49,6 +51,10 @@ Regras obrigatórias: português brasileiro, texto corrido e conversacional (nun
     const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY') || '';
     if (!apiKey) throw new Error('No API key available');
 
+    const model = 'google/gemini-2.5-pro';
+    const userContent = `Apresente este imóvel:\n${details}${clientContext}${geoContext}`;
+    const startTime = Date.now();
+
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -56,20 +62,38 @@ Regras obrigatórias: português brasileiro, texto corrido e conversacional (nun
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-pro',
+        model,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Apresente este imóvel:\n${details}${clientContext}${geoContext}` },
+          { role: 'user', content: userContent },
         ],
         max_tokens: 250,
         temperature: 0.7,
       }),
     });
 
+    const latencyMs = Date.now() - startTime;
+
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     const data = await response.json();
     const text = (data.choices?.[0]?.message?.content || '').trim();
     if (!text) throw new Error('Empty response');
+
+    // Trace cost
+    if (traceCtx?.supabase) {
+      const promptTokens = estimateTokens(systemPrompt + userContent);
+      const completionTokens = estimateTokens(text);
+      insertTrace(traceCtx.supabase, {
+        tenant_id: traceCtx.tenant_id,
+        conversation_id: traceCtx.conversation_id,
+        call_type: 'caption',
+        model, provider: 'google',
+        prompt_tokens: promptTokens, completion_tokens: completionTokens,
+        latency_ms: latencyMs,
+        cost_usd: estimateCost(model, promptTokens, completionTokens),
+        success: true,
+      });
+    }
 
     // Remover travessões e similares mesmo que o modelo ignore a instrução
     return text.replace(/[—–]/g, ',').replace(/ - /g, ', ');
@@ -94,12 +118,18 @@ function buildFallbackCaption(property: PropertyResult): string {
 
 // ========== EMBEDDING GENERATION ==========
 
-export async function generateEmbedding(text: string): Promise<number[]> {
+export async function generateEmbedding(
+  text: string,
+  traceCtx?: { supabase: any; tenant_id?: string }
+): Promise<number[]> {
   const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
   if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not configured for embeddings');
 
+  const model = 'gemini-embedding-001';
+  const startTime = Date.now();
+
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -110,12 +140,39 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     },
   );
 
+  const latencyMs = Date.now() - startTime;
+
   if (!response.ok) {
     const error = await response.text();
+    if (traceCtx?.supabase) {
+      const promptTokens = estimateTokens(text);
+      insertTrace(traceCtx.supabase, {
+        tenant_id: traceCtx.tenant_id,
+        call_type: 'embedding',
+        model, provider: 'google',
+        prompt_tokens: promptTokens, completion_tokens: 0,
+        latency_ms: latencyMs,
+        cost_usd: 0, success: false,
+        error_message: `API error ${response.status}`,
+      });
+    }
     throw new Error(`Gemini Embedding API error (${response.status}): ${error}`);
   }
 
   const data = await response.json();
+
+  if (traceCtx?.supabase) {
+    const promptTokens = estimateTokens(text);
+    insertTrace(traceCtx.supabase, {
+      tenant_id: traceCtx.tenant_id,
+      call_type: 'embedding',
+      model, provider: 'google',
+      prompt_tokens: promptTokens, completion_tokens: 0,
+      latency_ms: latencyMs,
+      cost_usd: 0, success: true,
+    });
+  }
+
   return data.embedding.values;
 }
 
@@ -384,7 +441,7 @@ export async function executePropertySearch(
       console.warn('⚠️ Geolocation enrichment failed, proceeding without:', (geoErr as Error).message);
     }
 
-    const aiCaption = await generatePropertyCaption(prop, agentName, clientNeeds, nearbyPlacesText);
+    const aiCaption = await generatePropertyCaption(prop, agentName, clientNeeds, nearbyPlacesText, { supabase: ctx.supabase, tenant_id: ctx.tenantId, conversation_id: ctx.conversationId });
     const rawCaption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
     const caption = `*${agentName}*\n\n${rawCaption}`;
 
@@ -440,8 +497,10 @@ export async function executePropertySearch(
         }, { onConflict: 'tenant_id,phone_number' });
     }
 
-    // Persist lead qualification data — MERGE with existing data, never overwrite with null
-    const detectedBairro = args.bairro || (formattedProperties.length > 0 ? formattedProperties[0].bairro : null);
+    // C5: Persist lead qualification data — MERGE with existing data, never overwrite with null.
+    // IMPORTANT: Only use tool args if they match what was already extracted from conversation text.
+    // Do NOT blindly trust Gemini's tool call args — they may be hallucinated.
+    // The authoritative qualification data comes from extractQualificationFromText(), stored in ctx.qualificationData.
     const { data: existingQual } = await ctx.supabase
       .from('lead_qualification')
       .select('*')
@@ -449,16 +508,19 @@ export async function executePropertySearch(
       .eq('phone_number', ctx.phoneNumber)
       .maybeSingle();
 
+    // Use existing extracted qualification data as the source of truth, NOT tool call args
+    const safeQual = ctx.qualificationData || existingQual || {};
+
     await ctx.supabase
       .from('lead_qualification')
       .upsert({
         tenant_id: ctx.tenantId,
         phone_number: ctx.phoneNumber,
-        detected_property_type: args.tipo_imovel || existingQual?.detected_property_type || null,
-        detected_budget_max: clientBudget || existingQual?.detected_budget_max || null,
-        detected_interest: args.finalidade || existingQual?.detected_interest || null,
-        detected_neighborhood: detectedBairro || existingQual?.detected_neighborhood || null,
-        detected_bedrooms: args.quartos || existingQual?.detected_bedrooms || null,
+        detected_property_type: safeQual.detected_property_type || null,
+        detected_budget_max: safeQual.detected_budget_max || clientBudget || null,
+        detected_interest: safeQual.detected_interest || null,
+        detected_neighborhood: safeQual.detected_neighborhood || null,
+        detected_bedrooms: safeQual.detected_bedrooms || null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 

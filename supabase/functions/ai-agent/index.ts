@@ -5,7 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
-import { callLLMWithToolExecution, TraceData } from '../_shared/ai-call.ts';
+import { callLLMWithToolExecution, TraceData, insertTrace } from '../_shared/ai-call.ts';
 import { sendWhatsAppMessage, sendWhatsAppButtons, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
@@ -528,23 +528,11 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       );
 
       // Persist trace (fire-and-forget)
-      supabase.from('ai_traces').insert({
-        tenant_id,
-        conversation_id,
-        agent_type: agentType,
-        model: llmResult.trace.model,
-        provider: llmResult.trace.provider,
-        prompt_tokens: llmResult.trace.prompt_tokens,
-        completion_tokens: llmResult.trace.completion_tokens,
-        total_tokens: llmResult.trace.total_tokens,
-        latency_ms: llmResult.trace.latency_ms,
-        cost_usd: llmResult.trace.cost_usd,
-        tool_calls_count: llmResult.trace.tool_calls_count,
-        tool_names: llmResult.trace.tool_names,
-        iterations: llmResult.trace.iterations,
-        success: llmResult.trace.success,
-        error_message: llmResult.trace.error_message || null,
-      }).then(({ error }) => { if (error) console.error('⚠️ Trace insert error:', error.message); });
+      insertTrace(supabase, {
+        tenant_id, conversation_id,
+        call_type: 'agent', agent_type: agentType,
+        ...llmResult.trace,
+      });
 
       finalResponse = await agent.postProcess(ctx, llmResult.content);
 
@@ -606,23 +594,11 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       );
 
       // Persist trace (fire-and-forget)
-      supabase.from('ai_traces').insert({
-        tenant_id,
-        conversation_id,
-        agent_type: 'legacy',
-        model: legacyLlmResult.trace.model,
-        provider: legacyLlmResult.trace.provider,
-        prompt_tokens: legacyLlmResult.trace.prompt_tokens,
-        completion_tokens: legacyLlmResult.trace.completion_tokens,
-        total_tokens: legacyLlmResult.trace.total_tokens,
-        latency_ms: legacyLlmResult.trace.latency_ms,
-        cost_usd: legacyLlmResult.trace.cost_usd,
-        tool_calls_count: legacyLlmResult.trace.tool_calls_count,
-        tool_names: legacyLlmResult.trace.tool_names,
-        iterations: legacyLlmResult.trace.iterations,
-        success: legacyLlmResult.trace.success,
-        error_message: legacyLlmResult.trace.error_message || null,
-      }).then(({ error }) => { if (error) console.error('⚠️ Trace insert error:', error.message); });
+      insertTrace(supabase, {
+        tenant_id, conversation_id,
+        call_type: 'agent', agent_type: 'legacy',
+        ...legacyLlmResult.trace,
+      });
 
       finalResponse = legacyLlmResult.content;
       const lastMsgs = state?.last_ai_messages || [];
@@ -885,7 +861,7 @@ async function legacyExecutePropertySearch(
     const maxToSend = Math.min(formattedProperties.length, 3);
     for (let i = 0; i < maxToSend; i++) {
       const prop = formattedProperties[i];
-      const aiCaption = await generatePropertyCaption(prop, agentName);
+      const aiCaption = await generatePropertyCaption(prop, agentName, undefined, undefined, { supabase, tenant_id, conversation_id });
       const caption = prop.link ? `${aiCaption}\n\n${prop.link}` : aiCaption;
       if (prop.foto_destaque) {
         await sendWhatsAppImage(phoneNumber, prop.foto_destaque, caption, tenant);

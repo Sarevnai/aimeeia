@@ -1,35 +1,11 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { generateEmbedding } from '../_shared/agents/tool-executors.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-async function generateEmbedding(text: string): Promise<number[]> {
-  const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-  if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not configured for embeddings');
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: { parts: [{ text }] },
-        outputDimensionality: 768,
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Gemini Embedding API error (${response.status}): ${error}`);
-  }
-
-  const data = await response.json();
-  return data.embedding.values;
-}
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -305,7 +281,7 @@ serve(async (req: Request) => {
 
           let embedding: number[] | null = null;
           try {
-            embedding = await generateEmbedding(semanticText);
+            embedding = await generateEmbedding(semanticText, { supabase, tenant_id });
             await new Promise(r => setTimeout(r, 100)); // throttle OpenAI calls
           } catch (e) {
             console.warn(`Embedding failed for ${codigo}: ${e.message}`);

@@ -156,7 +156,8 @@ serve(async (req: Request) => {
           flow_type: conversation.department_code || 'vendas',
           agent_config: agentConfig ? { agent_name: agentConfig.agent_name, tone: agentConfig.tone } : undefined,
           turn_number: turn.turn_number,
-        })
+        }),
+        { supabase, tenant_id, conversation_id }
       );
 
       // Persist per-turn analysis

@@ -40,12 +40,15 @@ const OPENING_KEYWORD_PATTERN = /sinceridade\s+(total|completa|absoluta)|direto\
 
 function contractAlreadySentInHistory(history: any[]): boolean {
   return history?.some(
-    msg => msg.role === 'assistant' && msg.content &&
-      // Exclude triage/system messages — they use ___ but are NOT the opening
-      !isTriageOrSystemMessage(msg.content) &&
-      // Require BOTH ___ separator AND at least one opening keyword
-      msg.content.includes('___') &&
-      OPENING_KEYWORD_PATTERN.test(msg.content)
+    msg => msg.role === 'assistant' && msg.content && (
+      // Case 1: Real agent message with ___ separator AND opening keyword
+      (!isTriageOrSystemMessage(msg.content) &&
+        msg.content.includes('___') &&
+        OPENING_KEYWORD_PATTERN.test(msg.content)) ||
+      // Case 2: Template message that already positions curadoria (new template flow)
+      (msg.content.startsWith('[Template:') &&
+        OPENING_KEYWORD_PATTERN.test(msg.content))
+    )
   ) || false;
 }
 

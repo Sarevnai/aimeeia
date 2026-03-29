@@ -187,13 +187,66 @@ export function isRepetitiveMessage(
   return false;
 }
 
+// ========== CONTEXT-AWARE FALLBACK ==========
+// When the lead has already provided data but the AI loops, generate a fallback
+// that acknowledges what was collected and asks for what's STILL missing.
+
+function buildContextAwareFallback(qualData: QualificationData): string | null {
+  const known: string[] = [];
+  const missing: string[] = [];
+
+  if (qualData.detected_interest) {
+    known.push(qualData.detected_interest === 'locacao' ? 'locação' : 'compra');
+  } else {
+    missing.push('se é pra comprar ou alugar');
+  }
+  if (qualData.detected_property_type) {
+    known.push(qualData.detected_property_type);
+  } else {
+    missing.push('o tipo de imóvel');
+  }
+  if (qualData.detected_neighborhood) {
+    known.push(`região ${qualData.detected_neighborhood}`);
+  } else {
+    missing.push('a região de preferência');
+  }
+  if (qualData.detected_budget_max) {
+    known.push(`orçamento até R$ ${Number(qualData.detected_budget_max).toLocaleString('pt-BR')}`);
+  } else {
+    missing.push('a faixa de valor');
+  }
+
+  // Only use context-aware fallback when there's something known AND something missing
+  if (known.length === 0 || missing.length === 0) return null;
+
+  // If everything is known, prompt action instead of re-asking
+  if (missing.length === 0) {
+    return `Já tenho as informações que preciso: ${known.join(', ')}. Vou buscar as melhores opções pra você.`;
+  }
+
+  return `Anotado: ${known.join(', ')}. Pra eu fazer uma busca precisa, só me falta ${missing[0]}.`;
+}
+
 // ========== GET ROTATING FALLBACK (avoids ALL recent messages) ==========
 
 export function getRotatingFallback(
   isQualified: boolean,
   lastAiMessages: string[],
-  isRemarketing: boolean = false
+  isRemarketing: boolean = false,
+  qualificationData?: QualificationData | null
 ): string {
+  // v4: Try context-aware fallback first — acknowledges what the lead already said
+  if (qualificationData) {
+    const contextFb = buildContextAwareFallback(qualificationData);
+    if (contextFb) {
+      const recentCheck = new Set(lastAiMessages.map(m => m.toLowerCase().trim().slice(0, 200)));
+      if (!recentCheck.has(contextFb.toLowerCase().trim().slice(0, 200))) {
+        console.log('🎯 Anti-loop: using context-aware fallback');
+        return contextFb;
+      }
+    }
+  }
+
   // Select the right pool based on context
   let pool: string[];
   if (isRemarketing) {

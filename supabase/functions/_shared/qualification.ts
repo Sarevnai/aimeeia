@@ -21,18 +21,22 @@ export function calculateQualificationScore(data: QualificationData | null): num
 }
 
 export function isQualificationComplete(data: QualificationData | null): boolean {
-  // C3: Qualificação mínima obrigatória antes de buscar imóveis:
-  // Exige pelo menos finalidade (venda/locação) + tipo de imóvel + orçamento OU bairro
-  // Score mínimo: interest(20) + type(20) + budget(25) ou neighborhood(20) = 60-65
+  // C3-FIX: Qualificação mínima obrigatória antes de buscar imóveis:
+  // Exige: finalidade (venda/locação) + tipo de imóvel + orçamento (OBRIGATÓRIO) + bairro (desejável)
+  // Orçamento é obrigatório para evitar mostrar imóveis fora da faixa do cliente.
+  if (!data) return false;
+  if (!data.detected_interest) return false;
+  if (!data.detected_property_type) return false;
+  if (!data.detected_budget_max) return false;
   return calculateQualificationScore(data) >= 60;
 }
 
-// C3: Retorna quais dados obrigatórios ainda faltam para qualificação mínima
+// C3-FIX: Retorna quais dados obrigatórios ainda faltam para qualificação mínima
 export function getMissingQualificationFields(data: QualificationData | null): string[] {
   const missing: string[] = [];
   if (!data?.detected_interest) missing.push('finalidade'); // venda ou locação
   if (!data?.detected_property_type) missing.push('tipo_imovel'); // casa, apto, etc
-  if (!data?.detected_budget_max && !data?.detected_neighborhood) missing.push('orcamento_ou_bairro'); // pelo menos 1
+  if (!data?.detected_budget_max) missing.push('orcamento'); // obrigatório
   return missing;
 }
 
@@ -57,43 +61,56 @@ export function extractQualificationFromText(
   const lower = text.toLowerCase();
   const extracted: ExtractedQualificationData = {};
 
+  // C5: Always extract from text — allow updates to already-filled fields
+  // when the client provides new/different values (implicit corrections).
+  // The merge logic will handle overwriting.
+
   // Neighborhood/Region detection
-  if (!currentData?.detected_neighborhood) {
-    const neighborhood = detectNeighborhood(lower, regions);
-    if (neighborhood) extracted.detected_neighborhood = neighborhood;
+  const neighborhood = detectNeighborhood(lower, regions);
+  if (neighborhood && neighborhood !== currentData?.detected_neighborhood) {
+    extracted.detected_neighborhood = neighborhood;
   }
 
   // Property type detection
-  if (!currentData?.detected_property_type) {
-    const type = detectPropertyType(lower);
-    if (type) extracted.detected_property_type = type;
+  const type = detectPropertyType(lower);
+  if (type && type !== currentData?.detected_property_type) {
+    extracted.detected_property_type = type;
   }
 
   // Bedrooms detection
-  if (!currentData?.detected_bedrooms) {
-    const bedrooms = detectBedrooms(lower);
-    if (bedrooms) extracted.detected_bedrooms = bedrooms;
+  const bedrooms = detectBedrooms(lower);
+  if (bedrooms && bedrooms !== currentData?.detected_bedrooms) {
+    extracted.detected_bedrooms = bedrooms;
   }
 
   // Budget detection
-  if (!currentData?.detected_budget_max) {
-    const budget = detectBudget(lower);
-    if (budget) extracted.detected_budget_max = budget;
+  const budget = detectBudget(lower);
+  if (budget && budget !== currentData?.detected_budget_max) {
+    extracted.detected_budget_max = budget;
   }
 
-  // Interest detection
-  if (!currentData?.detected_interest) {
-    if (/alug|locar|locação/i.test(lower)) extracted.detected_interest = 'locacao';
-    else if (/comprar|compra|investir/i.test(lower)) extracted.detected_interest = 'venda';
+  // Interest detection — always check, allow correction
+  const interest = detectInterest(lower);
+  if (interest && interest !== currentData?.detected_interest) {
+    extracted.detected_interest = interest;
   }
 
   // C3: Timeline detection (prazo de decisão)
-  if (!currentData?.detected_timeline) {
-    const timeline = detectTimeline(lower);
-    if (timeline) extracted.detected_timeline = timeline;
+  const timeline = detectTimeline(lower);
+  if (timeline && timeline !== currentData?.detected_timeline) {
+    extracted.detected_timeline = timeline;
   }
 
   return extracted;
+}
+
+// Detect interest (venda/locação) from text
+function detectInterest(lower: string): string | null {
+  // Locação patterns (check first — more specific)
+  if (/\b(alug|locar|loca[çc][aã]o|pra\s+alugar|para\s+alugar|quero\s+alugar)\b/i.test(lower)) return 'locacao';
+  // Venda patterns
+  if (/\b(comprar|compra|investir|adquirir|pra\s+comprar|para\s+comprar|quero\s+comprar)\b/i.test(lower)) return 'venda';
+  return null;
 }
 
 // ========== MERGE QUALIFICATION DATA ==========
@@ -128,8 +145,8 @@ export function detectCorrections(
   const corrections: ExtractedQualificationData = {};
   let detected = false;
 
-  // Check for correction patterns
-  const correctionPatterns = /na\s+verdade|mudei\s+de\s+ideia|prefiro|ao\s+inv[eé]s|quero\s+mudar|pode\s+ser|pensando\s+melhor|corrig/i;
+  // C5: Expanded correction patterns — also match "mas eu queria", "isso é pra", "não, quero"
+  const correctionPatterns = /na\s+verdade|mudei\s+de\s+ideia|prefiro|ao\s+inv[eé]s|quero\s+mudar|pode\s+ser|pensando\s+melhor|corrig|mas\s+(eu\s+)?quer|n[aã]o[,.]?\s+(eu\s+)?quer|isso\s+[eé]\s+pra|[eé]\s+pra\s+(comprar|alugar|locar|locação)/i;
 
   if (correctionPatterns.test(lower)) {
     // Re-extract everything and override
@@ -154,6 +171,13 @@ export function detectCorrections(
     const budget = detectBudget(lower);
     if (budget && budget !== currentData?.detected_budget_max) {
       corrections.detected_budget_max = budget;
+      detected = true;
+    }
+
+    // C5: Also detect interest corrections (was missing entirely)
+    const interest = detectInterest(lower);
+    if (interest && interest !== currentData?.detected_interest) {
+      corrections.detected_interest = interest;
       detected = true;
     }
   }
@@ -434,6 +458,21 @@ function detectBudget(lower: string): number | null {
 
       if (num >= 100 && num <= 50000000) return num;
     }
+  }
+
+  // 3. Bare numbers in Brazilian thousands format: "8.000", "22.000", "1.500.000"
+  // Common when client replies just the number without R$, "mil", or "reais"
+  const bareBrMatch = lower.match(/\b(\d{1,3}(?:\.\d{3})+)\b/);
+  if (bareBrMatch) {
+    const num = parseFloat(bareBrMatch[1].replace(/\./g, ''));
+    if (!isNaN(num) && num >= 500 && num <= 50_000_000) return num;
+  }
+
+  // 4. Plain bare numbers: "8000", "22000" (no thousands separator)
+  const plainMatch = lower.match(/\b(\d{4,8})\b/);
+  if (plainMatch) {
+    const num = parseInt(plainMatch[1]);
+    if (!isNaN(num) && num >= 500 && num <= 50_000_000) return num;
   }
 
   return null;

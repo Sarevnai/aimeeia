@@ -693,20 +693,23 @@ export async function executeLeadHandoff(
       }
     }
 
-    console.log(`🏠 Lead handoff prop_ref: development_id=${developmentId || 'NULL'}, development_title=${developmentTitle || 'NULL'}, source=${args.codigo_imovel ? 'AI_ARGS' : 'FALLBACK'}`);
+    console.log(`🏠 Lead handoff prop_ref: development_id=${developmentId || 'NULL'}, development_title=${developmentTitle || 'NULL'}, source=${args.codigo_imovel ? 'AI_ARGS' : 'FALLBACK'}${ctx.simulate ? ' [SIMULATE]' : ''}`);
 
-    await ctx.supabase.functions.invoke('c2s-create-lead', {
-      body: {
-        tenant_id: ctx.tenantId,
-        phone_number: ctx.phoneNumber,
-        conversation_id: ctx.conversationId,
-        contact_id: ctx.contactId,
-        reason: args.motivo,
-        qualification_data: ctx.qualificationData,
-        development_id: developmentId,
-        development_title: developmentTitle,
-      },
-    });
+    // F4: Skip CRM integration in simulate mode
+    if (!ctx.simulate) {
+      await ctx.supabase.functions.invoke('c2s-create-lead', {
+        body: {
+          tenant_id: ctx.tenantId,
+          phone_number: ctx.phoneNumber,
+          conversation_id: ctx.conversationId,
+          contact_id: ctx.contactId,
+          reason: args.motivo,
+          qualification_data: ctx.qualificationData,
+          development_id: developmentId,
+          development_title: developmentTitle,
+        },
+      });
+    }
 
     await ctx.supabase
       .from('conversation_states')
@@ -735,11 +738,12 @@ export async function executeLeadHandoff(
       metadata: { reason: args.motivo, crm: 'c2s' },
     });
 
-    return 'Lead transferido com sucesso para atendimento humano.';
+    // F3: Dual output — DB log stays as system message, LLM gets instruction to generate humanized farewell
+    return 'Handoff concluído com sucesso. Agora se despeça do cliente de forma calorosa e natural. Mencione que um corretor especialista entrará em contato em breve para alinhar os detalhes. Seja breve, elegante e humano. NÃO repita "Lead transferido" ou qualquer mensagem técnica.';
 
   } catch (error) {
     console.error('❌ Lead handoff error:', error);
-    return 'Vou transferir você para um corretor. Aguarde um momento.';
+    return 'Houve um imprevisto técnico, mas vou garantir que um corretor entre em contato. Despeça-se do cliente de forma calorosa, mencionando que alguém da equipe entrará em contato em breve.';
   }
 }
 
@@ -854,11 +858,12 @@ export async function executeAdminHandoff(
 
     console.log(`🔄 Admin handoff: conversation ${ctx.conversationId} | Reason: ${args.motivo}`);
 
-    return `Atendimento transferido para operador humano. Motivo: ${args.motivo}`;
+    // F3: Dual output — DB log stays as system message, LLM gets instruction to generate humanized farewell
+    return 'Transferência para atendente concluída. Agora se despeça do cliente de forma calorosa e natural. Mencione que um atendente da equipe entrará em contato para ajudá-lo. Seja breve e humano. NÃO repita mensagens técnicas.';
 
   } catch (error) {
     console.error('❌ Admin handoff error:', error);
-    return 'Vou transferir você para um atendente. Aguarde um momento.';
+    return 'Houve um imprevisto, mas vou garantir que um atendente entre em contato. Despeça-se do cliente de forma calorosa.';
   }
 }
 

@@ -34,6 +34,7 @@ export interface AgentContext {
   activeModules: AiModule[];              // Intelligence modules for this tenant
   currentModuleSlug: string | null;       // Currently active module slug
   _loopDetected?: boolean;                // Set by postProcess to signal loop to caller
+  simulate?: boolean;                      // F4: true in simulator — skip WhatsApp/CRM side effects
   supabase: any;
 }
 

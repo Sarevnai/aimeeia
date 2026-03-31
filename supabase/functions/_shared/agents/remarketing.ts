@@ -138,6 +138,24 @@ function buildModularRemarketingPrompt(ctx: AgentContext, modules: AiModule[]): 
   const sections: string[] = [];
   const isContractDone = contractAlreadySentInHistory(ctx.conversationHistory || []);
 
+  // ===== F2: SANDWICH GUARDRAILS — OPENING (critical, placed BEFORE identity) =====
+
+  const toolsRun = ctx.toolsExecuted || [];
+  const hasSearched = toolsRun.includes('buscar_imoveis');
+  const hasHandoff = toolsRun.includes('enviar_lead_c2s');
+
+  sections.push(`<guardrails-criticos>
+REGRAS INVIOLÁVEIS (releia ao final da análise antes de responder):
+1. NUNCA referencie conteúdo que você não produziu nesta conversa.
+2. NUNCA diga "dá uma olhada", "veja o que enviei", "confira" se você NÃO enviou imóveis neste turno.
+3. NUNCA fabrique dados do cliente. Use SOMENTE o que está em <lead_data>.
+4. NUNCA invente que o cliente disse algo que não está no histórico.
+${!hasSearched ? '5. Você AINDA NÃO buscou imóveis. NÃO referencie resultados de busca.' : '5. Você JÁ buscou imóveis. Pode referenciar os resultados apresentados.'}
+${hasHandoff ? '6. Handoff JÁ foi executado. Despeça-se de forma calorosa.' : '6. Handoff AINDA NÃO foi executado.'}
+</guardrails-criticos>
+
+`);
+
   // ===== SYSTEM PROMPT (fixed, ~40 lines) =====
 
   sections.push(`<identity>
@@ -240,6 +258,15 @@ ${handoffModule.prompt_instructions}
   if (remarketingContext) sections.push(`<remarketing_context>\n${remarketingContext}\n</remarketing_context>`);
   if (config.custom_instructions) sections.push(`<custom_instructions>\n${config.custom_instructions}\n</custom_instructions>`);
   if (ctx.isReturningLead) sections.push(buildReturningLeadContext(ctx.previousQualificationData));
+
+  // ===== F2: SANDWICH GUARDRAILS — CLOSING (repeat critical rules at end) =====
+
+  sections.push(`<lembrete-final>
+ANTES de gerar sua resposta, RELEIA <guardrails-criticos> acima.
+${!hasSearched ? '⚠️ Você AINDA NÃO buscou imóveis. NÃO referencie resultados.' : ''}
+${hasHandoff ? '⚠️ Handoff já executado. Despeça-se com elegância.' : ''}
+NUNCA fabrique dados. NUNCA referencie ações não executadas.
+</lembrete-final>`);
 
   return sections.join('\n');
 }

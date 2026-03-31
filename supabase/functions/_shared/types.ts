@@ -114,6 +114,7 @@ export interface QualificationData {
   detected_timeline?: string | null; // C3: "0-3m", "3-6m", "6m+"
   qualification_score?: number;
   questions_answered?: number;
+  field_sources?: Record<string, 'client_explicit' | 'inferred'>;
 }
 
 export interface ExtractedQualificationData {
@@ -123,6 +124,7 @@ export interface ExtractedQualificationData {
   detected_budget_max?: number;
   detected_interest?: string;
   detected_timeline?: string; // C3: "0-3m", "3-6m", "6m+"
+  field_sources?: Record<string, 'client_explicit'>;
 }
 
 // ========== PROPERTY ==========

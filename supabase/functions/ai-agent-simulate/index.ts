@@ -336,6 +336,20 @@ serve(async (req: Request) => {
         mergedQual.detected_budget_max ? `Orçamento: até R$ ${Number(mergedQual.detected_budget_max).toLocaleString('pt-BR')}` : null,
       ].filter(Boolean).join('\n');
 
+      // F4: Use shared executeLeadHandoff with simulate=true (skip CRM, same code path)
+      const mc1Ctx = {
+        tenantId: tenant_id, phoneNumber: simPhone, conversationId: conversation_id,
+        contactId: contact_id, tenant: tenant as Tenant, aiConfig, behaviorConfig: null,
+        regions: [], department: effectiveDepartment, conversationSource: 'organic',
+        contactName, qualificationData: mergedQual, conversationHistory: [],
+        directive: null, structuredConfig: null, remarketingContext: null,
+        isReturningLead: false, previousQualificationData: null,
+        tenantApiKey, tenantProvider, supabase, lastAiMessages: [], toolsExecuted: [],
+        userMessage: message_body, activeModules: [], currentModuleSlug: null,
+        simulate: true, // F4: skip CRM side effects
+      };
+      await executeLeadHandoff(mc1Ctx, { motivo: dossierLines });
+
       const handoffMsg = `Perfeito, ${contactName}! Já encaminhei suas informações para um dos nossos corretores especialistas. Em breve você receberá contato para alinhar os detalhes. Qualquer dúvida, estou por aqui!`;
 
       await supabase.from('messages').insert({

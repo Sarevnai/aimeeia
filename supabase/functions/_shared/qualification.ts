@@ -60,45 +60,57 @@ export function extractQualificationFromText(
 ): ExtractedQualificationData {
   const lower = text.toLowerCase();
   const extracted: ExtractedQualificationData = {};
+  const sources: Record<string, 'client_explicit'> = {};
 
   // C5: Always extract from text — allow updates to already-filled fields
   // when the client provides new/different values (implicit corrections).
   // The merge logic will handle overwriting.
+  // F1: All extractions from user text are marked as client_explicit.
 
   // Neighborhood/Region detection
   const neighborhood = detectNeighborhood(lower, regions);
   if (neighborhood && neighborhood !== currentData?.detected_neighborhood) {
     extracted.detected_neighborhood = neighborhood;
+    sources.detected_neighborhood = 'client_explicit';
   }
 
   // Property type detection
   const type = detectPropertyType(lower);
   if (type && type !== currentData?.detected_property_type) {
     extracted.detected_property_type = type;
+    sources.detected_property_type = 'client_explicit';
   }
 
   // Bedrooms detection
   const bedrooms = detectBedrooms(lower);
   if (bedrooms && bedrooms !== currentData?.detected_bedrooms) {
     extracted.detected_bedrooms = bedrooms;
+    sources.detected_bedrooms = 'client_explicit';
   }
 
   // Budget detection
   const budget = detectBudget(lower);
   if (budget && budget !== currentData?.detected_budget_max) {
     extracted.detected_budget_max = budget;
+    sources.detected_budget_max = 'client_explicit';
   }
 
   // Interest detection — always check, allow correction
   const interest = detectInterest(lower);
   if (interest && interest !== currentData?.detected_interest) {
     extracted.detected_interest = interest;
+    sources.detected_interest = 'client_explicit';
   }
 
   // C3: Timeline detection (prazo de decisão)
   const timeline = detectTimeline(lower);
   if (timeline && timeline !== currentData?.detected_timeline) {
     extracted.detected_timeline = timeline;
+    sources.detected_timeline = 'client_explicit';
+  }
+
+  if (Object.keys(sources).length > 0) {
+    extracted.field_sources = sources;
   }
 
   return extracted;
@@ -121,12 +133,20 @@ export function mergeQualificationData(
 ): QualificationData {
   const merged: QualificationData = { ...(current || {}) };
 
+  // F1: Propagate field_sources — new extractions overwrite previous sources
+  const currentSources = { ...(merged.field_sources || {}) };
+
   if (extracted.detected_neighborhood) merged.detected_neighborhood = extracted.detected_neighborhood;
   if (extracted.detected_property_type) merged.detected_property_type = extracted.detected_property_type;
   if (extracted.detected_bedrooms) merged.detected_bedrooms = extracted.detected_bedrooms;
   if (extracted.detected_budget_max) merged.detected_budget_max = extracted.detected_budget_max;
   if (extracted.detected_interest) merged.detected_interest = extracted.detected_interest;
   if (extracted.detected_timeline) merged.detected_timeline = extracted.detected_timeline;
+
+  if (extracted.field_sources) {
+    Object.assign(currentSources, extracted.field_sources);
+  }
+  merged.field_sources = currentSources;
 
   merged.qualification_score = calculateQualificationScore(merged);
   merged.questions_answered = countAnswered(merged);
@@ -199,7 +219,7 @@ export async function saveQualificationData(
   data.qualification_score = freshScore;
 
   // Save to lead_qualification (unique constraint: tenant_id + phone_number)
-  await supabase.from('lead_qualification').upsert({
+  const { error } = await supabase.from('lead_qualification').upsert({
     tenant_id: tenantId,
     phone_number: phoneNumber,
     detected_neighborhood: data.detected_neighborhood || null,
@@ -209,8 +229,15 @@ export async function saveQualificationData(
     detected_interest: data.detected_interest || null,
     detected_timeline: data.detected_timeline || null,
     qualification_score: freshScore,
+    field_sources: data.field_sources || {},
     updated_at: new Date().toISOString(),
   }, { onConflict: 'tenant_id,phone_number' });
+
+  if (error) {
+    console.error(`❌ saveQualificationData failed for ${phoneNumber}:`, error.message, error.details);
+  } else {
+    console.log(`✅ Qualification saved for ${phoneNumber} (score: ${freshScore})`);
+  }
 }
 
 // ========== PRIVATE HELPERS ==========

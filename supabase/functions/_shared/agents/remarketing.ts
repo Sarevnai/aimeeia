@@ -783,11 +783,12 @@ export const remarketingAgent: AgentModule = {
     let finalResponse = preCheck.hasCriticalIssue ? preCheck.sanitizedResponse : aiResponse;
 
     // Strip chain-of-thought blocks that LLM may leak to client (safety net)
+    // Broad pattern: any XML tag starting with <an (análise, anise, anamnese, etc.)
     finalResponse = finalResponse
-      .replace(/<an[aá]li[sz]e>[\s\S]*?<\/an[aá]li[sz]e>/gi, '')
-      .replace(/<invoke\s+name="an[aá]li[sz]e"[^>]*>[\s\S]*?<\/invoke>/gi, '')
-      .replace(/<\/?an[aá]li[sz]e>/gi, '')
-      .replace(/<invoke\s+name="an[aá]li[sz]e"[^>]*>/gi, '')
+      .replace(/<an[a-záàãéêíóúç]{1,12}>[\s\S]*?<\/an[a-záàãéêíóúç]{1,12}>/gi, '')
+      .replace(/<invoke\s+name="an[^"]*"[^>]*>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<\/?an[a-záàãéêíóúç]{1,12}>/gi, '')
+      .replace(/<invoke\s+name="an[^"]*"[^>]*>/gi, '')
       .replace(/<\/invoke>/gi, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();

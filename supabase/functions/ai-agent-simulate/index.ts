@@ -526,7 +526,7 @@ serve(async (req: Request) => {
       ctx._moduleChangedThisTurn = true;
     }
     const tools = agent.getTools(ctx);
-    const modelUsed = aiConfig.ai_model || 'gemini-2.5-flash';
+    const modelUsed = aiConfig.ai_model || 'gpt-5.4-mini';
 
     // Collapse ALL assistant messages containing ___ separator (contract format).
     // The ___ separator is only used by the contract module and triage VIP pitch.

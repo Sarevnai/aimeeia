@@ -1,7 +1,7 @@
 // ========== AIMEE.iA - SHARED ANALYSIS MODULE ==========
 // Shared AI analysis logic used by both ai-agent-analyze (per-turn)
 // and ai-agent-analyze-batch (full conversation).
-// Model: Gemini 2.5 Pro (Google)
+// Model: GPT 5.4 Mini (OpenAI)
 
 import { insertTrace, estimateTokens, estimateCost } from './ai-call.ts';
 
@@ -186,34 +186,37 @@ Analise este turno e retorne a avaliação em JSON.`;
 }
 
 /**
- * Call Google Gemini API (Gemini 2.5 Pro) and return the analysis result.
+ * Call OpenAI API (GPT 5.4 Mini) and return the analysis result.
  * Pass supabase client + tenant_id/conversation_id to enable cost tracking.
  */
 export async function callAnalysis(
   userMessage: string,
   traceCtx?: { supabase: any; tenant_id?: string; conversation_id?: string }
 ): Promise<AnalysisResult> {
-  const apiKey = Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('GEMINI_API_KEY');
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) {
-    throw new Error('Google API key not configured (GOOGLE_API_KEY)');
+    throw new Error('OpenAI API key not configured (OPENAI_API_KEY)');
   }
 
-  const model = 'gemini-2.5-pro';
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const model = 'gpt-5.4-mini';
+  const endpoint = 'https://api.openai.com/v1/chat/completions';
   const startTime = Date.now();
 
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({
-      contents: [
-        { role: 'user', parts: [{ text: `${ANALYSIS_SYSTEM_PROMPT}\n\n---\n\n${userMessage}` }] },
+      model,
+      messages: [
+        { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
       ],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json',
-      },
+      temperature: 0.3,
+      max_completion_tokens: 8192,
+      response_format: { type: 'json_object' },
     }),
   });
 
@@ -221,7 +224,7 @@ export async function callAnalysis(
 
   if (!response.ok) {
     const error = await response.text();
-    console.error('Gemini API error:', error);
+    console.error('OpenAI API error:', error);
 
     if (traceCtx?.supabase) {
       const promptTokens = estimateTokens(ANALYSIS_SYSTEM_PROMPT + userMessage);
@@ -229,7 +232,7 @@ export async function callAnalysis(
         tenant_id: traceCtx.tenant_id,
         conversation_id: traceCtx.conversation_id,
         call_type: 'evaluation',
-        model, provider: 'google',
+        model, provider: 'openai',
         prompt_tokens: promptTokens, completion_tokens: 0,
         latency_ms: latencyMs,
         cost_usd: estimateCost(model, promptTokens, 0),
@@ -241,26 +244,25 @@ export async function callAnalysis(
       score: 0,
       max_score: 10,
       criteria: [],
-      errors: [{ type: 'api_error', severity: 'high', description: `Gemini API error: ${response.status}`, suggestion: 'Verificar GOOGLE_API_KEY e modelo', affected_file: 'ai-agent-analyze/index.ts' }],
+      errors: [{ type: 'api_error', severity: 'high', description: `OpenAI API error: ${response.status}`, suggestion: 'Verificar OPENAI_API_KEY e modelo', affected_file: 'ai-agent-analyze/index.ts' }],
       summary: `Erro na API de análise (${response.status}). Verifique a configuração.`,
       is_production_ready: false,
     };
   }
 
   const data = await response.json();
-  const result = parseGeminiAnalysisResponse(data);
+  const result = parseAnalysisResponse(data);
 
   // Trace cost
   if (traceCtx?.supabase) {
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const usageMetadata = data.usageMetadata || {};
-    const promptTokens = usageMetadata.promptTokenCount || estimateTokens(ANALYSIS_SYSTEM_PROMPT + userMessage);
-    const completionTokens = usageMetadata.candidatesTokenCount || estimateTokens(rawText);
+    const rawText = data.choices?.[0]?.message?.content || '';
+    const promptTokens = data.usage?.prompt_tokens || estimateTokens(ANALYSIS_SYSTEM_PROMPT + userMessage);
+    const completionTokens = data.usage?.completion_tokens || estimateTokens(rawText);
     insertTrace(traceCtx.supabase, {
       tenant_id: traceCtx.tenant_id,
       conversation_id: traceCtx.conversation_id,
       call_type: 'evaluation',
-      model, provider: 'google',
+      model, provider: 'openai',
       prompt_tokens: promptTokens, completion_tokens: completionTokens,
       latency_ms: latencyMs,
       cost_usd: estimateCost(model, promptTokens, completionTokens),

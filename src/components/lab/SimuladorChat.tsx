@@ -1,8 +1,9 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import { Send, RotateCcw, Loader2, FileText, MessageSquareText } from "lucide-react";
+import { Send, RotateCcw, Loader2, FileText, MessageSquareText, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -120,6 +121,8 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [pendingTemplate, setPendingTemplate] = useState<WhatsAppTemplate | null>(null);
+  const [clientNameInput, setClientNameInput] = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -363,15 +366,19 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
 
   // ------- Send template -------
   const handleTemplateSend = useCallback(
-    async (template: WhatsAppTemplate) => {
+    async (template: WhatsAppTemplate, clientName?: string) => {
       setTemplateDialogOpen(false);
+      setPendingTemplate(null);
+      setClientNameInput("");
       setIsLoading(true);
+
+      const displayName = clientName?.trim() || "Cliente";
 
       // Add placeholder user message
       const userMsg: SimMessage = {
         id: generateId(),
         direction: "inbound",
-        body: `[Template: ${template.name}]`,
+        body: `[Template: ${template.name}] → ${displayName}`,
         timestamp: new Date(),
         action: "template_sent",
       };
@@ -383,7 +390,10 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
             tenant_id: tenantId,
             department,
             conversation_id: conversationId,
-            simulate_template: { template_name: template.name },
+            simulate_template: {
+              template_name: template.name,
+              client_name: clientName?.trim() || undefined,
+            },
           },
         });
 
@@ -585,7 +595,10 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
         <div className="flex-1" />
 
         {/* Template dialog */}
-        <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+        <Dialog open={templateDialogOpen} onOpenChange={(open) => {
+          setTemplateDialogOpen(open);
+          if (!open) { setPendingTemplate(null); setClientNameInput(""); }
+        }}>
           <DialogTrigger asChild>
             <Button
               variant="outline"
@@ -601,10 +614,63 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Selecionar Template</DialogTitle>
+              <DialogTitle>
+                {pendingTemplate ? "Nome do cliente" : "Selecionar Template"}
+              </DialogTitle>
             </DialogHeader>
             <div className="py-2">
-              {loadingTemplates ? (
+              {pendingTemplate ? (
+                /* Step 2: Input de nome do cliente */
+                <div className="flex flex-col gap-4">
+                  <p className="text-sm text-muted-foreground">
+                    Template: <span className="font-medium text-foreground">{pendingTemplate.name}</span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <Input
+                      placeholder="Nome do cliente (ex: Mariana)"
+                      value={clientNameInput}
+                      onChange={(e) => setClientNameInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && clientNameInput.trim()) {
+                          handleTemplateSend(pendingTemplate, clientNameInput);
+                        }
+                      }}
+                      autoFocus
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => {
+                        setPendingTemplate(null);
+                        setClientNameInput("");
+                      }}
+                    >
+                      Voltar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => handleTemplateSend(pendingTemplate)}
+                    >
+                      Pular
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="text-xs"
+                      disabled={!clientNameInput.trim()}
+                      onClick={() => handleTemplateSend(pendingTemplate, clientNameInput)}
+                    >
+                      Enviar
+                    </Button>
+                  </div>
+                </div>
+              ) : loadingTemplates ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                 </div>
@@ -620,7 +686,7 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
                         key={t.id}
                         variant="ghost"
                         className="justify-start text-sm h-auto py-2 px-3 whitespace-normal text-left"
-                        onClick={() => handleTemplateSend(t)}
+                        onClick={() => setPendingTemplate(t)}
                       >
                         <FileText className="w-4 h-4 mr-2 shrink-0 text-muted-foreground" />
                         {t.name}

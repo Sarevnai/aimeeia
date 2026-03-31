@@ -133,8 +133,16 @@ serve(async (req: Request) => {
     }
 
     // Fix H: Use 'Cliente' instead of 'Simulação' — avoids the AI calling the user "Simulação"
-    // The triage phase will extract the real name when the client identifies themselves
-    const contactName = existingContact?.name === 'Simulação' ? 'Cliente' : (existingContact?.name || 'Cliente');
+    // If client_name provided via template, use it and persist to DB
+    const templateClientName = simulate_template?.client_name?.trim();
+    let contactName = existingContact?.name === 'Simulação' ? 'Cliente' : (existingContact?.name || 'Cliente');
+
+    if (templateClientName) {
+      contactName = templateClientName;
+      if (contact_id) {
+        await supabase.from('contacts').update({ name: templateClientName }).eq('id', contact_id);
+      }
+    }
 
     // ========== TEMPLATE SIMULATION ==========
 
@@ -212,6 +220,7 @@ serve(async (req: Request) => {
           body: renderedBody,
           components,
         },
+        contact_name: contactName,
       });
     }
 

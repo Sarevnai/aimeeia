@@ -374,6 +374,13 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
 
       const displayName = clientName?.trim() || "Cliente";
 
+      // Template send starts a fresh conversation — clear any existing state
+      setMessages([]);
+      setConversationId(null);
+      setMetadata(INITIAL_METADATA);
+      setModuleHistory([]);
+      onReset?.();
+
       // Add placeholder user message
       const userMsg: SimMessage = {
         id: generateId(),
@@ -382,14 +389,15 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
         timestamp: new Date(),
         action: "template_sent",
       };
-      setMessages((prev) => [...prev, userMsg]);
+      setMessages([userMsg]);
 
       try {
+        // conversation_id: null forces Edge Function to create a fresh conversation
         const { data, error } = await supabase.functions.invoke("ai-agent-simulate", {
           body: {
             tenant_id: tenantId,
             department,
-            conversation_id: conversationId,
+            conversation_id: null,
             simulate_template: {
               template_name: template.name,
               client_name: clientName?.trim() || undefined,
@@ -416,7 +424,7 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
         setIsLoading(false);
       }
     },
-    [tenantId, department, conversationId, setMessages, processAiResponse, runAnalysis]
+    [tenantId, department, setMessages, setConversationId, setMetadata, setModuleHistory, onReset, processAiResponse, runAnalysis]
   );
 
   // ------- Reset -------

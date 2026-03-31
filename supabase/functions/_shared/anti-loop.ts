@@ -7,6 +7,76 @@
 
 import { QualificationData } from './types.ts';
 
+// ========== FIX J2: REASONING LEAK DETECTOR ==========
+// Heuristic patterns that indicate the LLM leaked internal reasoning to the client.
+// These phrases are typical of chain-of-thought that should never reach the user.
+
+const REASONING_LEAK_PATTERNS: RegExp[] = [
+  /\bpreciso\s+(ser|fazer|perguntar|iniciar|seguir|manter|conduzir|ter\s+cuidado)/i,
+  /\bvou\s+(seguir|começar|iniciar|perguntar|conduzir|analisar|manter)/i,
+  /\btenho\s+os\s+dados/i,
+  /\bfalta\s+(tipo|bairro|orçamento|nome|localização|finalidade)/i,
+  /\ba\s+próxima\s+pergunta\s+(mais\s+)?natural/i,
+  /\besse\s+contexto\s+é\s+(delicado|sensível)/i,
+  /\bminha\s+análise/i,
+  /\b(provavelmente|possivelmente)\s+(separação|herança|divórcio|perda)/i,
+  /\bmotivação\s+real\s+(é|seria)/i,
+  /\bvou\s+seguir\s+(a\s+)?anamnese/i,
+  /\b(pode\s+envolver|pode\s+ser)\s+(uma?\s+)?(separação|divórcio|herança|perda)/i,
+  /\bvirada\s+de\s+vida\s+significativa/i,
+  /\bsem\s+forçar\s+(nenhuma?\s+)?interpretação/i,
+  /\brecomeço,\s+novo\s+lar/i,
+];
+
+/**
+ * Detects if a response contains leaked internal reasoning.
+ * Returns the index of the first leak pattern match, or -1 if clean.
+ */
+export function detectReasoningLeak(response: string): { leaked: boolean; truncateAt: number; pattern?: string } {
+  for (const pattern of REASONING_LEAK_PATTERNS) {
+    const match = response.match(pattern);
+    if (match && match.index !== undefined) {
+      console.log(`🚨 [ReasoningLeak] Detected: "${match[0]}" at index ${match.index}`);
+      return { leaked: true, truncateAt: match.index, pattern: match[0] };
+    }
+  }
+  return { leaked: false, truncateAt: -1 };
+}
+
+/**
+ * Sanitizes a response by removing reasoning leak content.
+ * Tries to preserve the conversational part before the leak.
+ * Falls back to a qualification question if nothing remains.
+ */
+export function sanitizeReasoningLeak(response: string, qualData?: QualificationData | null): string {
+  const detection = detectReasoningLeak(response);
+  if (!detection.leaked) return response;
+
+  // Try to keep content before the leak
+  const beforeLeak = response.substring(0, detection.truncateAt).trim();
+
+  // If there's meaningful content before the leak (>20 chars), keep it
+  if (beforeLeak.length > 20) {
+    console.log(`🔧 [ReasoningLeak] Truncated at index ${detection.truncateAt}, keeping ${beforeLeak.length} chars`);
+    return beforeLeak;
+  }
+
+  // Otherwise, generate a contextual fallback based on what qualification data is missing
+  if (!qualData?.detected_interest) {
+    return 'Me conta: você está buscando um imóvel para comprar ou alugar?';
+  }
+  if (!qualData?.detected_property_type) {
+    return 'Que tipo de imóvel você tem em mente? Apartamento, casa, terreno?';
+  }
+  if (!qualData?.detected_neighborhood) {
+    return 'Tem preferência de bairro ou região?';
+  }
+  if (!qualData?.detected_budget_max) {
+    return 'E qual faixa de valor você considera?';
+  }
+  return 'Me conta mais sobre o que você procura.';
+}
+
 const MAX_STORED_MESSAGES = 5;
 
 // ========== FALLBACK POOLS (expanded to avoid exhaustion) ==========

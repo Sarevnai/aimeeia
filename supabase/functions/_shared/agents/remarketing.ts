@@ -6,7 +6,7 @@ import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
 import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
-import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../anti-loop.ts';
+import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
 import { isQualificationComplete, calculateQualificationScore } from '../qualification.ts';
 import { SkillConfig, AiModule } from '../types.ts';
 import { runPreCompletionChecks } from './pre-completion-check.ts';
@@ -266,6 +266,28 @@ ${!hasSearched ? '⚠️ Você AINDA NÃO buscou imóveis. NÃO referencie resul
 ${hasHandoff ? '⚠️ Handoff já executado. Despeça-se com elegância.' : ''}
 NUNCA fabrique dados. NUNCA referencie ações não executadas.
 </lembrete-final>`);
+
+  // Fix J1: Guardrails anti-reasoning-leak — OBRIGATÓRIO no final do prompt
+  sections.push(`<formato-resposta>
+REGRA ABSOLUTA DE FORMATO:
+Sua resposta DEVE conter APENAS a mensagem destinada ao cliente.
+NUNCA inclua na resposta: análises internas, notas para si mesma, raciocínio sobre o perfil do cliente,
+planejamento de próximos passos, interpretações sobre a vida pessoal do cliente, ou qualquer texto que
+não seja diretamente uma mensagem conversacional para o cliente.
+
+Se precisar organizar seu pensamento, use a tag <pensamento>...</pensamento>.
+Tudo dentro de <pensamento> será removido automaticamente antes de chegar ao cliente.
+
+PROIBIDO na resposta ao cliente:
+- "Preciso ser receptiva/cuidadosa/empática..." (isso é meta-instrução, não conversa)
+- "Tenho os dados: compra, prazo..." (isso é nota interna)
+- "A próxima pergunta mais natural é..." (isso é planejamento)
+- "Esse contexto é delicado..." (isso é análise psicológica)
+- "Vou seguir a anamnese..." (isso é instrução técnica)
+- Qualquer inferência sobre separação, divórcio, herança, problemas pessoais
+
+FORMATO CORRETO: Apenas a mensagem que a cliente verá no WhatsApp. Curta, natural, humana.
+</formato-resposta>`);
 
   return sections.join('\n');
 }
@@ -784,16 +806,24 @@ export const remarketingAgent: AgentModule = {
     // Strip chain-of-thought blocks that LLM may leak to client (safety net)
     // Covers: <análise>, <anise>, <anamnese>, <invoke>, <parameter>, <tool_call>, etc.
     finalResponse = finalResponse
+      .replace(/<pensamento>[\s\S]*?<\/pensamento>/gi, '')
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
       .replace(/<invoke[^>]*>[\s\S]*?<\/invoke>/gi, '')
       .replace(/<parameter[^>]*>[\s\S]*?<\/parameter>/gi, '')
       .replace(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/gi, '')
       .replace(/<an[a-záàãéêíóúç]{1,12}>[\s\S]*?<\/an[a-záàãéêíóúç]{1,12}>/gi, '')
+      .replace(/<\/?pensamento>/gi, '')
+      .replace(/<\/?thinking>/gi, '')
       .replace(/<\/?invoke[^>]*>/gi, '')
       .replace(/<\/?parameter[^>]*>/gi, '')
       .replace(/<\/?tool_call[^>]*>/gi, '')
       .replace(/<\/?an[a-záàãéêíóúç]{1,12}>/gi, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+
+    // Fix J2: Heuristic reasoning leak detector (catches plain-text reasoning the LLM didn't wrap in tags)
+    finalResponse = sanitizeReasoningLeak(finalResponse, ctx.qualificationData);
+
     const qualified = isQualificationComplete(ctx.qualificationData);
 
     // Detect loop: AI re-asking questions already answered

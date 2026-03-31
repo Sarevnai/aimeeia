@@ -401,6 +401,21 @@ function detectBedrooms(lower: string): number | null {
 }
 
 function detectBudget(lower: string): number | null {
+  // -2. Compound addition: "X milhão e Y" / "X milhão e Y mil" → X*1M + Y*1k
+  // Handles: "1 milhão e 200", "1 milhão e 200 mil", "2 milhões e 500 mil"
+  const compoundAddPattern = /([\d.,]+)\s*milh[aãoõ][oe]?s?\s+e\s+([\d.,]+)\s*(?:mil|k)?/i;
+  const compoundAddMatch = lower.match(compoundAddPattern);
+  if (compoundAddMatch) {
+    const millions = parseFloat(compoundAddMatch[1].replace(/\./g, '').replace(',', '.'));
+    let additional = parseFloat(compoundAddMatch[2].replace(/\./g, '').replace(',', '.'));
+    if (!isNaN(millions) && !isNaN(additional)) {
+      // "e 200 mil" → 200*1000; "e 200" (bare, <1000) → 200*1000 (contextual: milhão+small = thousands)
+      if (additional < 1000) additional *= 1000;
+      const total = millions * 1_000_000 + additional;
+      if (total >= 100_000 && total <= 50_000_000) return total;
+    }
+  }
+
   // -1. Compound pattern: "X à vista + Y financiado" → SUM both values
   const compoundPattern = /([\d.,]+)\s*milh[aãoõ][oe]?s?\s*(?:[aà]\s*vista|de\s*entrada).*?([\d.,]+)\s*milh[aãoõ][oe]?s?\s*(?:financiad|parcelad)/i;
   const compoundMatch = lower.match(compoundPattern);

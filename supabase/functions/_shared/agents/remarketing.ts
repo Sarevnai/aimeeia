@@ -782,13 +782,16 @@ export const remarketingAgent: AgentModule = {
     let finalResponse = preCheck.hasCriticalIssue ? preCheck.sanitizedResponse : aiResponse;
 
     // Strip chain-of-thought blocks that LLM may leak to client (safety net)
-    // Broad pattern: any XML tag starting with <an (análise, anise, anamnese, etc.)
+    // Covers: <análise>, <anise>, <anamnese>, <invoke>, <parameter>, <tool_call>, etc.
     finalResponse = finalResponse
+      .replace(/<invoke[^>]*>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<parameter[^>]*>[\s\S]*?<\/parameter>/gi, '')
+      .replace(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/gi, '')
       .replace(/<an[a-záàãéêíóúç]{1,12}>[\s\S]*?<\/an[a-záàãéêíóúç]{1,12}>/gi, '')
-      .replace(/<invoke\s+name="an[^"]*"[^>]*>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<\/?invoke[^>]*>/gi, '')
+      .replace(/<\/?parameter[^>]*>/gi, '')
+      .replace(/<\/?tool_call[^>]*>/gi, '')
       .replace(/<\/?an[a-záàãéêíóúç]{1,12}>/gi, '')
-      .replace(/<invoke\s+name="an[^"]*"[^>]*>/gi, '')
-      .replace(/<\/invoke>/gi, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     const qualified = isQualificationComplete(ctx.qualificationData);

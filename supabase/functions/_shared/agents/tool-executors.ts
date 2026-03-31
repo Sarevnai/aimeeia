@@ -202,6 +202,17 @@ export async function executePropertySearch(
   args: any
 ): Promise<string> {
   try {
+    // Fix E (v2): Gate — rejeitar busca se qualificação mínima não atingida.
+    // Regra: OBRIGATÓRIO ter pelo menos BAIRRO ou BUDGET do cliente.
+    // Interesse (compra/locação) sozinho NÃO é suficiente para disparar busca.
+    // Isso impede que o LLM dispare busca prematura sem critérios reais do cliente.
+    const hasBairro = !!(args.bairro || ctx.qualificationData?.detected_neighborhood);
+    const hasBudget = !!(args.preco_max || ctx.qualificationData?.detected_budget_max);
+    if (!hasBairro && !hasBudget) {
+      console.log(`🚫 [PropertySearch] Rejeitado: sem bairro (${hasBairro}) nem budget (${hasBudget}). Args: bairro=${args.bairro}, preco_max=${args.preco_max}`);
+      return '[SISTEMA] Busca de imóveis bloqueada: o cliente ainda não informou bairro/região NEM faixa de orçamento. Antes de buscar, pergunte ao cliente pelo menos: qual bairro ou região de interesse e/ou qual faixa de orçamento. Conduza a qualificação de forma natural e empática. NÃO chame buscar_imoveis novamente até ter pelo menos um desses dados.';
+    }
+
     const semanticQuery = args.query_semantica ||
       `Imóvel para ${args.finalidade || ctx.department || 'locacao'}`;
 
@@ -722,46 +733,62 @@ export async function executeLeadHandoff(
 
     // F4: Skip CRM integration in simulate mode
     if (!ctx.simulate) {
-      await ctx.supabase.functions.invoke('c2s-create-lead', {
-        body: {
-          tenant_id: ctx.tenantId,
-          phone_number: ctx.phoneNumber,
-          conversation_id: ctx.conversationId,
-          contact_id: ctx.contactId,
-          reason: args.motivo,
-          qualification_data: ctx.qualificationData,
-          development_id: developmentId,
-          development_title: developmentTitle,
-        },
-      });
+      try {
+        const crmResult = await ctx.supabase.functions.invoke('c2s-create-lead', {
+          body: {
+            tenant_id: ctx.tenantId,
+            phone_number: ctx.phoneNumber,
+            conversation_id: ctx.conversationId,
+            contact_id: ctx.contactId,
+            reason: args.motivo,
+            qualification_data: ctx.qualificationData,
+            development_id: developmentId,
+            development_title: developmentTitle,
+          },
+        });
+        if (crmResult.error) {
+          console.error('⚠️ c2s-create-lead returned error:', crmResult.error);
+        }
+      } catch (crmErr) {
+        console.error('⚠️ c2s-create-lead invocation failed:', crmErr);
+        // Continue with handoff even if CRM fails — don't block the user experience
+      }
     }
 
-    await ctx.supabase
-      .from('conversation_states')
-      .upsert({
+    // Fix F: In simulate mode, skip DB side-effects (conversation_states, messages, events)
+    // to avoid corrupting state or hitting constraint errors with simulation data
+    if (!ctx.simulate) {
+      await ctx.supabase
+        .from('conversation_states')
+        .upsert({
+          tenant_id: ctx.tenantId,
+          phone_number: ctx.phoneNumber,
+          is_ai_active: false,
+          operator_takeover_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'tenant_id,phone_number' });
+
+      await ctx.supabase.from('messages').insert({
         tenant_id: ctx.tenantId,
-        phone_number: ctx.phoneNumber,
-        is_ai_active: false,
-        operator_takeover_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'tenant_id,phone_number' });
+        conversation_id: ctx.conversationId,
+        direction: 'outbound',
+        body: 'Lead transferido para atendimento humano via CRM.',
+        sender_type: 'system',
+        event_type: 'ai_paused',
+        created_at: new Date().toISOString(),
+      });
+    } else {
+      console.log('🧪 [Simulate] Skipping handoff DB side-effects');
+    }
 
-    await ctx.supabase.from('messages').insert({
-      tenant_id: ctx.tenantId,
-      conversation_id: ctx.conversationId,
-      direction: 'outbound',
-      body: 'Lead transferido para atendimento humano via CRM.',
-      sender_type: 'system',
-      event_type: 'ai_paused',
-      created_at: new Date().toISOString(),
-    });
-
-    await ctx.supabase.from('conversation_events').insert({
-      tenant_id: ctx.tenantId,
-      conversation_id: ctx.conversationId,
-      event_type: 'ai_paused',
-      metadata: { reason: args.motivo, crm: 'c2s' },
-    });
+    if (!ctx.simulate) {
+      await ctx.supabase.from('conversation_events').insert({
+        tenant_id: ctx.tenantId,
+        conversation_id: ctx.conversationId,
+        event_type: 'ai_paused',
+        metadata: { reason: args.motivo, crm: 'c2s' },
+      });
+    }
 
     // F3: Dual output — DB log stays as system message, LLM gets instruction to generate humanized farewell
     return 'Handoff concluído com sucesso. Agora se despeça do cliente de forma calorosa e natural. Mencione que um corretor especialista entrará em contato em breve para alinhar os detalhes. Seja breve, elegante e humano. NÃO repita "Lead transferido" ou qualquer mensagem técnica.';

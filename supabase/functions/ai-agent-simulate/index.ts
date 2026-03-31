@@ -115,13 +115,15 @@ serve(async (req: Request) => {
     } else {
       const { data: newContact } = await supabase
         .from('contacts')
-        .insert({ tenant_id, phone: simPhone, name: 'Simulação', channel_source: 'simulation' })
+        .insert({ tenant_id, phone: simPhone, name: 'Cliente', channel_source: 'simulation' })
         .select('id')
         .single();
       contact_id = newContact?.id || null;
     }
 
-    const contactName = existingContact?.name || 'Simulação';
+    // Fix H: Use 'Cliente' instead of 'Simulação' — avoids the AI calling the user "Simulação"
+    // The triage phase will extract the real name when the client identifies themselves
+    const contactName = existingContact?.name === 'Simulação' ? 'Cliente' : (existingContact?.name || 'Cliente');
 
     // ========== TEMPLATE SIMULATION ==========
 

@@ -51,7 +51,7 @@ Regras obrigatórias: português brasileiro, texto corrido e conversacional (nun
     const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY') || '';
     if (!apiKey) throw new Error('No API key available');
 
-    const model = 'google/gemini-2.5-pro';
+    const model = 'gemini-2.5-flash';
     const userContent = `Apresente este imóvel:\n${details}${clientContext}${geoContext}`;
     const startTime = Date.now();
 

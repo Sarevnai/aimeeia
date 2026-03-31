@@ -107,7 +107,7 @@ serve(async (req: Request) => {
       tone: 'friendly',
       greeting_message: null,
       fallback_message: 'Desculpe, tive um problema. Vou encaminhar para atendimento humano.',
-      ai_model: 'gpt-4o-mini',
+      ai_model: 'gemini-2.5-flash',
       max_tokens: 500,
       max_history_messages: 10,
       humanize_responses: true,
@@ -526,7 +526,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
           return agent.executeToolCall(ctx, toolName, args);
         },
         {
-          model: aiConfig.ai_model || 'gpt-4o-mini',
+          model: aiConfig.ai_model || 'gemini-2.5-flash',
           provider: tenantProvider,
           apiKey: tenantApiKey,
           temperature: 0.7,
@@ -592,7 +592,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
           return await legacyExecuteToolCall(supabase, tenant as Tenant, aiConfig, tenant_id, phone_number, conversation_id, contact_id, toolName, args, mergedQual, effectiveDepartment);
         },
         {
-          model: aiConfig.ai_model || 'gpt-4o-mini',
+          model: aiConfig.ai_model || 'gemini-2.5-flash',
           provider: tenantProvider,
           apiKey: tenantApiKey,
           temperature: 0.7,

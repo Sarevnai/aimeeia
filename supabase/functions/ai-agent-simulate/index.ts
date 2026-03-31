@@ -543,7 +543,7 @@ serve(async (req: Request) => {
       return msg;
     });
 
-    const aiResponse = await callLLMWithToolExecution(
+    const llmResult = await callLLMWithToolExecution(
       systemPrompt,
       llmHistory,
       message_body,
@@ -561,7 +561,7 @@ serve(async (req: Request) => {
       }
     );
 
-    let finalResponse = await agent.postProcess(ctx, aiResponse);
+    let finalResponse = await agent.postProcess(ctx, llmResult.content);
 
     // Strip module tags
     finalResponse = finalResponse.replace(/\[\s*MODULO\s*:\s*[^\]\n]*?\s*\]\s*/gi, '').trim();

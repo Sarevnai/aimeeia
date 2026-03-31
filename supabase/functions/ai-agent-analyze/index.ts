@@ -1,5 +1,5 @@
 // ========== AIMEE.iA - AI AGENT ANALYZE ==========
-// Analyzes simulation/real turns using GPT 5.4 Mini (OpenAI).
+// Analyzes simulation/real turns using Gemini 2.5 Pro (Google).
 // Returns a 0-10 score with detailed criteria breakdown and error detection.
 // Used by the AI Lab to validate agent quality before production.
 

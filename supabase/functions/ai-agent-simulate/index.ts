@@ -73,31 +73,42 @@ serve(async (req: Request) => {
     const conversationSource = isRemarketing ? 'remarketing' : 'simulation';
 
     if (!conversation_id) {
-      const { data: existing } = await supabase
+      // Archive any existing active simulation conversations to ensure clean isolation
+      await supabase
         .from('conversations')
-        .select('id')
+        .update({ status: 'archived' } as any)
         .eq('tenant_id', tenant_id)
         .eq('phone_number', simPhone)
         .eq('source', conversationSource)
-        .eq('status', 'active')
-        .maybeSingle();
+        .eq('status', 'active');
 
-      if (existing) {
-        conversation_id = existing.id;
-      } else {
-        const { data: newConv } = await supabase
-          .from('conversations')
-          .insert({
-            tenant_id,
-            phone_number: simPhone,
-            department_code: effectiveDepartment,
-            source: conversationSource,
-            status: 'active',
-          })
-          .select('id')
-          .single();
-        conversation_id = newConv?.id;
-      }
+      // Clear conversation_states to prevent triage/module/anti-loop state leaking
+      await supabase
+        .from('conversation_states')
+        .delete()
+        .eq('tenant_id', tenant_id)
+        .eq('phone_number', simPhone);
+
+      // Reset contact name to 'Cliente' so previous persona name doesn't carry over
+      await supabase
+        .from('contacts')
+        .update({ name: 'Cliente' })
+        .eq('tenant_id', tenant_id)
+        .eq('phone', simPhone);
+
+      // Always create a fresh conversation — each simulation must be independent
+      const { data: newConv } = await supabase
+        .from('conversations')
+        .insert({
+          tenant_id,
+          phone_number: simPhone,
+          department_code: effectiveDepartment,
+          source: conversationSource,
+          status: 'active',
+        })
+        .select('id')
+        .single();
+      conversation_id = newConv?.id;
     }
     if (!conversation_id) return errorResponse('Failed to create simulation conversation', 500);
 

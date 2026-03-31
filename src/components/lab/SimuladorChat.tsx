@@ -422,7 +422,7 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
         // best effort
       }
     }
-    // Clear conversation_states for the sim phone to prevent residual triage state
+    // Clear conversation_states and reset contact name to prevent context leaking
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -432,6 +432,12 @@ export function SimuladorChat({ tenantId, onMetadataUpdate, onReset }: Simulador
           .delete()
           .eq("tenant_id", tenantId)
           .eq("phone_number", simPhone);
+        // Reset contact name so previous persona doesn't carry over
+        await supabase
+          .from("contacts" as any)
+          .update({ name: "Cliente" } as any)
+          .eq("tenant_id", tenantId)
+          .eq("phone", simPhone);
       }
     } catch {
       // best effort

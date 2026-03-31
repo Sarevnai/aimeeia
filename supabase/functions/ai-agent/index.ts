@@ -466,9 +466,16 @@ serve(async (req: Request) => {
         activeModules: (activeModules as AiModule[]) || [],
         currentModuleSlug,
         supabase,
+        // Fix B: context flags for anti-loop
+        _qualChangedThisTurn: Object.keys(extracted).length > 0,
+        _moduleChangedThisTurn: false,
       };
 
       let systemPrompt = agent.buildSystemPrompt(ctx);
+      // Fix B: detect if module changed after buildSystemPrompt resolved it
+      if (ctx.currentModuleSlug && ctx.currentModuleSlug !== currentModuleSlug) {
+        ctx._moduleChangedThisTurn = true;
+      }
       const tools = agent.getTools(ctx);
 
       // Inject audio-awareness instructions when TTS is enabled

@@ -137,9 +137,21 @@ export function isLoopingQuestion(
 
 export function isRepetitiveMessage(
   aiResponse: string,
-  lastAiMessages: string[]
+  lastAiMessages: string[],
+  options?: { qualChangedThisTurn?: boolean; moduleChangedThisTurn?: boolean }
 ): boolean {
   if (!lastAiMessages || lastAiMessages.length === 0) return false;
+
+  // Fix B: Se qualificação mudou neste turno OU módulo mudou, skip anti-loop.
+  // Dados novos = contexto novo — a resposta pode parecer similar mas é pertinente.
+  if (options?.qualChangedThisTurn) {
+    console.log('ℹ️ Anti-loop: SKIP — qualificação mudou neste turno');
+    return false;
+  }
+  if (options?.moduleChangedThisTurn) {
+    console.log('ℹ️ Anti-loop: SKIP — módulo mudou neste turno');
+    return false;
+  }
 
   // Never intercept responses with property details
   if (containsPropertyDetails(aiResponse)) return false;

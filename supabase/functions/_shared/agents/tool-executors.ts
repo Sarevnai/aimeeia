@@ -272,6 +272,31 @@ export async function executePropertySearch(
     // C2: Filtrar imóveis sem preço válido — "sob consulta" não existe no sistema
     let validProperties = (properties || []).filter((p: any) => p.price && p.price > 1);
 
+    // C8: Pós-filtro hard — rejeitar imóveis acima do budget + 15% tolerância
+    if (clientBudget && clientBudget > 0) {
+      const hardCeiling = Math.round(clientBudget * 1.15);
+      const beforeCount = validProperties.length;
+      validProperties = validProperties.filter((p: any) => p.price <= hardCeiling);
+      if (beforeCount !== validProperties.length) {
+        console.log(`🔒 C8: Pós-filtro budget removeu ${beforeCount - validProperties.length} imóvel(is) acima de ${hardCeiling}`);
+      }
+    }
+
+    // C9: Pós-filtro finalidade — se cliente quer comprar, remover prováveis aluguéis (preço < 50k)
+    // Se cliente quer alugar, remover prováveis vendas (preço > 50k)
+    const clientFinalidade = args.finalidade || ctx.qualificationData?.detected_interest || null;
+    if (clientFinalidade) {
+      const beforeCount = validProperties.length;
+      if (clientFinalidade === 'venda') {
+        validProperties = validProperties.filter((p: any) => p.price >= 50000);
+      } else if (clientFinalidade === 'locacao') {
+        validProperties = validProperties.filter((p: any) => p.price < 50000);
+      }
+      if (beforeCount !== validProperties.length) {
+        console.log(`🔒 C9: Pós-filtro finalidade (${clientFinalidade}) removeu ${beforeCount - validProperties.length} imóvel(is) incompatível(is)`);
+      }
+    }
+
     // C6: Expansão inteligente quando poucos resultados
     if (validProperties.length <= 1 && args.bairro) {
       console.log(`🌍 C6: Apenas ${validProperties.length} resultado(s) no ${args.bairro}. Tentando flexibilizar...`);

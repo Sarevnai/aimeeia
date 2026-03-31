@@ -96,32 +96,31 @@ function resolveActiveModule(ctx: AgentContext, modules: AiModule[]): AiModule |
   // Priority 4: Qualification complete → property search or handoff
   const qualScore = calculateQualificationScore(qualData);
 
-  // Also count how many turns of anamnese we've had — if too many turns
-  // with data already collected, force progression to busca-imoveis.
-  // This prevents getting stuck in anamnese when extractQualificationFromText
-  // fails to parse the client's responses.
-  const userMessages = history?.filter(msg => msg.role === 'user') || [];
-  const anamneseTurns = userMessages.length; // turns since triage completed
-  const hasMinimumData = !!(qualData?.detected_interest || qualData?.detected_property_type || qualData?.detected_neighborhood);
+  // Fix A: Exigir score >= 80 E campos mínimos obrigatórios para ativar busca.
+  // Campos mínimos: detected_interest + detected_neighborhood + detected_budget_max.
+  // Removido trigger por turnCount — se o cliente não qualificou, continuar perguntando.
+  const hasRequiredFields = !!(
+    qualData?.detected_interest &&
+    qualData?.detected_neighborhood &&
+    qualData?.detected_budget_max
+  );
 
-  if (qualScore >= 60 || (anamneseTurns >= 5 && hasMinimumData)) {
+  if (qualScore >= 80 && hasRequiredFields) {
     // If tools already executed handoff, stay on handoff
     if (ctx.toolsExecuted?.includes('enviar_lead_c2s')) {
       console.log('🧩 [resolve] Handoff already executed');
       return find('handoff');
     }
-    if (qualScore < 60) {
-      console.log(`🧩 [resolve] Forcing progression: ${anamneseTurns} turns with some data → busca-imoveis`);
-    } else {
-      console.log(`🧩 [resolve] Qualification complete (score=${qualScore}) → busca-imoveis`);
-    }
+    console.log(`🧩 [resolve] Qualification complete (score=${qualScore}, fields OK) → busca-imoveis`);
     return find('busca-imoveis');
   }
 
-  // Priority 5: If stuck in anamnese for too long (8+ turns) with no data at all,
-  // still force to busca-imoveis to break the loop — the LLM will ask what's missing
-  if (anamneseTurns >= 8) {
-    console.log(`🧩 [resolve] Forcing exit from anamnese after ${anamneseTurns} turns with no data`);
+  // Priority 5: If stuck in anamnese for too long (10+ turns) with SOME data,
+  // force to busca-imoveis to avoid infinite loop — but only if has at least interest + bairro
+  const userMessages = history?.filter(msg => msg.role === 'user') || [];
+  const anamneseTurns = userMessages.length;
+  if (anamneseTurns >= 10 && qualData?.detected_interest && qualData?.detected_neighborhood) {
+    console.log(`🧩 [resolve] Forcing exit from anamnese after ${anamneseTurns} turns (has interest + neighborhood)`);
     return find('busca-imoveis');
   }
 
@@ -802,7 +801,10 @@ export const remarketingAgent: AgentModule = {
     }
 
     // Detect repetition: AI sending same/similar message multiple times
-    if (!ctx._loopDetected && isRepetitiveMessage(finalResponse, ctx.lastAiMessages)) {
+    if (!ctx._loopDetected && isRepetitiveMessage(finalResponse, ctx.lastAiMessages, {
+      qualChangedThisTurn: ctx._qualChangedThisTurn,
+      moduleChangedThisTurn: ctx._moduleChangedThisTurn,
+    })) {
       console.log('🔄 [Remarketing] Repetition detected → rotating fallback');
       finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, true, ctx.qualificationData);
       ctx._loopDetected = true;

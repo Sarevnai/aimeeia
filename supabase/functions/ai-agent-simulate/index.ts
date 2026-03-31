@@ -513,9 +513,16 @@ serve(async (req: Request) => {
       activeModules: (activeModules as AiModule[]) || [],
       currentModuleSlug,
       supabase,
+      // Fix B: context flags for anti-loop
+      _qualChangedThisTurn: Object.keys(extracted).length > 0,
+      _moduleChangedThisTurn: false, // will be set after buildSystemPrompt resolves module
     };
 
     const systemPrompt = agent.buildSystemPrompt(ctx);
+    // Fix B: detect if module changed after buildSystemPrompt resolved it
+    if (ctx.currentModuleSlug && ctx.currentModuleSlug !== currentModuleSlug) {
+      ctx._moduleChangedThisTurn = true;
+    }
     const tools = agent.getTools(ctx);
     const modelUsed = aiConfig.ai_model || 'google/gemini-2.5-pro';
 

@@ -2,10 +2,13 @@ import React, { useState, useCallback } from 'react';
 import { useSessionState } from '@/hooks/useSessionState';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { SimuladorChat } from '@/components/lab/SimuladorChat';
 import SimuladorSidebar from '@/components/lab/SimuladorSidebar';
 import { useEffect } from 'react';
+import { toast } from 'sonner';
 
 interface Tenant {
   id: string;
@@ -147,6 +150,53 @@ export default function LabSimulatorPage() {
     // Don't reset production runs/consecutivePerfect — those persist across conversations
   }, []);
 
+  const [cleaningUp, setCleaningUp] = useState(false);
+
+  const handleCleanupSimulations = useCallback(async () => {
+    if (!confirm('Excluir TODAS as conversas e contatos de simulação do banco de dados?')) return;
+    setCleaningUp(true);
+    try {
+      // Get all simulation conversation IDs first
+      const { data: simConvs } = await supabase
+        .from('conversations' as any)
+        .select('id')
+        .in('source', ['simulation', 'remarketing']);
+
+      const convIds = (simConvs || []).map((c: any) => c.id);
+
+      if (convIds.length > 0) {
+        // Delete messages from simulation conversations
+        await supabase.from('messages' as any).delete().in('conversation_id', convIds);
+        // Delete simulation conversations
+        await supabase.from('conversations' as any).delete().in('id', convIds);
+      }
+
+      // Delete simulation contacts (phone starts with SIM-)
+      const { data: simContacts } = await supabase
+        .from('contacts' as any)
+        .select('id, phone')
+        .like('phone', 'SIM-%');
+
+      if (simContacts && simContacts.length > 0) {
+        const simPhones = simContacts.map((c: any) => c.phone);
+        // Delete related data
+        await supabase.from('lead_qualification' as any).delete().in('phone_number', simPhones);
+        await supabase.from('conversation_states' as any).delete().in('phone_number', simPhones);
+        await supabase.from('contacts' as any).delete().in('id', simContacts.map((c: any) => c.id));
+      }
+
+      // Delete simulation analysis data
+      await supabase.from('simulation_analyses' as any).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      toast.success(`Limpeza concluída: ${convIds.length} conversas e ${simContacts?.length || 0} contatos removidos`);
+    } catch (err) {
+      toast.error('Erro ao limpar simulações');
+      console.error(err);
+    } finally {
+      setCleaningUp(false);
+    }
+  }, []);
+
   const selectedTenantName = tenants.find(t => t.id === selectedTenantId)?.company_name;
 
   return (
@@ -166,6 +216,17 @@ export default function LabSimulatorPage() {
         {selectedTenantName && (
           <Badge variant="outline" className="text-xs">{selectedTenantName}</Badge>
         )}
+        <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs gap-1 text-destructive hover:text-destructive"
+          onClick={handleCleanupSimulations}
+          disabled={cleaningUp}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          {cleaningUp ? 'Limpando...' : 'Limpar Simulações'}
+        </Button>
         {currentAnalysis?.score != null && (
           <Badge className={`text-xs ${
             currentAnalysis.score >= 9 ? 'bg-emerald-100 text-emerald-800' :

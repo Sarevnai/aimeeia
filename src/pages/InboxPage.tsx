@@ -72,6 +72,7 @@ const InboxPage: React.FC = () => {
       .select('*, contacts(*)')
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
+      .not('source', 'in', '("simulation","remarketing")')
       .order('last_message_at', { ascending: false })
       .limit(50);
 

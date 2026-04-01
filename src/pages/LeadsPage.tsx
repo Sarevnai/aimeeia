@@ -116,6 +116,8 @@ const LeadsPage: React.FC = () => {
       .from('contacts')
       .select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
+      .not('channel_source', 'eq', 'simulation')
+      .not('phone', 'like', 'SIM-%')
       .order('updated_at', { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 

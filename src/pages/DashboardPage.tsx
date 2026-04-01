@@ -168,6 +168,7 @@ const DashboardPage: React.FC = () => {
         .from('conversations')
         .select('id', { count: 'exact', head: true })
         .eq('tenant_id', tenantId)
+        .not('source', 'in', '("simulation","remarketing")')
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
       setTotalConv(total ?? 0);
@@ -195,6 +196,8 @@ const DashboardPage: React.FC = () => {
         .from('contacts')
         .select('channel_source')
         .eq('tenant_id', tenantId)
+        .not('channel_source', 'eq', 'simulation')
+        .not('phone', 'like', 'SIM-%')
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
 
@@ -231,6 +234,7 @@ const DashboardPage: React.FC = () => {
         .from('conversations')
         .select('created_at')
         .eq('tenant_id', tenantId)
+        .not('source', 'in', '("simulation","remarketing")')
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
 
@@ -274,6 +278,7 @@ const DashboardPage: React.FC = () => {
           .from('conversations')
           .select('id', { count: 'exact', head: true })
           .eq('tenant_id', tenantId)
+          .not('source', 'in', '("simulation","remarketing")')
           .gte('created_at', mStart)
           .lte('created_at', mEnd);
 

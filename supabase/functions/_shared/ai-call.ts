@@ -397,6 +397,7 @@ export async function callLLMWithToolExecution(
   const promptTokens = estimateTokens(new Array(promptChars).fill('x').join(''));
 
   let finalContent = '';
+  let lastAssistantContent = '';
 
   try {
     for (let i = 0; i < maxIterations; i++) {
@@ -405,8 +406,13 @@ export async function callLLMWithToolExecution(
 
       // No tool calls → done
       if (!result.toolCalls || result.toolCalls.length === 0) {
-        finalContent = result.content || '';
+        finalContent = result.content || lastAssistantContent || '';
         break;
+      }
+
+      // Save content from iterations that also have tool calls (some models return both)
+      if (result.content) {
+        lastAssistantContent = result.content;
       }
 
       // Track tool calls

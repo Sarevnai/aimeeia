@@ -170,11 +170,12 @@ serve(async (req: Request) => {
           // Auto-resolve named params
           const namedParams = comp.example?.body_text_named_params || [];
           for (const param of namedParams) {
-            const value = param.param_name === 'nome' ? contactName
-              : param.param_name === 'agente' ? agentName
-              : param.param_name === 'empresa' ? tenant.company_name
-              : param.example || `{{${param.param_name}}}`;
-            renderedBody = renderedBody.replace(new RegExp(`\\{\\{${param.param_name}\\}\\}`, 'g'), value);
+            const pn = param.param_name;
+            const value = (pn === 'nome' || pn === 'lead' || pn === 'cliente' || pn === 'name') ? contactName
+              : (pn === 'agente' || pn === 'agent') ? agentName
+              : (pn === 'empresa' || pn === 'company') ? tenant.company_name
+              : param.example || `{{${pn}}}`;
+            renderedBody = renderedBody.replace(new RegExp(`\\{\\{${pn}\\}\\}`, 'g'), value);
           }
           // Also resolve positional {{1}}, {{2}}
           renderedBody = renderedBody.replace(/\{\{1\}\}/g, contactName);

@@ -443,36 +443,10 @@ export async function callLLMWithToolExecution(
         }
       }
 
-      // C5 bypass: if any tool returned a SISTEMA CRÍTICA instruction (property cards already sent),
-      // extract the example phrase and return directly — do NOT make another LLM call that may list properties.
-      const sistemaMsg = messages
-        .filter((m: any) => m.role === 'tool')
-        .map((m: any) => m.content as string)
-        .find((c: string) => typeof c === 'string' && c.startsWith('[SISTEMA — INSTRUÇÃO CRÍTICA]'));
-
-      if (sistemaMsg) {
-        // Fix I2: Instead of hardcoded fallback, extract contextual data from the SISTEMA message
-        // to generate a property-aware response. Falls back to generic only if extraction fails.
-        const exampleMatch = sistemaMsg.match(/Exemplo:\s*"([^"]+)"/);
-        if (exampleMatch) {
-          finalContent = exampleMatch[1];
-        } else {
-          // Try to extract bairro and tipo from the message for a contextual fallback
-          const bairroMatch = sistemaMsg.match(/Bairro(?:\s+desejado)?:\s*([^,\n]+)/i);
-          const tipoMatch = sistemaMsg.match(/Tipo:\s*([^,\n]+)/i);
-          const bairro = bairroMatch?.[1]?.trim();
-          const tipo = tipoMatch?.[1]?.trim()?.toLowerCase();
-
-          if (bairro && tipo) {
-            finalContent = `Encontrei ${tipo === 'apartamentos' || tipo === 'apartamento' ? 'um apartamento' : tipo === 'casas' || tipo === 'casa' ? 'uma casa' : 'uma opção'} no ${bairro} que pode te interessar. Me conta o que achou.`;
-          } else if (bairro) {
-            finalContent = `Separei uma opção no ${bairro} pra você. Me conta o que achou.`;
-          } else {
-            finalContent = `Encontrei uma opção que combina com o que você descreveu. Me conta o que achou.`;
-          }
-        }
-        break;
-      }
+      // Property search hint detected — let the LLM generate a consultive response
+      // based on the rich hint with concrete data, POI, and client profile.
+      // Do NOT bypass the LLM here — the hint contains all the data it needs to
+      // present the property with specific details instead of generic phrases.
 
       // If last iteration, do final call without tools
       if (i === maxIterations - 1) {

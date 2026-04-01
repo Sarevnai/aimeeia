@@ -604,7 +604,7 @@ export async function executePropertySearch(
     ].filter(Boolean).join(', ');
     // Inform if the type was expanded (e.g., client wanted apt but only houses exist in that neighborhood)
     const tipoExpandidoNotice = (args as any)._tipo_expandido
-      ? `\n\n⚠️ AVISO IMPORTANTE: O cliente pediu "${args.tipo_imovel || 'imóvel'}" no ${args.bairro}, mas não encontramos esse tipo lá. Encontramos ${(args as any)._tipos_encontrados} no bairro. Você DEVE informar o cliente dessa situação ANTES de apresentar o imóvel. Exemplo: "No Santa Mônica não encontrei apartamentos disponíveis, mas achei uma casa que pode te interessar. Dá uma olhada!"`
+      ? `\n\n⚠️ AVISO IMPORTANTE: O cliente pediu "${args.tipo_imovel || 'imóvel'}" no ${args.bairro}, mas não encontramos esse tipo lá. Encontramos ${(args as any)._tipos_encontrados} no bairro. Você DEVE informar o cliente dessa situação ANTES de apresentar o imóvel. Exemplo: "No Santa Mônica não encontrei apartamentos disponíveis, mas achei uma casa de 3 quartos por R$ 850 mil que pode funcionar pra você. O que acha?"`
       : '';
     // Build client profile context for personalization
     const clientProfile = [
@@ -616,7 +616,16 @@ export async function executePropertySearch(
     const singularPlural = sentCount === 1
       ? `Use SINGULAR ("esse imóvel", "essa opção"). NÃO pergunte "qual das opções" — só há 1 imóvel. Confirme se o cliente gostou DESTE imóvel específico.`
       : `O cliente recebeu ${sentCount} opções. Pode perguntar qual chamou mais atenção.`;
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto e link. O imóvel principal é: ${propContext}.${tipoExpandidoNotice}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA (APRESENTAÇÃO CONSULTIVA):\n1. Apresente o imóvel com DADOS CONCRETOS: mencione bairro, quartos, preço${sentProp.area_util ? ', metragem' : ''}${sentProp.vagas ? ', vagas' : ''} na sua mensagem.\n2. OBRIGATÓRIO conectar pelo menos 2 critérios que o cliente pediu (bairro, quartos, orçamento, proximidade).\n3. Exemplo BOM: "Esse apartamento no ${sentProp.bairro} tem ${sentProp.quartos} quartos${sentProp.area_util ? ', ' + sentProp.area_util + 'm²' : ''} e fica por ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}, dentro do seu orçamento. O que achou?"\n4. PROIBIDO frases genéricas como "encontrei um imóvel que pode te interessar", "separei uma opção pra você", "dá uma olhadinha". Seja ESPECÍFICA com números e dados reais.\n5. NUNCA invente dados que não existem no imóvel enviado.\n6. Finalize perguntando a opinião do cliente sobre ESTE imóvel específico.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
+    const poiHint = nearbyPlacesText
+      ? `\n\nPONTOS DE REFERÊNCIA PRÓXIMOS: ${nearbyPlacesText}`
+      : '';
+    const poiRule = nearbyPlacesText
+      ? `\n3. OBRIGATÓRIO mencionar pelo menos 1 ponto de referência próximo para posicionar o imóvel (use os dados de PONTOS DE REFERÊNCIA). Ex: "Fica pertinho do ${nearbyPlacesText.split(';')[0]?.trim() || 'centro'}."`
+      : '';
+    const poiExample = nearbyPlacesText
+      ? `, pertinho do ${nearbyPlacesText.split(';')[0]?.trim() || 'centro'}`
+      : '';
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto e link. O imóvel principal é: ${propContext}.${tipoExpandidoNotice}${poiHint}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA (APRESENTAÇÃO CONSULTIVA):\n1. Apresente o imóvel com DADOS CONCRETOS: mencione bairro, quartos, preço${sentProp.area_util ? ', metragem' : ''}${sentProp.vagas ? ', vagas' : ''} na sua mensagem.\n2. OBRIGATÓRIO conectar pelo menos 2 critérios que o cliente pediu (bairro, quartos, orçamento, proximidade).${poiRule}\n4. Exemplo BOM: "Esse ${sentProp.tipo || 'apartamento'} no ${sentProp.bairro} tem ${sentProp.quartos} quartos${sentProp.area_util ? ', ' + sentProp.area_util + 'm²' : ''} e fica por ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}${poiExample}. O que achou?"\n5. PROIBIDO frases genéricas como "encontrei um imóvel que pode te interessar", "separei uma opção pra você", "dá uma olhadinha", "me conta o que achou". Seja ESPECÍFICA com números, dados reais e localização.\n6. NUNCA invente dados que não existem no imóvel enviado.\n7. Finalize perguntando a opinião do cliente sobre ESTE imóvel específico de forma consultiva.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
     const remainingHint = remaining > 0
       ? `\n\n[FILA] Restam ${remaining} imóvel(is). Quando o cliente pedir mais opções, alterar critérios (mais quartos, outro bairro, mais suítes), ou não gostar, CHAME buscar_imoveis com os critérios atualizados. NÃO responda com texto genérico pedindo mais informações se já tem o perfil do cliente.`

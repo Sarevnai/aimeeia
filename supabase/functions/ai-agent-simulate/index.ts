@@ -112,7 +112,17 @@ serve(async (req: Request) => {
     }
     if (!conversation_id) return errorResponse('Failed to create simulation conversation', 500);
 
-    // Get or create simulation contact
+    // If client_name provided via template, update contact FIRST (before reading it)
+    const templateClientName = simulate_template?.client_name?.trim();
+    if (templateClientName) {
+      await supabase
+        .from('contacts')
+        .update({ name: templateClientName })
+        .eq('tenant_id', tenant_id)
+        .eq('phone', simPhone);
+    }
+
+    // Get or create simulation contact (reads AFTER any client_name update)
     let contact_id: string | null = null;
     const { data: existingContact } = await supabase
       .from('contacts')
@@ -124,25 +134,18 @@ serve(async (req: Request) => {
     if (existingContact) {
       contact_id = existingContact.id;
     } else {
+      const insertName = templateClientName || 'Cliente';
       const { data: newContact } = await supabase
         .from('contacts')
-        .insert({ tenant_id, phone: simPhone, name: 'Cliente', channel_source: 'simulation' })
+        .insert({ tenant_id, phone: simPhone, name: insertName, channel_source: 'simulation' })
         .select('id')
         .single();
       contact_id = newContact?.id || null;
     }
 
-    // Fix H: Use 'Cliente' instead of 'Simulação' — avoids the AI calling the user "Simulação"
-    // If client_name provided via template, use it and persist to DB
-    const templateClientName = simulate_template?.client_name?.trim();
-    let contactName = existingContact?.name === 'Simulação' ? 'Cliente' : (existingContact?.name || 'Cliente');
-
-    if (templateClientName) {
-      contactName = templateClientName;
-      if (contact_id) {
-        await supabase.from('contacts').update({ name: templateClientName }).eq('id', contact_id);
-      }
-    }
+    // contactName: use client_name if provided, else fallback to DB value
+    const contactName = templateClientName
+      || (existingContact?.name === 'Simulação' ? 'Cliente' : (existingContact?.name || 'Cliente'));
 
     // ========== TEMPLATE SIMULATION ==========
 

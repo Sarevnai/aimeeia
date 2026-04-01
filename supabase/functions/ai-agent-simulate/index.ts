@@ -340,6 +340,10 @@ serve(async (req: Request) => {
       }
     }
 
+    // ========== DECRYPT API KEY (needed for MC-1 handoff and agent invocation) ==========
+    const tenantApiKey = await decryptApiKey((aiConfig as any)?.api_key_encrypted);
+    const tenantProvider = (aiConfig as any)?.ai_provider || 'openai';
+
     // ========== MC-1 HANDOFF DETECTION ==========
 
     const qualScore = calculateQualificationScore(mergedQual);
@@ -489,10 +493,6 @@ serve(async (req: Request) => {
       .order('sort_order', { ascending: true });
 
     const currentModuleSlug = state?.current_module_slug || null;
-
-    // Decrypt API key
-    const tenantApiKey = await decryptApiKey((aiConfig as any)?.api_key_encrypted);
-    const tenantProvider = (aiConfig as any)?.ai_provider || 'openai';
 
     // Load remarketing context
     let remarketingContext: string | null = null;

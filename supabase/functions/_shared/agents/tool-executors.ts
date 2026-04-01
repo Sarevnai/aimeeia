@@ -38,14 +38,17 @@ export async function generatePropertyCaption(
   const clientContext = clientNeeds ? `\nO que o cliente busca: ${clientNeeds}` : '';
   const geoContext = nearbyPlaces ? `\nPontos próximos ao imóvel: ${nearbyPlaces}` : '';
 
-  const systemPrompt = `Você é ${agentName}, consultora imobiliária apresentando UM imóvel para um cliente via WhatsApp. Escreva 3 a 4 frases curtas e naturais, como uma pessoa de verdade falando.
+  const systemPrompt = `Você é ${agentName}, consultora imobiliária VIP apresentando UM imóvel para um cliente via WhatsApp. Escreva 3 a 5 frases curtas e naturais, como uma consultora atenciosa falando com alguém que ela conhece.
 
 ESTRUTURA OBRIGATÓRIA:
-1. Comece conectando o imóvel ao que o cliente pediu (ex: "Achei esse apartamento no Centro que combina bem com o que você descreveu")
-2. Descreva brevemente o imóvel (tipo, bairro, preço, diferenciais) de forma fluida
-3. Se houver informação de pontos próximos, mencione UMA facilidade de acesso de forma natural (ex: "Fica a 500m do supermercado X" ou "Tem escola bem pertinho")
+1. PRIMEIRA FRASE: conecte o imóvel DIRETAMENTE ao critério mais importante do cliente. Use os dados exatos que o cliente informou (bairro, quartos, orçamento). Ex: "Esse aqui é no Centro, com 3 quartos e tá dentro do seu orçamento de R$ 1,2M."
+2. SEGUNDA FRASE: mencione um diferencial concreto do imóvel (área, vagas, suítes, condomínio) que agregue valor. Ex: "Tem 95m², 2 vagas e o condomínio é R$ 800."
+3. TERCEIRA FRASE (se houver dados de geolocalização): mencione proximidade a algo relevante pro cliente de forma natural. Ex: "E tem uma escola a 300m, que você mencionou ser importante."
+4. ÚLTIMA FRASE: pergunte a opinião do cliente de forma consultiva. Ex: "O que acha? Quer que eu busque mais opções ou esse te interessou?"
 
-Regras obrigatórias: português brasileiro, texto corrido e conversacional (nunca lista), PROIBIDO copiar ou parafrasear a descrição do anúncio original, PROIBIDO usar travessão (— ou –), PROIBIDO usar emojis, PROIBIDO expressões de anúncio como "segue", "confira", "não perca", "oportunidade", "venha conhecer", "destaque". O texto deve soar como uma conversa curta e pessoal, não como um anúncio.`;
+REGRA CRÍTICA: Você DEVE mencionar pelo menos 2 critérios específicos que o cliente pediu (bairro, quartos, preço, tipo) na apresentação. NUNCA apresente de forma genérica como "achei um apartamento que pode te interessar". Seja ESPECÍFICA e CONSULTIVA.
+
+Regras de formato: português brasileiro, texto corrido e conversacional (nunca lista), PROIBIDO copiar ou parafrasear a descrição do anúncio original, PROIBIDO usar travessão (— ou –), PROIBIDO usar emojis, PROIBIDO expressões de anúncio como "segue", "confira", "não perca", "oportunidade", "venha conhecer", "destaque". O texto deve soar como uma conversa pessoal de consultora, não como um anúncio.`;
 
   try {
     const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY') || '';
@@ -67,7 +70,7 @@ Regras obrigatórias: português brasileiro, texto corrido e conversacional (nun
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userContent },
         ],
-        max_tokens: 250,
+        max_tokens: 350,
         temperature: 0.7,
       }),
     });
@@ -429,13 +432,16 @@ export async function executePropertySearch(
     const { sendWhatsAppMessage: sendMsg } = await import('../whatsapp.ts');
     const prop = formattedProperties[0];
 
-    // Construir contexto do que o cliente busca para personalizar a apresentação
+    // Construir contexto RICO do que o cliente busca — combina args da busca + qualificação completa
+    const qual = ctx.qualificationData || {};
     const clientNeeds = [
-      args.finalidade ? `Finalidade: ${args.finalidade}` : null,
-      args.tipo_imovel ? `Tipo: ${args.tipo_imovel}` : null,
-      args.bairro ? `Bairro desejado: ${args.bairro}` : null,
-      args.quartos ? `Quartos: ${args.quartos}` : null,
-      clientBudget ? `Orçamento: até ${formatCurrency(clientBudget)}` : null,
+      args.finalidade || qual.detected_interest ? `Finalidade: ${args.finalidade || (qual.detected_interest === 'locacao' ? 'locação' : 'venda')}` : null,
+      args.tipo_imovel || qual.detected_property_type ? `Tipo desejado: ${args.tipo_imovel || qual.detected_property_type}` : null,
+      args.bairro || qual.detected_neighborhood ? `Bairro que o cliente pediu: ${args.bairro || qual.detected_neighborhood}` : null,
+      args.quartos || qual.detected_bedrooms ? `Quartos: ${args.quartos || qual.detected_bedrooms}` : null,
+      clientBudget || qual.detected_budget_max ? `Orçamento do cliente: até ${formatCurrency(clientBudget || Number(qual.detected_budget_max))}` : null,
+      qual.detected_timeline ? `Prazo: ${qual.detected_timeline}` : null,
+      ctx.contactName && ctx.contactName !== 'Cliente' ? `Nome do cliente: ${ctx.contactName}` : null,
     ].filter(Boolean).join(', ');
 
     // Buscar pontos de interesse próximos para enriquecer a apresentação

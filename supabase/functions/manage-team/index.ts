@@ -80,20 +80,33 @@ serve(async (req: Request) => {
 
         const { data: callerProfile, error: profileErr } = await admin
             .from('profiles')
-            .select('role')
+            .select('role, tenant_id')
             .eq('id', callerUser.id)
             .single();
 
         console.log('🔍 [DIAG] Profile lookup:', callerProfile ? `role=${callerProfile.role}` : `error=${profileErr?.message}`);
 
-        if (profileErr || callerProfile?.role !== 'super_admin') {
-            return errorResponse('Forbidden: requires super_admin role', 403);
+        const callerRole = callerProfile?.role;
+        const callerTenantId = callerProfile?.tenant_id;
+        const isSuperAdmin = callerRole === 'super_admin';
+        const isAdmin = callerRole === 'admin';
+
+        if (profileErr || (!isSuperAdmin && !isAdmin)) {
+            return errorResponse('Forbidden: requires admin or super_admin role', 403);
         }
 
         // ── Route action ─────────────────────────────────────────────────
         const body = await req.json();
         const { action } = body;
-        console.log('✅ [DIAG] Auth passed. Action:', action);
+        console.log('✅ [DIAG] Auth passed. Action:', action, '| Role:', callerRole);
+
+        // Admin (non-super) can only operate on their own tenant
+        if (isAdmin && !isSuperAdmin) {
+            const targetTenantId = body.tenant_id;
+            if (targetTenantId && targetTenantId !== callerTenantId) {
+                return errorResponse('Forbidden: admin can only manage their own tenant', 403);
+            }
+        }
 
         if (action === 'create_user') {
             return await createUser(admin, body);

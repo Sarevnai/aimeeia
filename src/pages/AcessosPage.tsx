@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, MoreVertical, Pencil, Trash2, Copy, Loader2, RefreshCw } from 'lucide-react';
+import { Shield, MoreVertical, Pencil, Trash2, Copy, Loader2, RefreshCw, UserPlus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +32,7 @@ import PageHeader from '@/components/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTenant } from '@/contexts/TenantContext';
 import { supabase } from '@/integrations/supabase/client';
+import CreateUserDialog from '@/components/acessos/CreateUserDialog';
 
 // --- Types ---
 interface TeamMember {
@@ -69,6 +70,7 @@ const AcessosPage: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [accessCode, setAccessCode] = useState<string | null>(null);
+  const [showCreateUser, setShowCreateUser] = useState(false);
 
   const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
 
@@ -228,10 +230,16 @@ const AcessosPage: React.FC = () => {
 
       {/* Tabela de Membros */}
       <Card className="border-border shadow-sm">
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between">
           <CardTitle className="text-lg font-display font-semibold text-foreground">
             Equipe ({members.length})
           </CardTitle>
+          {isAdmin && (
+            <Button size="sm" onClick={() => setShowCreateUser(true)} className="gap-2">
+              <UserPlus className="h-4 w-4" />
+              Novo usuário
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           {/* Table Header */}
@@ -341,6 +349,16 @@ const AcessosPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Diálogo de Criação de Usuário */}
+      {tenantId && (
+        <CreateUserDialog
+          open={showCreateUser}
+          onOpenChange={setShowCreateUser}
+          tenantId={tenantId}
+          onUserCreated={loadMembers}
+        />
+      )}
 
       {/* Diálogo de Confirmação de Exclusão */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

@@ -109,6 +109,10 @@ serve(async (req: Request) => {
         }
 
         if (action === 'create_user') {
+            // Only super_admin can create super_admin users
+            if (body.role === 'super_admin' && !isSuperAdmin) {
+                return errorResponse('Only super_admin can create super_admin users', 403);
+            }
             return await createUser(admin, body);
         }
 
@@ -140,20 +144,25 @@ serve(async (req: Request) => {
 async function createUser(admin: any, body: any): Promise<Response> {
     const { email, password, full_name, tenant_id, role } = body;
 
-    if (!email || !password || !full_name || !tenant_id || !role) {
-        return errorResponse('Missing required fields: email, password, full_name, tenant_id, role', 400);
+    if (!email || !password || !full_name || !role) {
+        return errorResponse('Missing required fields: email, password, full_name, role', 400);
     }
 
-    const allowedRoles = ['admin', 'operator', 'viewer'];
+    const allowedRoles = ['admin', 'operator', 'viewer', 'super_admin'];
     if (!allowedRoles.includes(role)) {
         return errorResponse(`Invalid role. Must be one of: ${allowedRoles.join(', ')}`, 400);
+    }
+
+    // super_admin users don't need tenant_id; all others do
+    if (role !== 'super_admin' && !tenant_id) {
+        return errorResponse('tenant_id is required for non-super_admin users', 400);
     }
 
     if (password.length < 8) {
         return errorResponse('Password must be at least 8 characters', 400);
     }
 
-    console.log(`👤 Creating user ${email} in tenant ${tenant_id} as ${role}`);
+    console.log(`👤 Creating user ${email} in tenant ${tenant_id || 'PLATFORM (super_admin)'} as ${role}`);
 
     const { data, error } = await admin.auth.admin.createUser({
         email,

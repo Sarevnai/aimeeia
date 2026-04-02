@@ -15,6 +15,7 @@ import {
     Megaphone,
     Brain,
     FlaskConical,
+    ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -69,6 +70,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
         {
             label: 'Operações',
             items: [
+                { label: 'Administradores', icon: ShieldCheck, path: '/admin/users' },
                 { label: 'Métricas', icon: TrendingUp, path: '/admin/metrics' },
                 { label: 'Logs de Erro', icon: FileText, path: '/admin/metrics' },
             ],

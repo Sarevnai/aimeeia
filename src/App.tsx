@@ -45,6 +45,7 @@ import AgentDetailPage from "@/pages/admin/AgentDetailPage";
 import AgentGlobalSettingsPage from "@/pages/admin/AgentGlobalSettingsPage";
 
 import AdminModulosPage from "@/pages/admin/AdminModulosPage";
+import AdminUsersPage from "@/pages/admin/AdminUsersPage";
 
 // AI Lab
 import LabLayout from "@/pages/admin/lab/LabLayout";
@@ -105,6 +106,7 @@ const App = () => (
                   <Route path="metrics" element={<AdminMetricsPage />} />
                   <Route path="campanhas" element={<AdminCampaignsPage />} />
 
+                  <Route path="users" element={<AdminUsersPage />} />
                   <Route path="modulos" element={<AdminModulosPage />} />
                   <Route path="lab" element={<LabLayout />}>
                     <Route index element={<LabSimulatorPage />} />

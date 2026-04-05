@@ -195,7 +195,12 @@ serve(async (req: Request) => {
           "AreaPrivativa", "Caracteristicas", "InfraEstrutura",
           "FotoDestaque", "FotoDestaquePequena", "TourVirtual",
           "Latitude", "Longitude", "DataAtualizacao", "DataCadastro",
-          "Mobiliado", "DescricaoWeb", "TipoImovel"
+          "Mobiliado", "DescricaoWeb", "TipoImovel",
+          // Fase 1: campos para enriquecimento semântico
+          "AndarDoApto", "Sacada", "SacadaComChurrasqueira",
+          "VistaPanoramica", "Face", "ProntoMorar", "Reformado",
+          "Lancamento", "EmObras", "PadraoConstrucao", "Edificio",
+          "Descricao", "AnoConstrucao"
         ],
         paginacao: {
           pagina: currentPage,
@@ -277,12 +282,31 @@ serve(async (req: Request) => {
             ? `${imovel.Categoria} em ${neighborhood}`.trim()
             : `Imóvel em ${neighborhood}`.trim();
 
-          const semanticText = `Imóvel ${transactionLabel}: ${titleText}. ${imovel.TipoImovel || ''} em ${neighborhood}, ${city}. Preço: R$ ${price || 'sob consulta'}. ${bedrooms} quartos, ${isNaN(bathrooms) ? 0 : bathrooms} banheiros, ${parkingSpaces} vagas. Área: ${area}m². ${descTrunc}`;
+          // Montar extras semânticos a partir dos campos enriquecidos
+          const extras: string[] = [];
+          if (imovel.Edificio) extras.push(`Edifício ${imovel.Edificio}`);
+          if (imovel.AndarDoApto) extras.push(`${imovel.AndarDoApto}º andar`);
+          if (imovel.Face) extras.push(`face ${imovel.Face}`);
+          if (imovel.VistaPanoramica === 'Sim') extras.push('vista panorâmica');
+          if (imovel.Sacada === 'Sim' || imovel.SacadaComChurrasqueira === 'Sim') {
+            extras.push(imovel.SacadaComChurrasqueira === 'Sim' ? 'sacada com churrasqueira' : 'sacada');
+          }
+          if (imovel.ProntoMorar === 'Sim') extras.push('pronto para morar');
+          if (imovel.Reformado === 'Sim') extras.push('reformado');
+          if (imovel.Lancamento === 'Sim' || imovel.EmObras === 'Sim') extras.push('lançamento/em obras');
+          if (imovel.Mobiliado === 'Sim') extras.push('mobiliado');
+          if (imovel.PadraoConstrucao) extras.push(`padrão ${imovel.PadraoConstrucao}`);
+          if (imovel.AnoConstrucao) extras.push(`construído em ${imovel.AnoConstrucao}`);
+          const condominioVal = imovel.ValorCondominio ? parseFloat(String(imovel.ValorCondominio)) : 0;
+          if (condominioVal > 0) extras.push(`condomínio R$ ${condominioVal}`);
+          const extrasText = extras.length > 0 ? extras.join('. ') + '.' : '';
+
+          const semanticText = `Imóvel ${transactionLabel}: ${titleText}. ${imovel.TipoImovel || ''} em ${neighborhood}, ${city}. Preço: R$ ${price || 'sob consulta'}. ${bedrooms} quartos, ${isNaN(bathrooms) ? 0 : bathrooms} banheiros, ${parkingSpaces} vagas. Área: ${area}m². ${extrasText} ${descTrunc}`;
 
           let embedding: number[] | null = null;
           try {
-            embedding = await generateEmbedding(semanticText, { supabase, tenant_id });
-            await new Promise(r => setTimeout(r, 100)); // throttle OpenAI calls
+            embedding = await generateEmbedding(semanticText, { supabase, tenant_id }, 'RETRIEVAL_DOCUMENT');
+            await new Promise(r => setTimeout(r, 100)); // throttle API calls
           } catch (e) {
             console.warn(`Embedding failed for ${codigo}: ${e.message}`);
           }

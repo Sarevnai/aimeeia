@@ -17,8 +17,7 @@ function buildSemanticText(record: any): string {
   const rawData = record.raw_data || {};
   let description = record.description || '';
 
-  // Extract features
-  let featuresText = '';
+  // Extract features (Caracteristicas + InfraEstrutura)
   const extractFeatures = (featuresObj: any) => {
     if (!featuresObj || typeof featuresObj !== 'object') return [];
     const positiveFeatures: string[] = [];
@@ -34,10 +33,28 @@ function buildSemanticText(record: any): string {
     ...extractFeatures(rawData.Caracteristicas),
     ...extractFeatures(rawData.InfraEstrutura),
   ];
+  const featuresText = allFeatures.length > 0
+    ? `O condomínio e o imóvel oferecem: ${allFeatures.join(', ')}.`
+    : '';
 
-  if (allFeatures.length > 0) {
-    featuresText = `O condomínio e o imóvel oferecem: ${allFeatures.join(', ')}.`;
+  // Extras semânticos dos campos enriquecidos
+  const extras: string[] = [];
+  if (rawData.Edificio) extras.push(`Edifício ${rawData.Edificio}`);
+  if (rawData.AndarDoApto) extras.push(`${rawData.AndarDoApto}º andar`);
+  if (rawData.Face) extras.push(`face ${rawData.Face}`);
+  if (rawData.VistaPanoramica === 'Sim') extras.push('vista panorâmica');
+  if (rawData.Sacada === 'Sim' || rawData.SacadaComChurrasqueira === 'Sim') {
+    extras.push(rawData.SacadaComChurrasqueira === 'Sim' ? 'sacada com churrasqueira' : 'sacada');
   }
+  if (rawData.ProntoMorar === 'Sim') extras.push('pronto para morar');
+  if (rawData.Reformado === 'Sim') extras.push('reformado');
+  if (rawData.Lancamento === 'Sim' || rawData.EmObras === 'Sim') extras.push('lançamento/em obras');
+  if (rawData.Mobiliado === 'Sim') extras.push('mobiliado');
+  if (rawData.PadraoConstrucao) extras.push(`padrão ${rawData.PadraoConstrucao}`);
+  if (rawData.AnoConstrucao) extras.push(`construído em ${rawData.AnoConstrucao}`);
+  const condVal = rawData.ValorCondominio ? parseFloat(String(rawData.ValorCondominio)) : 0;
+  if (condVal > 0) extras.push(`condomínio R$ ${condVal}`);
+  const extrasText = extras.length > 0 ? extras.join('. ') + '.' : '';
 
   if (description.length > 500) {
     description = description.substring(0, 500);
@@ -46,7 +63,7 @@ function buildSemanticText(record: any): string {
     description = `Descrição: ${description}`;
   }
 
-  return `Imóvel para venda em ${city}, bairro ${neighborhood}. Preço: R$ ${price}. Tem ${bedrooms} quartos e ${parkingSpaces} vagas. ${featuresText} ${description} ${title}`.trim();
+  return `Imóvel em ${city}, bairro ${neighborhood}. Preço: R$ ${price}. Tem ${bedrooms} quartos e ${parkingSpaces} vagas. ${extrasText} ${featuresText} ${description} ${title}`.trim();
 }
 
 serve(async (req: Request) => {

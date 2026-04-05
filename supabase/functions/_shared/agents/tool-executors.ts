@@ -446,26 +446,42 @@ export async function executePropertySearch(
       ctx.contactName && ctx.contactName !== 'Cliente' ? `Nome do cliente: ${ctx.contactName}` : null,
     ].filter(Boolean).join(', ');
 
-    // Buscar pontos de interesse próximos para enriquecer a apresentação
+    // Buscar pontos de interesse: primeiro tenta cache (google_pois), fallback pra API
     let nearbyPlacesText = '';
     try {
-      const { data: propGeo } = await ctx.supabase
+      const { data: propData } = await ctx.supabase
         .from('properties')
-        .select('latitude, longitude')
+        .select('latitude, longitude, raw_data')
         .eq('tenant_id', ctx.tenantId)
         .eq('external_id', prop.codigo)
         .maybeSingle();
 
-      if (propGeo?.latitude && propGeo?.longitude) {
-        // Search multiple POI types to enrich the property description
+      const cachedPois = propData?.raw_data?.google_pois as any[] | undefined;
+
+      if (cachedPois && cachedPois.length > 0) {
+        // Usar POIs pré-computados (instantâneo, sem chamada à API)
+        const uniqueTypes = new Set<string>();
+        const selected: any[] = [];
+        for (const poi of cachedPois) {
+          if (!uniqueTypes.has(poi.type) && selected.length < 3) {
+            uniqueTypes.add(poi.type);
+            const distStr = poi.distance_m > 1000
+              ? `${(poi.distance_m / 1000).toFixed(1)}km`
+              : `${poi.distance_m}m`;
+            selected.push(`${poi.name} a ${distStr}`);
+          }
+        }
+        nearbyPlacesText = selected.join('; ');
+      } else if (propData?.latitude && propData?.longitude) {
+        // Fallback: chamada à API Google (imóvel sem cache)
         const poiTypes = ['supermarket', 'school', 'restaurant'];
         const allPlaces: string[] = [];
         for (const poiType of poiTypes) {
           try {
             const { data: poiData } = await ctx.supabase.functions.invoke('get-nearby-places', {
               body: {
-                latitude: propGeo.latitude,
-                longitude: propGeo.longitude,
+                latitude: propData.latitude,
+                longitude: propData.longitude,
                 radius: 1500,
                 type: poiType,
               }
@@ -482,7 +498,7 @@ export async function executePropertySearch(
         nearbyPlacesText = allPlaces.slice(0, 3).join('; ');
       }
     } catch (geoErr) {
-      console.warn('⚠️ Geolocation enrichment failed, proceeding without:', (geoErr as Error).message);
+      console.warn('⚠️ POI enrichment failed, proceeding without:', (geoErr as Error).message);
     }
 
     const aiCaption = await generatePropertyCaption(prop, agentName, clientNeeds, nearbyPlacesText, { supabase: ctx.supabase, tenant_id: ctx.tenantId, conversation_id: ctx.conversationId });

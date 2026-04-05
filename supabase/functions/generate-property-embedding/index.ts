@@ -90,6 +90,22 @@ serve(async (req: Request) => {
     if (descBairro.length > 300) descBairro = descBairro.substring(0, 300);
     const bairroContext = descBairro ? `Sobre o bairro: ${descBairro}` : '';
 
+    // Google POIs pré-computados
+    let poisText = '';
+    const googlePois = rawData.google_pois as any[] | undefined;
+    if (googlePois && googlePois.length > 0) {
+      const uniqueTypes = new Set<string>();
+      const selected: string[] = [];
+      for (const poi of googlePois) {
+        if (!uniqueTypes.has(poi.type) && selected.length < 5) {
+          uniqueTypes.add(poi.type);
+          const dist = poi.distance_m > 1000 ? `${(poi.distance_m / 1000).toFixed(1)}km` : `${poi.distance_m}m`;
+          selected.push(`${poi.name} (${dist})`);
+        }
+      }
+      poisText = `Próximo a: ${selected.join(', ')}.`;
+    }
+
     if (description.length > 500) {
       description = description.substring(0, 500);
     }
@@ -97,7 +113,7 @@ serve(async (req: Request) => {
       description = `Descrição: ${description}`;
     }
 
-    const propertyTextToEmbed = `Imóvel em ${city}, bairro ${neighborhood}. Preço: R$ ${price}. Tem ${bedrooms} quartos e ${parkingSpaces} vagas. ${extrasText} ${imediacoes} ${bairroContext} ${featuresText} ${description} ${title}`.trim();
+    const propertyTextToEmbed = `Imóvel em ${city}, bairro ${neighborhood}. Preço: R$ ${price}. Tem ${bedrooms} quartos e ${parkingSpaces} vagas. ${extrasText} ${poisText} ${imediacoes} ${bairroContext} ${featuresText} ${description} ${title}`.trim();
 
     console.log(`Generating Gemini embedding for property ${propertyId}...`);
 

@@ -91,7 +91,7 @@ serve(async (req: Request) => {
     for (const prop of properties) {
       try {
         const semanticText = buildSemanticText(prop);
-        const embedding = await generateEmbedding(semanticText, { supabase });
+        const embedding = await generateEmbedding(semanticText, { supabase }, 'RETRIEVAL_DOCUMENT');
 
         const { error: updateErr } = await supabase
           .from('properties')

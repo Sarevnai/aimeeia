@@ -123,7 +123,8 @@ function buildFallbackCaption(property: PropertyResult): string {
 
 export async function generateEmbedding(
   text: string,
-  traceCtx?: { supabase: any; tenant_id?: string }
+  traceCtx?: { supabase: any; tenant_id?: string },
+  taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY' = 'RETRIEVAL_QUERY',
 ): Promise<number[]> {
   const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
   if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not configured for embeddings');
@@ -138,6 +139,7 @@ export async function generateEmbedding(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: { parts: [{ text }] },
+        taskType,
         outputDimensionality: 768,
       }),
     },

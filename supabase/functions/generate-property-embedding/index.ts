@@ -75,7 +75,7 @@ serve(async (req: Request) => {
 
     console.log(`Generating Gemini embedding for property ${propertyId}...`);
 
-    const embedding = await generateEmbedding(propertyTextToEmbed, { supabase });
+    const embedding = await generateEmbedding(propertyTextToEmbed, { supabase }, 'RETRIEVAL_DOCUMENT');
 
     const { error: updateErr } = await supabase
       .from('properties')

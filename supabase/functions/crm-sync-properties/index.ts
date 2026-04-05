@@ -200,7 +200,9 @@ serve(async (req: Request) => {
           "AndarDoApto", "Sacada", "SacadaComChurrasqueira",
           "VistaPanoramica", "Face", "ProntoMorar", "Reformado",
           "Lancamento", "EmObras", "PadraoConstrucao", "Edificio",
-          "Descricao", "AnoConstrucao"
+          "Descricao", "AnoConstrucao",
+          // Fase 2: contexto geográfico e proximidades
+          "Imediacoes", "DescricaoBairro"
         ],
         paginacao: {
           pagina: currentPage,
@@ -301,7 +303,13 @@ serve(async (req: Request) => {
           if (condominioVal > 0) extras.push(`condomínio R$ ${condominioVal}`);
           const extrasText = extras.length > 0 ? extras.join('. ') + '.' : '';
 
-          const semanticText = `Imóvel ${transactionLabel}: ${titleText}. ${imovel.TipoImovel || ''} em ${neighborhood}, ${city}. Preço: R$ ${price || 'sob consulta'}. ${bedrooms} quartos, ${isNaN(bathrooms) ? 0 : bathrooms} banheiros, ${parkingSpaces} vagas. Área: ${area}m². ${extrasText} ${descTrunc}`;
+          // Fase 2: Contexto geográfico (imediações + descrição do bairro)
+          const imediacoes = imovel.Imediacoes ? `Proximidades: ${imovel.Imediacoes}.` : '';
+          let descBairro = imovel.DescricaoBairro || '';
+          if (descBairro.length > 300) descBairro = descBairro.substring(0, 300);
+          const bairroContext = descBairro ? `Sobre o bairro: ${descBairro}` : '';
+
+          const semanticText = `Imóvel ${transactionLabel}: ${titleText}. ${imovel.TipoImovel || ''} em ${neighborhood}, ${city}. Preço: R$ ${price || 'sob consulta'}. ${bedrooms} quartos, ${isNaN(bathrooms) ? 0 : bathrooms} banheiros, ${parkingSpaces} vagas. Área: ${area}m². ${extrasText} ${imediacoes} ${bairroContext} ${descTrunc}`;
 
           let embedding: number[] | null = null;
           try {

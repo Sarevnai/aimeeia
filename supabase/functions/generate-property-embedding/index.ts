@@ -84,6 +84,12 @@ serve(async (req: Request) => {
     if (condVal > 0) extras.push(`condomínio R$ ${condVal}`);
     const extrasText = extras.length > 0 ? extras.join('. ') + '.' : '';
 
+    // Fase 2: Contexto geográfico (imediações + descrição do bairro)
+    const imediacoes = rawData.Imediacoes ? `Proximidades: ${rawData.Imediacoes}.` : '';
+    let descBairro = rawData.DescricaoBairro || '';
+    if (descBairro.length > 300) descBairro = descBairro.substring(0, 300);
+    const bairroContext = descBairro ? `Sobre o bairro: ${descBairro}` : '';
+
     if (description.length > 500) {
       description = description.substring(0, 500);
     }
@@ -91,7 +97,7 @@ serve(async (req: Request) => {
       description = `Descrição: ${description}`;
     }
 
-    const propertyTextToEmbed = `Imóvel em ${city}, bairro ${neighborhood}. Preço: R$ ${price}. Tem ${bedrooms} quartos e ${parkingSpaces} vagas. ${extrasText} ${featuresText} ${description} ${title}`.trim();
+    const propertyTextToEmbed = `Imóvel em ${city}, bairro ${neighborhood}. Preço: R$ ${price}. Tem ${bedrooms} quartos e ${parkingSpaces} vagas. ${extrasText} ${imediacoes} ${bairroContext} ${featuresText} ${description} ${title}`.trim();
 
     console.log(`Generating Gemini embedding for property ${propertyId}...`);
 

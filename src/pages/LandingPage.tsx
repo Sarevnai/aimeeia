@@ -8,6 +8,8 @@
  * DemoSheetContext (definido inline abaixo) para evitar prop drilling.
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import LandingNavbar from "@/components/landing/LandingNavbar";
+import LandingFooter from "@/components/landing/LandingFooter";
 
 // ── Demo Sheet Context ──────────────────────────────────────────────────────
 interface DemoSheetContextValue {
@@ -58,16 +60,20 @@ export default function LandingPage() {
 
   return (
     <DemoSheetProvider>
-      <main className="min-h-screen bg-background text-foreground">
-        <div className="container mx-auto px-4 py-32 text-center">
-          <h1 className="text-4xl font-bold tracking-tight">
-            Aimee<span className="text-accent">.iA</span>
-          </h1>
-          <p className="mt-4 text-muted-foreground">
-            Landing em construcao — secoes serao adicionadas em commits seguintes.
-          </p>
-        </div>
-      </main>
+      <div className="flex min-h-screen flex-col bg-background text-foreground">
+        <LandingNavbar />
+        <main className="flex-1">
+          <div className="container mx-auto flex min-h-[60vh] flex-col items-center justify-center px-4 py-32 text-center">
+            <h1 className="text-4xl font-bold tracking-tight">
+              Aimee<span className="text-accent">.iA</span>
+            </h1>
+            <p className="mt-4 text-muted-foreground">
+              Seções adicionais serão construídas nos próximos commits.
+            </p>
+          </div>
+        </main>
+        <LandingFooter />
+      </div>
     </DemoSheetProvider>
   );
 }

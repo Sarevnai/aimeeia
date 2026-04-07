@@ -13,6 +13,8 @@ import LandingHero from "@/components/landing/LandingHero";
 import LandingTrustStrip from "@/components/landing/LandingTrustStrip";
 import LandingFeatures from "@/components/landing/LandingFeatures";
 import LandingHowItWorks from "@/components/landing/LandingHowItWorks";
+import LandingDashboardShowcase from "@/components/landing/LandingDashboardShowcase";
+import LandingIntegrations from "@/components/landing/LandingIntegrations";
 import LandingFooter from "@/components/landing/LandingFooter";
 
 // ── Demo Sheet Context ──────────────────────────────────────────────────────
@@ -71,6 +73,8 @@ export default function LandingPage() {
           <LandingTrustStrip />
           <LandingFeatures />
           <LandingHowItWorks />
+          <LandingDashboardShowcase />
+          <LandingIntegrations />
         </main>
         <LandingFooter />
       </div>

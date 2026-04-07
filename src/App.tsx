@@ -8,6 +8,7 @@ import { TenantProvider } from "@/contexts/TenantContext";
 import { DepartmentFilterProvider } from "@/contexts/DepartmentFilterContext";
 import AppLayout from "@/components/AppLayout";
 import AuthPage from "@/pages/AuthPage";
+import LandingPage from "@/pages/LandingPage";
 import DashboardPage from "@/pages/DashboardPage";
 import InboxPage from "@/pages/InboxPage";
 import ChatPage from "@/pages/ChatPage";
@@ -69,6 +70,7 @@ const App = () => (
             <DepartmentFilterProvider>
               <Routes>
                 <Route path="/auth" element={<AuthPage />} />
+                <Route path="/landing" element={<LandingPage />} />
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/inbox" element={<InboxPage />} />

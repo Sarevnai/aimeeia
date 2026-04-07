@@ -14,7 +14,7 @@
 import { ArrowRight, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useDemoSheet } from "@/pages/LandingPage";
+import { useDemoSheet } from "@/components/landing/demo-sheet-context";
 
 export default function LandingHero() {
   const { open: openDemo } = useDemoSheet();

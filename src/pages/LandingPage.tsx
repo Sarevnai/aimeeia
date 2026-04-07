@@ -7,7 +7,8 @@
  * Estado de abertura do DemoRequestSheet vive aqui e e exposto via
  * DemoSheetContext (definido inline abaixo) para evitar prop drilling.
  */
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { useEffect } from "react";
+import { DemoSheetProvider } from "@/components/landing/demo-sheet-context";
 import LandingNavbar from "@/components/landing/LandingNavbar";
 import LandingHero from "@/components/landing/LandingHero";
 import LandingTrustStrip from "@/components/landing/LandingTrustStrip";
@@ -18,38 +19,6 @@ import LandingIntegrations from "@/components/landing/LandingIntegrations";
 import LandingFAQ from "@/components/landing/LandingFAQ";
 import LandingCtaFinal from "@/components/landing/LandingCtaFinal";
 import LandingFooter from "@/components/landing/LandingFooter";
-
-// ── Demo Sheet Context ──────────────────────────────────────────────────────
-interface DemoSheetContextValue {
-  isOpen: boolean;
-  open: () => void;
-  close: () => void;
-}
-
-const DemoSheetContext = createContext<DemoSheetContextValue | null>(null);
-
-export function useDemoSheet() {
-  const ctx = useContext(DemoSheetContext);
-  if (!ctx) {
-    throw new Error("useDemoSheet deve ser usado dentro de <LandingPage>");
-  }
-  return ctx;
-}
-
-function DemoSheetProvider({ children }: { children: ReactNode }) {
-  const [isOpen, setIsOpen] = useState(false);
-  return (
-    <DemoSheetContext.Provider
-      value={{
-        isOpen,
-        open: () => setIsOpen(true),
-        close: () => setIsOpen(false),
-      }}
-    >
-      {children}
-    </DemoSheetContext.Provider>
-  );
-}
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function LandingPage() {

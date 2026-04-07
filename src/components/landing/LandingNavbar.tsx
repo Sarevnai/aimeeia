@@ -9,7 +9,7 @@
  */
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useDemoSheet } from "@/pages/LandingPage";
+import { useDemoSheet } from "@/components/landing/demo-sheet-context";
 
 const NAV_LINKS = [
   { href: "#features", label: "Recursos" },

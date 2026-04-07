@@ -6,7 +6,7 @@
  */
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useDemoSheet } from "@/pages/LandingPage";
+import { useDemoSheet } from "@/components/landing/demo-sheet-context";
 
 export default function LandingCtaFinal() {
   const { open: openDemo } = useDemoSheet();

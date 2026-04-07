@@ -7,7 +7,7 @@
  * a gente."
  */
 import { Card, CardContent } from "@/components/ui/card";
-import { useDemoSheet } from "@/pages/LandingPage";
+import { useDemoSheet } from "@/components/landing/demo-sheet-context";
 
 interface Integration {
   name: string;

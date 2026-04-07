@@ -9,6 +9,7 @@
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import LandingNavbar from "@/components/landing/LandingNavbar";
+import LandingHero from "@/components/landing/LandingHero";
 import LandingFooter from "@/components/landing/LandingFooter";
 
 // ── Demo Sheet Context ──────────────────────────────────────────────────────
@@ -63,14 +64,7 @@ export default function LandingPage() {
       <div className="flex min-h-screen flex-col bg-background text-foreground">
         <LandingNavbar />
         <main className="flex-1">
-          <div className="container mx-auto flex min-h-[60vh] flex-col items-center justify-center px-4 py-32 text-center">
-            <h1 className="text-4xl font-bold tracking-tight">
-              Aimee<span className="text-accent">.iA</span>
-            </h1>
-            <p className="mt-4 text-muted-foreground">
-              Seções adicionais serão construídas nos próximos commits.
-            </p>
-          </div>
+          <LandingHero />
         </main>
         <LandingFooter />
       </div>

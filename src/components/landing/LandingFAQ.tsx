@@ -9,6 +9,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { useReveal } from "@/hooks/useReveal";
 
 interface FaqItem {
   question: string;
@@ -49,8 +50,10 @@ const FAQ_ITEMS: FaqItem[] = [
 ];
 
 export default function LandingFAQ() {
+  const revealRef = useReveal<HTMLElement>();
   return (
     <section
+      ref={revealRef}
       id="faq"
       data-reveal
       className="border-b border-border py-20 md:py-28"

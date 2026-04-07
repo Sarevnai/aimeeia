@@ -5,6 +5,7 @@
  * de metricas + grafico ASCII-style usando puro div+tailwind.
  */
 import { TrendingUp, Users, Zap, Clock } from "lucide-react";
+import { useReveal } from "@/hooks/useReveal";
 
 interface MetricCard {
   label: string;
@@ -25,8 +26,10 @@ const CHART_BARS = [30, 45, 28, 60, 75, 88, 95, 80, 65, 70, 55, 40];
 const CHART_LABELS = ["8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h"];
 
 export default function LandingDashboardShowcase() {
+  const revealRef = useReveal<HTMLElement>();
   return (
     <section
+      ref={revealRef}
       id="showcase"
       data-reveal
       className="border-b border-border py-20 md:py-28"

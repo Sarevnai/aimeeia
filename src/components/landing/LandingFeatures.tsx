@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useReveal } from "@/hooks/useReveal";
 
 interface Feature {
   icon: LucideIcon;
@@ -61,8 +62,10 @@ const FEATURES: Feature[] = [
 ];
 
 export default function LandingFeatures() {
+  const revealRef = useReveal<HTMLElement>();
   return (
     <section
+      ref={revealRef}
       id="features"
       data-reveal
       className="border-b border-border py-20 md:py-28"

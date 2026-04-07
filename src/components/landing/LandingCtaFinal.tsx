@@ -7,12 +7,15 @@
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDemoSheet } from "@/components/landing/demo-sheet-context";
+import { useReveal } from "@/hooks/useReveal";
 
 export default function LandingCtaFinal() {
   const { open: openDemo } = useDemoSheet();
+  const revealRef = useReveal<HTMLElement>();
 
   return (
     <section
+      ref={revealRef}
       data-reveal
       className="relative overflow-hidden bg-primary py-20 text-primary-foreground md:py-28"
     >

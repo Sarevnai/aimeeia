@@ -5,6 +5,7 @@
  * vertical em mobile.
  */
 import { Plug, Sparkles, Handshake, type LucideIcon } from "lucide-react";
+import { useReveal } from "@/hooks/useReveal";
 
 interface Step {
   number: string;
@@ -38,8 +39,10 @@ const STEPS: Step[] = [
 ];
 
 export default function LandingHowItWorks() {
+  const revealRef = useReveal<HTMLElement>();
   return (
     <section
+      ref={revealRef}
       id="how"
       data-reveal
       className="relative border-b border-border bg-muted/20 py-20 md:py-28"

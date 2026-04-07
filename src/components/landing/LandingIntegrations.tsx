@@ -8,6 +8,7 @@
  */
 import { Card, CardContent } from "@/components/ui/card";
 import { useDemoSheet } from "@/components/landing/demo-sheet-context";
+import { useReveal } from "@/hooks/useReveal";
 
 interface Integration {
   name: string;
@@ -45,9 +46,11 @@ const INTEGRATIONS: Integration[] = [
 
 export default function LandingIntegrations() {
   const { open: openDemo } = useDemoSheet();
+  const revealRef = useReveal<HTMLElement>();
 
   return (
     <section
+      ref={revealRef}
       id="integrations"
       data-reveal
       className="border-b border-border bg-muted/20 py-20 md:py-28"

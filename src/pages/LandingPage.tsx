@@ -19,6 +19,7 @@ import LandingIntegrations from "@/components/landing/LandingIntegrations";
 import LandingFAQ from "@/components/landing/LandingFAQ";
 import LandingCtaFinal from "@/components/landing/LandingCtaFinal";
 import LandingFooter from "@/components/landing/LandingFooter";
+import DemoRequestSheet from "@/components/landing/DemoRequestSheet";
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function LandingPage() {
@@ -50,6 +51,7 @@ export default function LandingPage() {
           <LandingCtaFinal />
         </main>
         <LandingFooter />
+        <DemoRequestSheet />
       </div>
     </DemoSheetProvider>
   );

@@ -10,6 +10,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import LandingNavbar from "@/components/landing/LandingNavbar";
 import LandingHero from "@/components/landing/LandingHero";
+import LandingTrustStrip from "@/components/landing/LandingTrustStrip";
+import LandingFeatures from "@/components/landing/LandingFeatures";
+import LandingHowItWorks from "@/components/landing/LandingHowItWorks";
 import LandingFooter from "@/components/landing/LandingFooter";
 
 // ── Demo Sheet Context ──────────────────────────────────────────────────────
@@ -65,6 +68,9 @@ export default function LandingPage() {
         <LandingNavbar />
         <main className="flex-1">
           <LandingHero />
+          <LandingTrustStrip />
+          <LandingFeatures />
+          <LandingHowItWorks />
         </main>
         <LandingFooter />
       </div>

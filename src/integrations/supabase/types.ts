@@ -760,6 +760,57 @@ export type Database = {
           },
         ]
       }
+      demo_requests: {
+        Row: {
+          cidade: string
+          created_at: string
+          email: string
+          id: string
+          imobiliaria: string
+          mensagem: string | null
+          nome: string
+          status: string
+          tamanho_equipe: string
+          telefone: string
+          user_agent: string | null
+          utm_campaign: string | null
+          utm_medium: string | null
+          utm_source: string | null
+        }
+        Insert: {
+          cidade: string
+          created_at?: string
+          email: string
+          id?: string
+          imobiliaria: string
+          mensagem?: string | null
+          nome: string
+          status?: string
+          tamanho_equipe: string
+          telefone: string
+          user_agent?: string | null
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+        }
+        Update: {
+          cidade?: string
+          created_at?: string
+          email?: string
+          id?: string
+          imobiliaria?: string
+          mensagem?: string | null
+          nome?: string
+          status?: string
+          tamanho_equipe?: string
+          telefone?: string
+          user_agent?: string | null
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+        }
+        Relationships: []
+      }
       developments: {
         Row: {
           address: string | null

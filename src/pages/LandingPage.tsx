@@ -15,6 +15,8 @@ import LandingFeatures from "@/components/landing/LandingFeatures";
 import LandingHowItWorks from "@/components/landing/LandingHowItWorks";
 import LandingDashboardShowcase from "@/components/landing/LandingDashboardShowcase";
 import LandingIntegrations from "@/components/landing/LandingIntegrations";
+import LandingFAQ from "@/components/landing/LandingFAQ";
+import LandingCtaFinal from "@/components/landing/LandingCtaFinal";
 import LandingFooter from "@/components/landing/LandingFooter";
 
 // ── Demo Sheet Context ──────────────────────────────────────────────────────
@@ -75,6 +77,8 @@ export default function LandingPage() {
           <LandingHowItWorks />
           <LandingDashboardShowcase />
           <LandingIntegrations />
+          <LandingFAQ />
+          <LandingCtaFinal />
         </main>
         <LandingFooter />
       </div>

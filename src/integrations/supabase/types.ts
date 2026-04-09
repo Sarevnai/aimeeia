@@ -66,9 +66,16 @@ export type Database = {
         Row: {
           agent_name: string | null
           ai_model: string | null
+          ai_provider: string | null
+          api_key_encrypted: string | null
+          audio_channel_mirroring: boolean | null
           audio_enabled: boolean | null
+          audio_max_chars: number | null
           audio_mode: string | null
           audio_voice_id: string | null
+          audio_voice_name: string | null
+          audio_voice_similarity: number | null
+          audio_voice_stability: number | null
           created_at: string | null
           custom_instructions: string | null
           emoji_intensity: string | null
@@ -79,15 +86,23 @@ export type Database = {
           max_tokens: number | null
           tenant_id: string
           tone: string | null
+          triage_config: Json | null
           updated_at: string | null
-          vista_integration_enabled: boolean | null
+          website_url: string | null
         }
         Insert: {
           agent_name?: string | null
           ai_model?: string | null
+          ai_provider?: string | null
+          api_key_encrypted?: string | null
+          audio_channel_mirroring?: boolean | null
           audio_enabled?: boolean | null
+          audio_max_chars?: number | null
           audio_mode?: string | null
           audio_voice_id?: string | null
+          audio_voice_name?: string | null
+          audio_voice_similarity?: number | null
+          audio_voice_stability?: number | null
           created_at?: string | null
           custom_instructions?: string | null
           emoji_intensity?: string | null
@@ -98,15 +113,23 @@ export type Database = {
           max_tokens?: number | null
           tenant_id: string
           tone?: string | null
+          triage_config?: Json | null
           updated_at?: string | null
-          vista_integration_enabled?: boolean | null
+          website_url?: string | null
         }
         Update: {
           agent_name?: string | null
           ai_model?: string | null
+          ai_provider?: string | null
+          api_key_encrypted?: string | null
+          audio_channel_mirroring?: boolean | null
           audio_enabled?: boolean | null
+          audio_max_chars?: number | null
           audio_mode?: string | null
           audio_voice_id?: string | null
+          audio_voice_name?: string | null
+          audio_voice_similarity?: number | null
+          audio_voice_stability?: number | null
           created_at?: string | null
           custom_instructions?: string | null
           emoji_intensity?: string | null
@@ -117,8 +140,9 @@ export type Database = {
           max_tokens?: number | null
           tenant_id?: string
           tone?: string | null
+          triage_config?: Json | null
           updated_at?: string | null
-          vista_integration_enabled?: boolean | null
+          website_url?: string | null
         }
         Relationships: [
           {
@@ -232,6 +256,7 @@ export type Database = {
           directive_content: string
           id: string
           is_active: boolean | null
+          structured_config: Json | null
           tenant_id: string
           updated_at: string | null
           updated_by: string | null
@@ -244,6 +269,7 @@ export type Database = {
           directive_content: string
           id?: string
           is_active?: boolean | null
+          structured_config?: Json | null
           tenant_id: string
           updated_at?: string | null
           updated_by?: string | null
@@ -256,6 +282,7 @@ export type Database = {
           directive_content?: string
           id?: string
           is_active?: boolean | null
+          structured_config?: Json | null
           tenant_id?: string
           updated_at?: string | null
           updated_by?: string | null
@@ -322,6 +349,213 @@ export type Database = {
           },
           {
             foreignKeyName: "ai_error_log_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_modules: {
+        Row: {
+          activation_criteria: string | null
+          category: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          prompt_instructions: string
+          slug: string
+          sort_order: number
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          activation_criteria?: string | null
+          category?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          prompt_instructions: string
+          slug: string
+          sort_order?: number
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          activation_criteria?: string | null
+          category?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          prompt_instructions?: string
+          slug?: string
+          sort_order?: number
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_modules_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_traces: {
+        Row: {
+          agent_type: string | null
+          call_type: string | null
+          completion_tokens: number | null
+          conversation_id: string | null
+          cost_usd: number | null
+          created_at: string | null
+          error_message: string | null
+          id: string
+          iterations: number | null
+          latency_ms: number
+          model: string
+          prompt_tokens: number | null
+          provider: string
+          success: boolean | null
+          tenant_id: string | null
+          tool_calls_count: number | null
+          tool_names: string[] | null
+          total_tokens: number | null
+        }
+        Insert: {
+          agent_type?: string | null
+          call_type?: string | null
+          completion_tokens?: number | null
+          conversation_id?: string | null
+          cost_usd?: number | null
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          iterations?: number | null
+          latency_ms: number
+          model: string
+          prompt_tokens?: number | null
+          provider: string
+          success?: boolean | null
+          tenant_id?: string | null
+          tool_calls_count?: number | null
+          tool_names?: string[] | null
+          total_tokens?: number | null
+        }
+        Update: {
+          agent_type?: string | null
+          call_type?: string | null
+          completion_tokens?: number | null
+          conversation_id?: string | null
+          cost_usd?: number | null
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          iterations?: number | null
+          latency_ms?: number
+          model?: string
+          prompt_tokens?: number | null
+          provider?: string
+          success?: boolean | null
+          tenant_id?: string | null
+          tool_calls_count?: number | null
+          tool_names?: string[] | null
+          total_tokens?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_traces_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_traces_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analysis_reports: {
+        Row: {
+          avg_score: number | null
+          conversation_id: string
+          created_at: string | null
+          error_patterns: Json | null
+          flow_type: string | null
+          id: string
+          is_production_ready: boolean | null
+          max_score: number | null
+          min_score: number | null
+          prompt_version_id: string | null
+          recommendations: string | null
+          source: string
+          tenant_id: string
+          total_turns: number
+          version: number
+        }
+        Insert: {
+          avg_score?: number | null
+          conversation_id: string
+          created_at?: string | null
+          error_patterns?: Json | null
+          flow_type?: string | null
+          id?: string
+          is_production_ready?: boolean | null
+          max_score?: number | null
+          min_score?: number | null
+          prompt_version_id?: string | null
+          recommendations?: string | null
+          source?: string
+          tenant_id: string
+          total_turns?: number
+          version?: number
+        }
+        Update: {
+          avg_score?: number | null
+          conversation_id?: string
+          created_at?: string | null
+          error_patterns?: Json | null
+          flow_type?: string | null
+          id?: string
+          is_production_ready?: boolean | null
+          max_score?: number | null
+          min_score?: number | null
+          prompt_version_id?: string | null
+          recommendations?: string | null
+          source?: string
+          tenant_id?: string
+          total_turns?: number
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_reports_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analysis_reports_prompt_version_id_fkey"
+            columns: ["prompt_version_id"]
+            isOneToOne: false
+            referencedRelation: "prompt_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analysis_reports_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -453,15 +687,26 @@ export type Database = {
       contacts: {
         Row: {
           channel_source: string | null
+          city: string | null
           communication_preference: string | null
           contact_type: string | null
           cpf_cnpj: string | null
           created_at: string | null
+          crm_archive_reason: string | null
+          crm_broker_notes: string | null
+          crm_id: string | null
+          crm_natureza: string | null
+          crm_neighborhood: string | null
+          crm_price_hint: string | null
+          crm_property_ref: string | null
+          crm_source: string | null
+          crm_status: string | null
           department_code: Database["public"]["Enums"]["department_type"] | null
           email: string | null
           id: string
           lease_contract_id: string | null
           name: string | null
+          neighborhood: string | null
           notes: string | null
           onboarding_status: string | null
           phone: string
@@ -473,10 +718,20 @@ export type Database = {
         }
         Insert: {
           channel_source?: string | null
+          city?: string | null
           communication_preference?: string | null
           contact_type?: string | null
           cpf_cnpj?: string | null
           created_at?: string | null
+          crm_archive_reason?: string | null
+          crm_broker_notes?: string | null
+          crm_id?: string | null
+          crm_natureza?: string | null
+          crm_neighborhood?: string | null
+          crm_price_hint?: string | null
+          crm_property_ref?: string | null
+          crm_source?: string | null
+          crm_status?: string | null
           department_code?:
             | Database["public"]["Enums"]["department_type"]
             | null
@@ -484,6 +739,7 @@ export type Database = {
           id?: string
           lease_contract_id?: string | null
           name?: string | null
+          neighborhood?: string | null
           notes?: string | null
           onboarding_status?: string | null
           phone: string
@@ -495,10 +751,20 @@ export type Database = {
         }
         Update: {
           channel_source?: string | null
+          city?: string | null
           communication_preference?: string | null
           contact_type?: string | null
           cpf_cnpj?: string | null
           created_at?: string | null
+          crm_archive_reason?: string | null
+          crm_broker_notes?: string | null
+          crm_id?: string | null
+          crm_natureza?: string | null
+          crm_neighborhood?: string | null
+          crm_price_hint?: string | null
+          crm_property_ref?: string | null
+          crm_source?: string | null
+          crm_status?: string | null
           department_code?:
             | Database["public"]["Enums"]["department_type"]
             | null
@@ -506,6 +772,7 @@ export type Database = {
           id?: string
           lease_contract_id?: string | null
           name?: string | null
+          neighborhood?: string | null
           notes?: string | null
           onboarding_status?: string | null
           phone?: string
@@ -518,6 +785,69 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "contacts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversation_analyses: {
+        Row: {
+          action: string | null
+          ai_response: string | null
+          created_at: string | null
+          criteria: Json | null
+          errors: Json | null
+          id: string
+          report_id: string
+          score: number | null
+          sender_type: string | null
+          summary: string | null
+          tenant_id: string
+          turn_number: number
+          user_message: string | null
+        }
+        Insert: {
+          action?: string | null
+          ai_response?: string | null
+          created_at?: string | null
+          criteria?: Json | null
+          errors?: Json | null
+          id?: string
+          report_id: string
+          score?: number | null
+          sender_type?: string | null
+          summary?: string | null
+          tenant_id: string
+          turn_number: number
+          user_message?: string | null
+        }
+        Update: {
+          action?: string | null
+          ai_response?: string | null
+          created_at?: string | null
+          criteria?: Json | null
+          errors?: Json | null
+          id?: string
+          report_id?: string
+          score?: number | null
+          sender_type?: string | null
+          summary?: string | null
+          tenant_id?: string
+          turn_number?: number
+          user_message?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_analyses_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "analysis_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_analyses_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -627,43 +957,58 @@ export type Database = {
       }
       conversation_states: {
         Row: {
-          awaiting_feedback: boolean | null
+          awaiting_property_feedback: boolean | null
+          current_module_slug: string | null
           current_property_index: number | null
+          follow_up_sent_at: string | null
           is_ai_active: boolean | null
-          last_ai_messages: string[] | null
+          is_processing: boolean | null
+          last_ai_messages: Json | null
+          last_property_shown_at: string | null
           last_search_params: Json | null
           operator_id: string | null
           operator_takeover_at: string | null
           pending_properties: Json | null
           phone_number: string
+          shown_property_ids: string[] | null
           tenant_id: string
           triage_stage: Database["public"]["Enums"]["triage_stage"] | null
           updated_at: string | null
         }
         Insert: {
-          awaiting_feedback?: boolean | null
+          awaiting_property_feedback?: boolean | null
+          current_module_slug?: string | null
           current_property_index?: number | null
+          follow_up_sent_at?: string | null
           is_ai_active?: boolean | null
-          last_ai_messages?: string[] | null
+          is_processing?: boolean | null
+          last_ai_messages?: Json | null
+          last_property_shown_at?: string | null
           last_search_params?: Json | null
           operator_id?: string | null
           operator_takeover_at?: string | null
           pending_properties?: Json | null
           phone_number: string
+          shown_property_ids?: string[] | null
           tenant_id: string
           triage_stage?: Database["public"]["Enums"]["triage_stage"] | null
           updated_at?: string | null
         }
         Update: {
-          awaiting_feedback?: boolean | null
+          awaiting_property_feedback?: boolean | null
+          current_module_slug?: string | null
           current_property_index?: number | null
+          follow_up_sent_at?: string | null
           is_ai_active?: boolean | null
-          last_ai_messages?: string[] | null
+          is_processing?: boolean | null
+          last_ai_messages?: Json | null
+          last_property_shown_at?: string | null
           last_search_params?: Json | null
           operator_id?: string | null
           operator_takeover_at?: string | null
           pending_properties?: Json | null
           phone_number?: string
+          shown_property_ids?: string[] | null
           tenant_id?: string
           triage_stage?: Database["public"]["Enums"]["triage_stage"] | null
           updated_at?: string | null
@@ -901,6 +1246,8 @@ export type Database = {
           detected_interest: string | null
           detected_neighborhood: string | null
           detected_property_type: string | null
+          detected_timeline: string | null
+          field_sources: Json | null
           id: string
           phone_number: string
           qualification_score: number | null
@@ -914,6 +1261,8 @@ export type Database = {
           detected_interest?: string | null
           detected_neighborhood?: string | null
           detected_property_type?: string | null
+          detected_timeline?: string | null
+          field_sources?: Json | null
           id?: string
           phone_number: string
           qualification_score?: number | null
@@ -927,6 +1276,8 @@ export type Database = {
           detected_interest?: string | null
           detected_neighborhood?: string | null
           detected_property_type?: string | null
+          detected_timeline?: string | null
+          field_sources?: Json | null
           id?: string
           phone_number?: string
           qualification_score?: number | null
@@ -1372,6 +1723,63 @@ export type Database = {
           },
         ]
       }
+      prompt_versions: {
+        Row: {
+          changes_description: string | null
+          created_at: string | null
+          department: string
+          files_changed: Json | null
+          id: string
+          score_after: number | null
+          score_before: number | null
+          status: string
+          tenant_id: string
+          triggered_by_report_id: string | null
+          version: number
+        }
+        Insert: {
+          changes_description?: string | null
+          created_at?: string | null
+          department?: string
+          files_changed?: Json | null
+          id?: string
+          score_after?: number | null
+          score_before?: number | null
+          status?: string
+          tenant_id: string
+          triggered_by_report_id?: string | null
+          version?: number
+        }
+        Update: {
+          changes_description?: string | null
+          created_at?: string | null
+          department?: string
+          files_changed?: Json | null
+          id?: string
+          score_after?: number | null
+          score_before?: number | null
+          status?: string
+          tenant_id?: string
+          triggered_by_report_id?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_prompt_versions_triggered_by"
+            columns: ["triggered_by_report_id"]
+            isOneToOne: false
+            referencedRelation: "analysis_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prompt_versions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       properties: {
         Row: {
           area: number | null
@@ -1381,18 +1789,19 @@ export type Database = {
           created_at: string
           description: string | null
           embedding: string | null
-          external_id: string | null
+          external_id: string
           id: string
-          images: Json | null
+          is_active: boolean | null
+          latitude: number | null
+          longitude: number | null
           neighborhood: string | null
-          parking: number | null
+          parking_spaces: number | null
           price: number | null
-          status: string | null
+          raw_data: Json | null
           tenant_id: string
-          title: string
-          type: string | null
+          title: string | null
           updated_at: string
-          url: string | null
+          vista_updated_at: string | null
         }
         Insert: {
           area?: number | null
@@ -1402,18 +1811,19 @@ export type Database = {
           created_at?: string
           description?: string | null
           embedding?: string | null
-          external_id?: string | null
+          external_id: string
           id?: string
-          images?: Json | null
+          is_active?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
           neighborhood?: string | null
-          parking?: number | null
+          parking_spaces?: number | null
           price?: number | null
-          status?: string | null
+          raw_data?: Json | null
           tenant_id: string
-          title: string
-          type?: string | null
+          title?: string | null
           updated_at?: string
-          url?: string | null
+          vista_updated_at?: string | null
         }
         Update: {
           area?: number | null
@@ -1423,18 +1833,19 @@ export type Database = {
           created_at?: string
           description?: string | null
           embedding?: string | null
-          external_id?: string | null
+          external_id?: string
           id?: string
-          images?: Json | null
+          is_active?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
           neighborhood?: string | null
-          parking?: number | null
+          parking_spaces?: number | null
           price?: number | null
-          status?: string | null
+          raw_data?: Json | null
           tenant_id?: string
-          title?: string
-          type?: string | null
+          title?: string | null
           updated_at?: string
-          url?: string | null
+          vista_updated_at?: string | null
         }
         Relationships: [
           {
@@ -1474,6 +1885,119 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "regions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      simulation_analyses: {
+        Row: {
+          action: string | null
+          ai_response: string | null
+          conversation_id: string
+          created_at: string | null
+          criteria: Json
+          errors: Json | null
+          flow_type: string
+          id: string
+          run_id: string | null
+          score: number
+          summary: string | null
+          tenant_id: string
+          turn_number: number
+          user_message: string | null
+        }
+        Insert: {
+          action?: string | null
+          ai_response?: string | null
+          conversation_id: string
+          created_at?: string | null
+          criteria?: Json
+          errors?: Json | null
+          flow_type: string
+          id?: string
+          run_id?: string | null
+          score: number
+          summary?: string | null
+          tenant_id: string
+          turn_number: number
+          user_message?: string | null
+        }
+        Update: {
+          action?: string | null
+          ai_response?: string | null
+          conversation_id?: string
+          created_at?: string | null
+          criteria?: Json
+          errors?: Json | null
+          flow_type?: string
+          id?: string
+          run_id?: string | null
+          score?: number
+          summary?: string | null
+          tenant_id?: string
+          turn_number?: number
+          user_message?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "simulation_analyses_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "simulation_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "simulation_analyses_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      simulation_runs: {
+        Row: {
+          avg_score: number | null
+          completed_at: string | null
+          conversation_id: string
+          created_at: string | null
+          flow_type: string
+          id: string
+          is_perfect: boolean | null
+          min_score: number | null
+          tenant_id: string
+          total_turns: number | null
+        }
+        Insert: {
+          avg_score?: number | null
+          completed_at?: string | null
+          conversation_id: string
+          created_at?: string | null
+          flow_type: string
+          id?: string
+          is_perfect?: boolean | null
+          min_score?: number | null
+          tenant_id: string
+          total_turns?: number | null
+        }
+        Update: {
+          avg_score?: number | null
+          completed_at?: string | null
+          conversation_id?: string
+          created_at?: string | null
+          flow_type?: string
+          id?: string
+          is_perfect?: boolean | null
+          min_score?: number | null
+          tenant_id?: string
+          total_turns?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "simulation_runs_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -1876,52 +2400,13 @@ export type Database = {
           },
         ]
       }
-      xml_sync_queue: {
-        Row: {
-          created_at: string | null
-          error_message: string | null
-          external_id: string
-          id: string
-          raw_data: Json
-          status: string
-          tenant_id: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          error_message?: string | null
-          external_id: string
-          id?: string
-          raw_data: Json
-          status?: string
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          error_message?: string | null
-          external_id?: string
-          id?: string
-          raw_data?: Json
-          status?: string
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "xml_sync_queue_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      daily_vista_crm_cleanup: { Args: never; Returns: number }
+      daily_vista_crm_sync: { Args: never; Returns: number }
       get_my_department: { Args: never; Returns: string }
       get_user_department: { Args: { _user_id: string }; Returns: string }
       get_user_tenant_id: { Args: never; Returns: string }
@@ -1937,7 +2422,10 @@ export type Database = {
       }
       match_properties: {
         Args: {
+          filter_bedrooms?: number
+          filter_finalidade?: string
           filter_max_price?: number
+          filter_neighborhood?: string
           filter_tipo?: string
           match_count: number
           match_tenant_id: string
@@ -1951,6 +2439,8 @@ export type Database = {
           external_id: string
           id: string
           images: Json
+          latitude: number
+          longitude: number
           neighborhood: string
           price: number
           similarity: number
@@ -1959,6 +2449,32 @@ export type Database = {
           url: string
         }[]
       }
+      search_properties_semantic: {
+        Args: {
+          bedrooms_min?: number
+          match_count?: number
+          neighborhoods_param?: string[]
+          price_max?: number
+          price_min?: number
+          query_embedding: string
+          tenant_id_param: string
+        }
+        Returns: {
+          area: number
+          bedrooms: number
+          city: string
+          description: string
+          external_id: string
+          id: string
+          neighborhood: string
+          parking_spaces: number
+          price: number
+          raw_data: Json
+          similarity: number
+        }[]
+      }
+      trigger_property_followups: { Args: never; Returns: undefined }
+      weekly_vista_crm_full_sync: { Args: never; Returns: number }
     }
     Enums: {
       conversation_status: "active" | "closed" | "archived"

@@ -996,20 +996,32 @@ export async function loadRemarketingContext(
 
     const { data: contact } = await supabase
       .from('contacts')
-      .select('name, crm_archive_reason, crm_natureza, neighborhood, city, notes')
+      .select(`
+        name,
+        crm_archive_reason,
+        crm_natureza,
+        crm_neighborhood,
+        crm_property_ref,
+        crm_price_hint,
+        crm_source,
+        crm_broker_notes,
+        crm_status,
+        notes
+      `)
       .eq('id', contactId)
       .maybeSingle();
 
     if (contact) {
-      sections.push('📋 CONTEXTO DO LEAD (REMARKETING):');
-      sections.push('- Lead re-engajado via campanha de remarketing');
-      if (contact.crm_archive_reason) sections.push(`- Motivo de arquivamento anterior: ${contact.crm_archive_reason}`);
-      if (contact.crm_natureza) sections.push(`- Interesse anterior: ${contact.crm_natureza}`);
-      if (contact.neighborhood || contact.city) {
-        const location = [contact.neighborhood, contact.city].filter(Boolean).join(', ');
-        sections.push(`- Região anterior: ${location}`);
-      }
-      if (contact.notes) sections.push(`- Observações: ${contact.notes}`);
+      sections.push('📋 CONTEXTO DO LEAD (EX-C2S, CAMPANHA DE REMARKETING):');
+      sections.push('- Este lead já foi atendido antes pelo CRM anterior e está sendo re-engajado agora.');
+      if (contact.crm_status) sections.push(`- Status anterior no CRM: ${contact.crm_status}`);
+      if (contact.crm_archive_reason) sections.push(`- Motivo do arquivamento: ${contact.crm_archive_reason}`);
+      if (contact.crm_natureza) sections.push(`- Natureza do interesse: ${contact.crm_natureza}`);
+      if (contact.crm_neighborhood) sections.push(`- Bairro de interesse: ${contact.crm_neighborhood}`);
+      if (contact.crm_property_ref) sections.push(`- Imóvel visto anteriormente: ${contact.crm_property_ref}`);
+      if (contact.crm_price_hint) sections.push(`- Faixa de preço na busca anterior: ${contact.crm_price_hint}`);
+      if (contact.crm_source) sections.push(`- Portal de origem do lead: ${contact.crm_source}`);
+      if (contact.crm_broker_notes) sections.push(`- Anotações do corretor (leitura obrigatória): ${contact.crm_broker_notes}`);
     }
 
     const { data: archivedConv } = await supabase
@@ -1043,8 +1055,12 @@ export async function loadRemarketingContext(
 
     if (sections.length === 0) return null;
 
-    sections.push('\n⚠️ USE este contexto para personalizar o atendimento.');
-    sections.push('NÃO pergunte informações que já foram coletadas antes.');
+    sections.push('');
+    sections.push('⚠️ INSTRUÇÕES DE USO DESTE CONTEXTO:');
+    sections.push('- Reconheça sutilmente que já houve contato anterior, mas NÃO liste esses dados de volta pro cliente (ele não lembra dos detalhes).');
+    sections.push('- Se as anotações do corretor apontarem uma necessidade específica (budget menor, tipo de imóvel diferente, objeção), ajuste a abordagem respeitando isso.');
+    sections.push('- NÃO re-pergunte informações que já estão nesse contexto (bairro, faixa de preço, natureza do interesse).');
+    sections.push('- O motivo do arquivamento indica POR QUE o lead esfriou — use pra escolher o tom de re-abertura (ex: "só pesquisando" pede abordagem leve; "fechou em outro lugar" pode pedir pra explorar se ainda faz sentido).');
 
     return sections.join('\n');
   } catch (error) {

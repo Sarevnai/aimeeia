@@ -5,11 +5,12 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Plus, Eye, MessageSquare } from 'lucide-react';
+import { Loader2, Plus, Eye, MessageSquare, FileSpreadsheet } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
 import NewCampaignDialog from '@/components/campaigns/NewCampaignDialog';
+import LeadImportSheet from '@/components/campaigns/LeadImportSheet';
 
 const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
   draft: { label: 'Rascunho', variant: 'secondary' },
@@ -41,6 +42,7 @@ const CampaignsPage: React.FC = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const fetchCampaigns = async () => {
     if (!tenantId) return;
@@ -70,9 +72,14 @@ const CampaignsPage: React.FC = () => {
           <h2 className="font-display text-2xl font-bold text-foreground">Campanhas</h2>
           <p className="text-sm text-muted-foreground">Envio em massa via WhatsApp</p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" /> Nova Campanha
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <FileSpreadsheet className="h-4 w-4 mr-1" /> Importar Lista C2S
+          </Button>
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Nova Campanha
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-4">
@@ -140,6 +147,12 @@ const CampaignsPage: React.FC = () => {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onCreated={fetchCampaigns}
+      />
+
+      <LeadImportSheet
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={fetchCampaigns}
       />
     </div>
   );

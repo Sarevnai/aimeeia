@@ -86,6 +86,18 @@ const normalizePhone = (raw: string): string => {
     return digits;
 };
 
+/* ─── Helper: normalize contact_type ─── */
+/* DB check constraint allows only: lead | proprietario | inquilino (or null). */
+/* Map common CRM variations (accents, synonyms) to canonical values. */
+const normalizeContactType = (raw: unknown): 'lead' | 'proprietario' | 'inquilino' => {
+    if (typeof raw !== 'string') return 'lead';
+    const s = raw.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!s) return 'lead';
+    if (s.startsWith('proprietari') || s === 'dono' || s === 'dona') return 'proprietario';
+    if (s.startsWith('inquilin') || s.startsWith('locatari')) return 'inquilino';
+    return 'lead';
+};
+
 /* ─── Main Component ─── */
 const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
     const { toast } = useToast();
@@ -184,7 +196,7 @@ const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
             email: form.email.trim() || null,
             cpf_cnpj: form.cpf_cnpj.trim() || null,
             department_code: (form.department_code || null) as any,
-            contact_type: form.contact_type.trim() || null,
+            contact_type: normalizeContactType(form.contact_type),
             notes: form.notes.trim() || null,
             tags: tags.length > 0 ? tags : null,
         };
@@ -281,7 +293,7 @@ const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
                 email: String(row.email || '').trim() || null,
                 cpf_cnpj: String(row.cpf || row.cpf_cnpj || '').trim() || null,
                 department_code: mapDepartment(String(row.departamento || row.department || '').trim()),
-                contact_type: String(row.tipo || row.type || '').trim() || null,
+                contact_type: normalizeContactType(row.tipo ?? row.type),
                 notes: String(row.observacoes || row.notes || '').trim() || null,
             };
         }).filter(Boolean);
@@ -518,11 +530,17 @@ const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
                             </div>
                             <div className="col-span-2 space-y-1.5">
                                 <Label>Tipo de contato</Label>
-                                <Input
-                                    placeholder="lead, proprietario, inquilino..."
-                                    value={form.contact_type}
-                                    onChange={(e) => setForm((f) => ({ ...f, contact_type: e.target.value }))}
-                                />
+                                <Select
+                                    value={form.contact_type || 'lead'}
+                                    onValueChange={(v) => setForm((f) => ({ ...f, contact_type: v }))}
+                                >
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="lead">Lead</SelectItem>
+                                        <SelectItem value="proprietario">Proprietário</SelectItem>
+                                        <SelectItem value="inquilino">Inquilino</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="col-span-2 space-y-1.5">
                                 <Label>Tags (separadas por virgula)</Label>

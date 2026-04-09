@@ -13,7 +13,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { tenant_id, full_sync, cleanup_only } = await req.json();
+    const { tenant_id, full_sync, cleanup_only, start_page, max_pages, skip_embeddings, skip_cleanup } = await req.json();
 
     if (!tenant_id) {
       return new Response(JSON.stringify({ error: 'tenant_id is required' }), {
@@ -152,11 +152,15 @@ serve(async (req: Request) => {
     }
 
     // 2. Discover if we need Delta Sync or Full Sync
-    let currentPage = 1;
-    let totalPages = 1;
+    let currentPage = typeof start_page === 'number' && start_page > 0 ? start_page : 1;
+    // totalPages começa como "desconhecido" — será descoberto no primeiro fetch dentro do loop.
+    // Usamos Number.MAX_SAFE_INTEGER pra garantir que o while entra ao menos uma vez.
+    let totalPages = Number.MAX_SAFE_INTEGER;
     let totalProcessed = 0;
     let syncStartDate = '';
     let isDeltaSync = false;
+    const pagesCap = typeof max_pages === 'number' && max_pages > 0 ? max_pages : Infinity;
+    let pagesFetched = 0;
 
     if (!full_sync) {
       // Usar vista_updated_at (data do Vista) em vez de updated_at (data local)
@@ -177,12 +181,12 @@ serve(async (req: Request) => {
       }
     }
 
-    console.log(`Starting Vista Sync for tenant ${tenant_id}. Delta: ${isDeltaSync ? syncStartDate : 'Full Sync'}`);
+    console.log(`Starting Vista Sync for tenant ${tenant_id}. Delta: ${isDeltaSync ? syncStartDate : 'Full Sync'}. start_page=${currentPage}, max_pages=${pagesCap === Infinity ? 'unbounded' : pagesCap}, skip_embeddings=${!!skip_embeddings}, skip_cleanup=${!!skip_cleanup}`);
 
     // Track synced external_ids for deactivation logic on full sync
     const allSyncedExternalIds = new Set<string>();
 
-    while (currentPage <= totalPages) {
+    while (currentPage <= totalPages && pagesFetched < pagesCap) {
       console.log(`Fetching page ${currentPage} of ${totalPages}...`);
 
       const pesquisaData: any = {
@@ -243,7 +247,7 @@ serve(async (req: Request) => {
         break;
       }
 
-      if (currentPage === 1 && data.paginas) {
+      if (pagesFetched === 0 && data.paginas) {
         totalPages = data.paginas;
         console.log(`Discovered total pages: ${totalPages}`);
       }
@@ -312,11 +316,13 @@ serve(async (req: Request) => {
           const semanticText = `Imóvel ${transactionLabel}: ${titleText}. ${imovel.TipoImovel || ''} em ${neighborhood}, ${city}. Preço: R$ ${price || 'sob consulta'}. ${bedrooms} quartos, ${isNaN(bathrooms) ? 0 : bathrooms} banheiros, ${parkingSpaces} vagas. Área: ${area}m². ${extrasText} ${imediacoes} ${bairroContext} ${descTrunc}`;
 
           let embedding: number[] | null = null;
-          try {
-            embedding = await generateEmbedding(semanticText, { supabase, tenant_id }, 'RETRIEVAL_DOCUMENT');
-            await new Promise(r => setTimeout(r, 100)); // throttle API calls
-          } catch (e) {
-            console.warn(`Embedding failed for ${codigo}: ${e.message}`);
+          if (!skip_embeddings) {
+            try {
+              embedding = await generateEmbedding(semanticText, { supabase, tenant_id }, 'RETRIEVAL_DOCUMENT');
+              await new Promise(r => setTimeout(r, 100)); // throttle API calls
+            } catch (e) {
+              console.warn(`Embedding failed for ${codigo}: ${e.message}`);
+            }
           }
 
           allSyncedExternalIds.add(codigo);
@@ -361,6 +367,7 @@ serve(async (req: Request) => {
       }
 
       currentPage += 1;
+      pagesFetched += 1;
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
@@ -371,7 +378,10 @@ serve(async (req: Request) => {
     // ============================================================
     let deletedCount = 0;
 
-    if (full_sync && totalProcessed > 0) {
+    // Quando rodando em chunks (start_page/max_pages), pulamos cleanup — chame cleanup_only depois
+    if (skip_cleanup || pagesCap !== Infinity || (typeof start_page === 'number' && start_page > 1)) {
+      console.log('Skipping cleanup (chunked run or skip_cleanup=true)');
+    } else if (full_sync && totalProcessed > 0) {
       // Full sync: já temos todos os IDs válidos em allSyncedExternalIds
       const syncedIds = allSyncedExternalIds;
       if (syncedIds.size > 0) {
@@ -489,7 +499,12 @@ serve(async (req: Request) => {
 
     return new Response(JSON.stringify({
       success: true,
-      message: `Successfully synced ${totalProcessed} properties.${deletedCount > 0 ? ` Deleted ${deletedCount} orphan properties.` : ''}`
+      totalProcessed,
+      deletedCount,
+      pagesFetched,
+      lastPage: currentPage - 1,
+      totalPages,
+      message: `Successfully synced ${totalProcessed} properties across ${pagesFetched} pages (last page: ${currentPage - 1}/${totalPages}).${deletedCount > 0 ? ` Deleted ${deletedCount} orphan properties.` : ''}`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,

@@ -181,10 +181,20 @@ const LeadImportSheet: React.FC<Props> = ({ open, onOpenChange, onImported }) =>
       return;
     }
 
+    // Dedupe por phone: o xlsx do C2S tem a mesma pessoa aparecendo várias vezes
+    // (histórico de leads), e Postgres não permite ON CONFLICT afetar a mesma row
+    // duas vezes na mesma statement. Mantemos a ÚLTIMA ocorrência (mais recente).
+    const dedupMap = new Map<string, typeof payloads[number]>();
+    for (const p of payloads) {
+      dedupMap.set(p.phone, p);
+    }
+    const dedupedPayloads = Array.from(dedupMap.values());
+    const duplicatesRemoved = payloads.length - dedupedPayloads.length;
+
     let insertedTotal = 0;
 
-    for (let i = 0; i < payloads.length; i += BATCH_SIZE) {
-      const batch = payloads.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < dedupedPayloads.length; i += BATCH_SIZE) {
+      const batch = dedupedPayloads.slice(i, i + BATCH_SIZE);
       const { data, error } = await supabase
         .from('contacts')
         .upsert(batch, { onConflict: 'phone,tenant_id', ignoreDuplicates: false })
@@ -195,12 +205,12 @@ const LeadImportSheet: React.FC<Props> = ({ open, onOpenChange, onImported }) =>
       } else {
         insertedTotal += data?.length || 0;
       }
-      setProgress(Math.min(100, Math.round(((i + BATCH_SIZE) / payloads.length) * 100)));
+      setProgress(Math.min(100, Math.round(((i + BATCH_SIZE) / dedupedPayloads.length) * 100)));
     }
 
     const finalResult: ImportResult = {
       inserted: insertedTotal,
-      skipped: skippedReasons.length,
+      skipped: skippedReasons.length + duplicatesRemoved,
       errors,
     };
     setResult(finalResult);
@@ -208,7 +218,7 @@ const LeadImportSheet: React.FC<Props> = ({ open, onOpenChange, onImported }) =>
 
     toast({
       title: 'Importação concluída',
-      description: `${insertedTotal} contatos importados • ${skippedReasons.length} ignorados${errors.length > 0 ? ` • ${errors.length} erros` : ''}`,
+      description: `${insertedTotal} contatos importados • ${skippedReasons.length + duplicatesRemoved} ignorados${errors.length > 0 ? ` • ${errors.length} erros` : ''}`,
       variant: errors.length > 0 ? 'destructive' : 'default',
     });
 
@@ -310,7 +320,7 @@ const LeadImportSheet: React.FC<Props> = ({ open, onOpenChange, onImported }) =>
                 <div className="font-medium">Importação concluída</div>
                 <div className="text-xs mt-1">
                   {result.inserted} contatos importados
-                  {result.skipped > 0 && ` • ${result.skipped} ignorados (telefone inválido)`}
+                  {result.skipped > 0 && ` • ${result.skipped} ignorados (telefone inválido ou duplicado na planilha)`}
                   {result.errors.length > 0 && ` • ${result.errors.length} erros`}
                 </div>
                 {result.errors.length > 0 && (

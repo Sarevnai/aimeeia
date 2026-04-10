@@ -369,13 +369,16 @@ export async function executePropertySearch(
       const flexValid = (flexProps || []).filter((p: any) => p.price && p.price > 1);
 
       if (flexValid.length > 0) {
-        // Encontrou no bairro certo mas tipo diferente — INFORMAR o lead
+        // Encontrou no bairro certo mas tipo diferente — PERGUNTAR antes de mostrar
         const tiposEncontrados = [...new Set(flexValid.map((p: any) => p.type || 'imóvel'))].join(', ');
-        console.log(`🌍 C6: Encontrou ${flexValid.length} imóvel(is) no ${args.bairro} mas tipo diferente: ${tiposEncontrados}`);
-        validProperties = flexValid;
-        // Sinalizar para o hint que o tipo mudou
-        (args as any)._tipo_expandido = true;
-        (args as any)._tipos_encontrados = tiposEncontrados;
+        const faixaPrecos = flexValid.map((p: any) => p.price).filter(Boolean);
+        const precoMin = Math.min(...faixaPrecos);
+        const precoMax = Math.max(...faixaPrecos);
+        const faixaStr = precoMin === precoMax
+          ? `por ${formatCurrency(precoMin)}`
+          : `de ${formatCurrency(precoMin)} a ${formatCurrency(precoMax)}`;
+        console.log(`🌍 C6: Encontrou ${flexValid.length} imóvel(is) no ${args.bairro} mas tipo diferente: ${tiposEncontrados}. Perguntando ao cliente antes de expandir.`);
+        return `[SISTEMA — INSTRUÇÃO OBRIGATÓRIA] Não encontramos ${args.tipo_imovel || 'apartamento'} disponível no ${args.bairro} neste momento. Porém, temos ${flexValid.length} opção(ões) de ${tiposEncontrados} no mesmo bairro (${faixaStr}). Você DEVE:\n1. Informar que não tem ${args.tipo_imovel || 'apartamento'} disponível no ${args.bairro}\n2. Dizer que encontrou ${tiposEncontrados} na mesma região\n3. PERGUNTAR se o cliente quer ver essas opções ou prefere buscar ${args.tipo_imovel || 'apartamento'} em outro bairro\n\nExemplo: "No ${args.bairro} não encontrei ${args.tipo_imovel || 'apartamento'} disponível no momento, mas temos ${tiposEncontrados} na região (${faixaStr}). Quer que eu te mostre, ou prefere que eu busque ${args.tipo_imovel || 'apartamento'} em outro bairro?"\n\nNÃO envie imóvel sem autorização. NÃO diga "vou buscar" — a busca já foi feita.`;
       } else {
         // PASSO 2: Nada no bairro pedido — informar DIRETAMENTE e NÃO expandir silenciosamente
         console.log(`🌍 C6: Nenhum imóvel no ${args.bairro} com budget ${searchBudget}. Informando o cliente.`);

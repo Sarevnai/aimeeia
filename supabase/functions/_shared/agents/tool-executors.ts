@@ -218,8 +218,15 @@ export async function executePropertySearch(
       return '[SISTEMA] Busca de imóveis bloqueada: o cliente ainda não informou bairro/região NEM faixa de orçamento. Antes de buscar, pergunte ao cliente pelo menos: qual bairro ou região de interesse e/ou qual faixa de orçamento. Conduza a qualificação de forma natural e empática. NÃO chame buscar_imoveis novamente até ter pelo menos um desses dados.';
     }
 
-    const semanticQuery = args.query_semantica ||
-      `Imóvel para ${args.finalidade || ctx.department || 'locacao'}`;
+    // If qualification detected 'ambos', override LLM's finalidade to avoid biased search
+    const qualInterest = ctx.qualificationData?.detected_interest;
+    const effectiveFinalidade = qualInterest === 'ambos' ? 'ambos' : (args.finalidade || qualInterest || ctx.department || 'locacao');
+    const semanticFinalidade = effectiveFinalidade === 'ambos' ? 'venda ou locação' : effectiveFinalidade;
+    const semanticQuery = args.query_semantica
+      ? (qualInterest === 'ambos' && !args.query_semantica.includes('venda')
+        ? args.query_semantica.replace(/para (locação|locacao|venda)/i, 'para venda ou locação')
+        : args.query_semantica)
+      : `Imóvel para ${semanticFinalidade}`;
 
     // C1: Aplicar margem de 30% acima do orçamento informado pelo cliente
     // "O cliente pediu 1 milhão, mandamos de 1M até 1.3M" — regra de negociação imobiliária
@@ -301,7 +308,7 @@ export async function executePropertySearch(
     // C9: Pós-filtro finalidade — se cliente quer comprar, remover prováveis aluguéis (preço < 50k)
     // Se cliente quer alugar, remover prováveis vendas (preço > 50k)
     // Se 'ambos', não filtrar por finalidade — mantém venda e locação juntos.
-    const clientFinalidade = args.finalidade || ctx.qualificationData?.detected_interest || null;
+    const clientFinalidade = effectiveFinalidade;
     if (clientFinalidade && clientFinalidade !== 'ambos') {
       const beforeCount = validProperties.length;
       if (clientFinalidade === 'venda') {
@@ -319,7 +326,7 @@ export async function executePropertySearch(
       console.log(`🌍 C6: Apenas ${validProperties.length} resultado(s) no ${args.bairro}. Tentando flexibilizar...`);
 
       // PASSO 1: Tentar MESMO bairro sem filtro de tipo (ex: cliente quer apt no Santa Mônica, mas só tem casas)
-      const flexQuery = `imóvel para ${args.finalidade || 'venda'} no bairro ${args.bairro}, ${ctx.tenant.city}`;
+      const flexQuery = `imóvel para ${semanticFinalidade} no bairro ${args.bairro}, ${ctx.tenant.city}`;
       const flexEmbedding = await generateEmbedding(flexQuery);
       const { data: flexProps } = await ctx.supabase.rpc('match_properties', {
         query_embedding: flexEmbedding,
@@ -346,14 +353,14 @@ export async function executePropertySearch(
         // PASSO 2: Nada no bairro pedido — informar DIRETAMENTE e NÃO expandir silenciosamente
         console.log(`🌍 C6: Nenhum imóvel no ${args.bairro} com budget ${searchBudget}. Informando o cliente.`);
         const budgetStr = clientBudget ? ` com orçamento de até R$ ${clientBudget.toLocaleString('pt-BR')}` : '';
-        return `[SISTEMA — INSTRUÇÃO OBRIGATÓRIA] Não existe nenhum imóvel para ${args.finalidade || 'venda'} no bairro ${args.bairro}${budgetStr} no nosso catálogo atual. Você DEVE informar isso ao cliente de forma direta e honesta. Diga claramente que não tem disponibilidade no bairro pedido. Depois sugira alternativas: bairros vizinhos, ajustar orçamento, ou outro tipo de imóvel. NUNCA diga "vou buscar" ou "deixa eu procurar" — a busca já foi feita e não encontrou. NUNCA envie imóveis de outro bairro sem autorização explícita do cliente.`;
+        return `[SISTEMA — INSTRUÇÃO OBRIGATÓRIA] Não existe nenhum imóvel para ${semanticFinalidade} no bairro ${args.bairro}${budgetStr} no nosso catálogo atual. Você DEVE informar isso ao cliente de forma direta e honesta. Diga claramente que não tem disponibilidade no bairro pedido. Depois sugira alternativas: bairros vizinhos, ajustar orçamento, ou outro tipo de imóvel. NUNCA diga "vou buscar" ou "deixa eu procurar" — a busca já foi feita e não encontrou. NUNCA envie imóveis de outro bairro sem autorização explícita do cliente.`;
       }
     } else if (validProperties.length <= 1 && !args.bairro) {
       // Sem bairro especificado: expansão geográfica normal
       console.log(`🌍 C6: Apenas ${validProperties.length} resultado(s) sem bairro definido. Expandindo...`);
       const expandedQuery = args.tipo_imovel
-        ? `${args.tipo_imovel} para ${args.finalidade || 'venda'} em ${ctx.tenant.city}`
-        : `imóvel para ${args.finalidade || 'venda'} em ${ctx.tenant.city}`;
+        ? `${args.tipo_imovel} para ${semanticFinalidade} em ${ctx.tenant.city}`
+        : `imóvel para ${semanticFinalidade} em ${ctx.tenant.city}`;
       const expandedEmbedding = await generateEmbedding(expandedQuery);
       const { data: expandedProps } = await ctx.supabase.rpc('match_properties', {
         query_embedding: expandedEmbedding,

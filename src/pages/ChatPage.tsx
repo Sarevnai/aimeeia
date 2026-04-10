@@ -32,6 +32,7 @@ import {
   Image,
   ArrowRightLeft,
   Info,
+  ExternalLink,
 } from 'lucide-react';
 import {
   Dialog,
@@ -43,6 +44,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { Tables } from '@/integrations/supabase/types';
 import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
+import SendToC2SDialog from '@/components/SendToC2SDialog';
 
 type Message = Tables<'messages'>;
 type Conversation = Tables<'conversations'>;
@@ -101,6 +103,7 @@ const ChatPage: React.FC = () => {
   const [inputValue, setInputValue] = useSessionState(`chat_input_${id}`, '');
   const [sending, setSending] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [c2sDialogOpen, setC2sDialogOpen] = useState(false);
   const [operatorName, setOperatorName] = useState<string | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -543,6 +546,9 @@ const ChatPage: React.FC = () => {
                 </Button>
               </>
             )}
+            <Button size="sm" variant="outline" onClick={() => setC2sDialogOpen(true)} className="text-xs" title="Encaminhar ao C2S">
+              <ExternalLink className="h-3.5 w-3.5 mr-1" /> C2S
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -848,6 +854,18 @@ const ChatPage: React.FC = () => {
       )}
 
       {/* Transfer Modal */}
+      {conversation && contact && (
+        <SendToC2SDialog
+          open={c2sDialogOpen}
+          onOpenChange={setC2sDialogOpen}
+          tenantId={tenantId}
+          conversationId={conversation.id}
+          contactId={contact.id}
+          phoneNumber={conversation.phone_number}
+          contactName={contact.name || undefined}
+        />
+      )}
+
       <Dialog open={showTransferModal} onOpenChange={setShowTransferModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

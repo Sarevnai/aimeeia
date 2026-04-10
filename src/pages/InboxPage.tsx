@@ -6,9 +6,11 @@ import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
 import { useSessionState } from '@/hooks/useSessionState';
 import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
-import { Search, Loader2, MessageSquare, Globe, Phone, Facebook, Home, Tag } from 'lucide-react';
+import { Search, Loader2, MessageSquare, Globe, Phone, Facebook, Home, Tag, ExternalLink } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { Tables } from '@/integrations/supabase/types';
+import SendToC2SDialog from '@/components/SendToC2SDialog';
 
 type Conversation = Tables<'conversations'>;
 type Contact = Tables<'contacts'>;
@@ -62,6 +64,7 @@ const InboxPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useSessionState('inbox_search', '');
   const [tab, setTab] = useSessionState<TabValue>('inbox_tab', 'all');
+  const [c2sConv, setC2sConv] = useState<ConversationWithContact | null>(null);
 
   const fetchConversations = async () => {
     if (!tenantId) return;
@@ -312,12 +315,38 @@ const InboxPage: React.FC = () => {
                       )}
                     </div>
                   </div>
+
+                  {/* C2S button */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div
+                        role="button"
+                        onClick={(e) => { e.stopPropagation(); setC2sConv(conv); }}
+                        className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>Encaminhar ao C2S</TooltipContent>
+                  </Tooltip>
                 </button>
               );
             })}
           </div>
         )}
       </div>
+      {/* C2S Dialog */}
+      {c2sConv && (
+        <SendToC2SDialog
+          open={!!c2sConv}
+          onOpenChange={(open) => !open && setC2sConv(null)}
+          tenantId={tenantId}
+          conversationId={c2sConv.id}
+          contactId={c2sConv.contact_id || ''}
+          phoneNumber={c2sConv.phone_number}
+          contactName={c2sConv.contacts?.name || undefined}
+        />
+      )}
     </div>
   );
 };

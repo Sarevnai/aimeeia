@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import SendToC2SDialog from '@/components/SendToC2SDialog';
 
 /* ─── types ─── */
 interface LeadRow {
@@ -104,6 +105,7 @@ const LeadsPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [summaryLead, setSummaryLead] = useState<LeadRow | null>(null);
+  const [c2sLead, setC2sLead] = useState<LeadRow | null>(null);
 
   // Filters State
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
@@ -371,7 +373,7 @@ const LeadsPage: React.FC = () => {
 
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setC2sLead(lead)}>
                                 <ArrowRight className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
@@ -500,6 +502,19 @@ const LeadsPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* C2S Dialog */}
+      {c2sLead && c2sLead.convId && (
+        <SendToC2SDialog
+          open={!!c2sLead}
+          onOpenChange={(open) => !open && setC2sLead(null)}
+          tenantId={tenantId}
+          conversationId={c2sLead.convId}
+          contactId={c2sLead.contactId}
+          phoneNumber={c2sLead.phone}
+          contactName={c2sLead.name || undefined}
+        />
+      )}
 
     </div>
   );

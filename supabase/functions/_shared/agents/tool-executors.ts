@@ -321,6 +321,23 @@ export async function executePropertySearch(
       }
     }
 
+    // C9b: Pivot inteligente para interest=ambos — quando só uma finalidade tem resultados,
+    // sinalizar qual tem e qual não tem para o hint guiar a resposta.
+    let pivotNotice = '';
+    if (clientFinalidade === 'ambos' && validProperties.length > 0) {
+      const vendaProps = validProperties.filter((p: any) => p.price >= 50000);
+      const locacaoProps = validProperties.filter((p: any) => p.price < 50000);
+      if (vendaProps.length > 0 && locacaoProps.length === 0) {
+        pivotNotice = `\n\n⚠️ PIVOT OBRIGATÓRIO: O cliente pediu compra E locação, mas no ${args.bairro || 'bairro solicitado'} só encontramos opções para COMPRA. Você DEVE informar isso de forma natural e empática. Exemplo: "Devido à alta demanda, não temos apartamentos para locação no ${args.bairro || 'bairro'} nesse momento, mas como você também se interessa por compra, separei uma ótima opção!" NÃO pule essa explicação. Depois apresente o imóvel de venda. Se o cliente insistir que quer locação, sugira bairros vizinhos com disponibilidade (ex: Rio Tavares, Lagoa da Conceição, Ribeirão da Ilha).`;
+        // Keep only venda properties
+        validProperties = vendaProps;
+      } else if (locacaoProps.length > 0 && vendaProps.length === 0) {
+        pivotNotice = `\n\n⚠️ PIVOT OBRIGATÓRIO: O cliente pediu compra E locação, mas no ${args.bairro || 'bairro solicitado'} só encontramos opções para LOCAÇÃO. Você DEVE informar isso de forma natural e empática. Exemplo: "Para compra no ${args.bairro || 'bairro'} não temos disponibilidade no momento, mas encontrei ótimas opções de aluguel!" NÃO pule essa explicação. Depois apresente o imóvel de locação. Se o cliente insistir que quer compra, sugira bairros vizinhos com disponibilidade.`;
+        validProperties = locacaoProps;
+      }
+      // If both have results, no pivot needed — show mix
+    }
+
     // C6: Expansão inteligente quando poucos resultados
     if (validProperties.length <= 1 && args.bairro) {
       console.log(`🌍 C6: Apenas ${validProperties.length} resultado(s) no ${args.bairro}. Tentando flexibilizar...`);
@@ -651,7 +668,7 @@ export async function executePropertySearch(
     const poiExample = nearbyPlacesText
       ? `, pertinho do ${nearbyPlacesText.split(';')[0]?.trim() || 'centro'}`
       : '';
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto e link. O imóvel principal é: ${propContext}.${tipoExpandidoNotice}${poiHint}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA (APRESENTAÇÃO CONSULTIVA):\n1. Apresente o imóvel com DADOS CONCRETOS: mencione bairro, quartos, preço${sentProp.area_util ? ', metragem' : ''}${sentProp.vagas ? ', vagas' : ''} na sua mensagem.\n2. OBRIGATÓRIO conectar pelo menos 2 critérios que o cliente pediu (bairro, quartos, orçamento, proximidade).${poiRule}\n4. Exemplo BOM: "Esse ${sentProp.tipo || 'apartamento'} no ${sentProp.bairro} tem ${sentProp.quartos} quartos${sentProp.area_util ? ', ' + sentProp.area_util + 'm²' : ''} e fica por ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}${poiExample}. O que achou?"\n5. PROIBIDO frases genéricas como "encontrei um imóvel que pode te interessar", "separei uma opção pra você", "dá uma olhadinha", "me conta o que achou". Seja ESPECÍFICA com números, dados reais e localização.\n6. NUNCA invente dados que não existem no imóvel enviado.\n7. Finalize perguntando a opinião do cliente sobre ESTE imóvel específico de forma consultiva.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto e link. O imóvel principal é: ${propContext}.${pivotNotice}${tipoExpandidoNotice}${poiHint}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA (APRESENTAÇÃO CONSULTIVA):\n1. Apresente o imóvel com DADOS CONCRETOS: mencione bairro, quartos, preço${sentProp.area_util ? ', metragem' : ''}${sentProp.vagas ? ', vagas' : ''} na sua mensagem.\n2. OBRIGATÓRIO conectar pelo menos 2 critérios que o cliente pediu (bairro, quartos, orçamento, proximidade).${poiRule}\n4. Exemplo BOM: "Esse ${sentProp.tipo || 'apartamento'} no ${sentProp.bairro} tem ${sentProp.quartos} quartos${sentProp.area_util ? ', ' + sentProp.area_util + 'm²' : ''} e fica por ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}${poiExample}. O que achou?"\n5. PROIBIDO frases genéricas como "encontrei um imóvel que pode te interessar", "separei uma opção pra você", "dá uma olhadinha", "me conta o que achou". Seja ESPECÍFICA com números, dados reais e localização.\n6. NUNCA invente dados que não existem no imóvel enviado.\n7. Finalize perguntando a opinião do cliente sobre ESTE imóvel específico de forma consultiva.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
     const remainingHint = remaining > 0
       ? `\n\n[FILA] Restam ${remaining} imóvel(is). Quando o cliente pedir mais opções, alterar critérios (mais quartos, outro bairro, mais suítes), ou não gostar, CHAME buscar_imoveis com os critérios atualizados. NÃO responda com texto genérico pedindo mais informações se já tem o perfil do cliente.`

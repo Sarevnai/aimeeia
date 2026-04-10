@@ -270,6 +270,16 @@ export async function executePropertySearch(
       args.quartos = Number(ctx.qualificationData.detected_bedrooms);
       console.log(`🔧 FALLBACK: Quartos da qualificação → ${args.quartos}`);
     }
+    // FALLBACK TIPO: Se nem LLM nem qualificação definiram tipo, defaultar para Apartamentos
+    // (terreno é nicho raro — apartamento é o mais procurado)
+    if (!args.tipo_imovel && ctx.qualificationData?.detected_property_type) {
+      args.tipo_imovel = ctx.qualificationData.detected_property_type;
+      console.log(`🔧 FALLBACK: Tipo da qualificação → "${args.tipo_imovel}"`);
+    }
+    if (!args.tipo_imovel) {
+      args.tipo_imovel = 'Apartamentos';
+      console.log(`🔧 DEFAULT: Tipo não informado → defaultando para "Apartamentos"`);
+    }
 
     console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Bairro: ${args.bairro || 'NENHUM'} | Tipo: ${args.tipo_imovel || 'NENHUM'} | Quartos: ${args.quartos || 'NENHUM'} | Finalidade: ${filterFinalidade || 'NENHUM'} | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
 

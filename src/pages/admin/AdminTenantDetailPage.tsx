@@ -42,6 +42,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import AdminNewCampaignSheet from '@/components/admin/AdminNewCampaignSheet';
 import AdminTemplatesTab from '@/components/admin/AdminTemplatesTab';
 import AdminContactsTab from '@/components/admin/AdminContactsTab';
+import AdminConversationsTab from '@/components/admin/AdminConversationsTab';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -710,6 +711,7 @@ const AdminTenantDetailPage: React.FC = () => {
                             { value: 'billing', label: 'Billing', icon: CreditCard },
                             { value: 'users', label: 'Usuários', icon: Users },
                             { value: 'integrations', label: 'Integrações', icon: Plug },
+                            { value: 'conversations', label: 'Conversas', icon: MessageSquare },
                             { value: 'contacts', label: 'Contatos', icon: BookUser },
                             { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
                             { value: 'templates', label: 'Templates', icon: FileText },
@@ -1141,6 +1143,13 @@ const AdminTenantDetailPage: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {/* ═══ CONVERSATIONS TAB ═══ */}
+                {activeTab === 'conversations' && (
+                    <div className="max-w-5xl mx-auto animate-fade-in">
+                        <AdminConversationsTab tenantId={tenant.id} />
                     </div>
                 )}
 

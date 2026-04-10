@@ -116,12 +116,15 @@ export function extractQualificationFromText(
   return extracted;
 }
 
-// Detect interest (venda/locação) from text
+// Detect interest (venda/locação/ambos) from text
 function detectInterest(lower: string): string | null {
-  // Locação patterns (check first — more specific)
-  if (/\b(alug|locar|loca[çc][aã]o|pra\s+alugar|para\s+alugar|quero\s+alugar)\b/i.test(lower)) return 'locacao';
-  // Venda patterns
-  if (/\b(comprar|compra|investir|adquirir|pra\s+comprar|para\s+comprar|quero\s+comprar)\b/i.test(lower)) return 'venda';
+  const hasLocacao = /\b(alug|locar|loca[çc][aã]o|pra\s+alugar|para\s+alugar|quero\s+alugar)\b/i.test(lower);
+  const hasVenda = /\b(comprar|compra|investir|adquirir|pra\s+comprar|para\s+comprar|quero\s+comprar)\b/i.test(lower);
+
+  // Dual interest: "compra ou locação", "venda e locação", etc.
+  if (hasLocacao && hasVenda) return 'ambos';
+  if (hasLocacao) return 'locacao';
+  if (hasVenda) return 'venda';
   return null;
 }
 

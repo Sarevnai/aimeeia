@@ -716,6 +716,42 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       .eq('tenant_id', tenant_id)
       .eq('phone_number', phone_number);
 
+    // MC-4b: Re-trigger — check if new inbound messages arrived while we were processing.
+    // If so, re-invoke ai-agent with the latest pending message (max 1 re-trigger).
+    if (!body._is_retrigger) {
+      try {
+        const { data: pendingMsgs } = await supabase
+          .from('messages')
+          .select('id, body')
+          .eq('conversation_id', conversation_id)
+          .eq('direction', 'inbound')
+          .not('body', 'is', null)
+          .gt('created_at', new Date(Date.now() - 30_000).toISOString()) // last 30s
+          .order('created_at', { ascending: false })
+          .limit(2);
+
+        // If there are 2+ recent inbound msgs, the latest one was likely debounced
+        if (pendingMsgs && pendingMsgs.length >= 2) {
+          const latestPending = pendingMsgs[0];
+          if (latestPending.body !== message_body) {
+            console.log(`🔄 MC-4b: Re-triggering ai-agent for debounced message: "${latestPending.body?.slice(0, 60)}"`);
+            // Fire-and-forget re-invocation (don't await — let it process independently)
+            supabase.functions.invoke('ai-agent', {
+              body: {
+                tenant_id, phone_number, conversation_id, contact_id,
+                message_body: latestPending.body,
+                message_type: 'text',
+                contact_name,
+                _is_retrigger: true,
+              },
+            }).catch((e: any) => console.warn('⚠️ MC-4b re-trigger failed:', e));
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ MC-4b: Error checking pending messages:', e);
+      }
+    }
+
     return jsonResponse({
       action: 'responded',
       department: effectiveDepartment,

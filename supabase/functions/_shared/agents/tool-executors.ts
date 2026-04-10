@@ -300,8 +300,9 @@ export async function executePropertySearch(
 
     // C9: Pós-filtro finalidade — se cliente quer comprar, remover prováveis aluguéis (preço < 50k)
     // Se cliente quer alugar, remover prováveis vendas (preço > 50k)
+    // Se 'ambos', não filtrar por finalidade — mantém venda e locação juntos.
     const clientFinalidade = args.finalidade || ctx.qualificationData?.detected_interest || null;
-    if (clientFinalidade) {
+    if (clientFinalidade && clientFinalidade !== 'ambos') {
       const beforeCount = validProperties.length;
       if (clientFinalidade === 'venda') {
         validProperties = validProperties.filter((p: any) => p.price >= 50000);
@@ -437,7 +438,7 @@ export async function executePropertySearch(
     // Construir contexto RICO do que o cliente busca — combina args da busca + qualificação completa
     const qual = ctx.qualificationData || {};
     const clientNeeds = [
-      args.finalidade || qual.detected_interest ? `Finalidade: ${args.finalidade || (qual.detected_interest === 'locacao' ? 'locação' : 'venda')}` : null,
+      args.finalidade || qual.detected_interest ? `Finalidade: ${args.finalidade || (qual.detected_interest === 'ambos' ? 'venda e locação' : qual.detected_interest === 'locacao' ? 'locação' : 'venda')}` : null,
       args.tipo_imovel || qual.detected_property_type ? `Tipo desejado: ${args.tipo_imovel || qual.detected_property_type}` : null,
       args.bairro || qual.detected_neighborhood ? `Bairro que o cliente pediu: ${args.bairro || qual.detected_neighborhood}` : null,
       args.quartos || qual.detected_bedrooms ? `Quartos: ${args.quartos || qual.detected_bedrooms}` : null,

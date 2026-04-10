@@ -30,6 +30,9 @@ function groupMessagesIntoTurns(messages: any[]): Turn[] {
       // Customer message - accumulate
       if (msg.body) pendingCustomerMessages.push(msg.body);
     } else if (msg.direction === 'outbound' && msg.body) {
+      // Skip system messages (operator_joined, operator_left, etc.)
+      if (msg.sender_type === 'system' || msg.event_type) continue;
+
       // AI or operator response
       const senderType = msg.sender_type === 'operator' ? 'operator' : 'ai';
 
@@ -80,7 +83,7 @@ serve(async (req: Request) => {
     // 2. Load all messages
     const { data: messages, error: msgError } = await supabase
       .from('messages')
-      .select('id, direction, body, sender_type, sender_id, created_at')
+      .select('id, direction, body, sender_type, sender_id, event_type, created_at')
       .eq('conversation_id', conversation_id)
       .eq('tenant_id', tenant_id)
       .order('created_at', { ascending: true });
@@ -157,6 +160,7 @@ serve(async (req: Request) => {
             flow_type: conversation.department_code || 'vendas',
             agent_config: agentConfig ? { agent_name: agentConfig.agent_name, tone: agentConfig.tone } : undefined,
             turn_number: turn.turn_number,
+            sender_type: turn.sender_type as 'ai' | 'operator',
           }),
           { supabase, tenant_id, conversation_id }
         );

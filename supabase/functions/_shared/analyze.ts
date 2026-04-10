@@ -46,6 +46,7 @@ export interface AnalysisInput {
   flow_type?: string;
   agent_config?: { agent_name?: string; tone?: string; custom_instructions?: string };
   turn_number?: number;
+  sender_type?: 'ai' | 'operator';
 }
 
 export const ANALYSIS_SYSTEM_PROMPT = `Você é um avaliador especialista de agentes de IA conversacionais para o mercado imobiliário brasileiro. Sua função é analisar cada turno de uma conversa e atribuir uma pontuação de qualidade para cada critério.
@@ -148,15 +149,19 @@ RESPONDA EXCLUSIVAMENTE em JSON válido, sem markdown, sem backticks. O formato 
  * Build the user message that will be sent to Gemini for analysis.
  */
 export function buildAnalysisUserMessage(input: AnalysisInput): string {
-  const { conversation_history, current_turn, flow_type, agent_config, turn_number } = input;
+  const { conversation_history, current_turn, flow_type, agent_config, turn_number, sender_type } = input;
 
   const historyText = (conversation_history || [])
     .map((m) => `${m.role === 'user' ? 'CLIENTE' : 'AGENTE'}: ${m.content}`)
     .join('\n');
 
+  const isOperator = sender_type === 'operator';
+  const responderLabel = isOperator ? 'OPERADOR HUMANO' : 'AGENTE';
+
   const turnContext = [
     `MENSAGEM DO CLIENTE: ${current_turn.user_message}`,
-    `RESPOSTA DO AGENTE: ${current_turn.ai_response}`,
+    `RESPOSTA DO ${responderLabel}: ${current_turn.ai_response}`,
+    isOperator ? '⚠️ ATENÇÃO: Esta mensagem foi escrita por um OPERADOR HUMANO, não pelo agente AI. Avalie apenas naturalidade, consistência e completude. NÃO sugira correções em arquivos de código (affected_file) pois não é output do sistema. Para critérios técnicos (Extração de Dados, Guardrails, Formatação), dê nota 10 e marque como N/A.' : null,
     `AÇÃO: ${current_turn.action || 'ai_response'}`,
     current_turn.triage_stage ? `TRIAGE STAGE: ${current_turn.triage_stage}` : null,
     current_turn.active_module ? `MÓDULO ATIVO: ${current_turn.active_module.name} (${current_turn.active_module.slug})` : null,

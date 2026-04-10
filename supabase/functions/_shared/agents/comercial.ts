@@ -444,7 +444,7 @@ export const comercialAgent: AgentModule = {
 
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
     // Pre-completion verification (Harness Engineering pattern)
-    const preCheck = runPreCompletionChecks(ctx, ctx.userMessage || '', aiResponse);
+    const preCheck = await runPreCompletionChecks(ctx, ctx.userMessage || '', aiResponse);
     let finalResponse = preCheck.hasCriticalIssue ? preCheck.sanitizedResponse : aiResponse;
 
     // Strip chain-of-thought blocks that LLM may leak to client (safety net)

@@ -41,11 +41,11 @@ const QUAL_KEYWORDS_ORCAMENTO = /\b(mil|milhao|milhoes|reais|r\$|\d{3,}[.,]\d{3}
 // Search-related words in AI responses
 const SEARCH_MENTION = /\b(buscar|procurar|pesquisar|encontrar|procuro|busco|pesquiso|vou buscar|vou procurar|vou pesquisar)\b/i;
 
-export function runPreCompletionChecks(
+export async function runPreCompletionChecks(
   ctx: AgentContext,
   userMessage: string,
   aiResponse: string,
-): PreCheckResult {
+): Promise<PreCheckResult> {
   const issues: string[] = [];
   let sanitized = aiResponse;
   let hasCritical = false;
@@ -102,6 +102,48 @@ export function runPreCompletionChecks(
     issues.push(`QUAL_NO_SEARCH: lead qualificado (score=${qualScore}) mas busca não oferecida`);
   }
 
+  // 6. Anti-hallucination: if buscar_imoveis was called, validate that prices/types
+  //    mentioned in the response match actual pending_properties.
+  if (searchExecuted) {
+    const priceMatches = sanitized.match(/(?:R\$\s*|por\s+)(\d[\d.,]*)\s*(mil(?:hões|hão)?|milh[oõ]es|reais)?/gi);
+    if (priceMatches && priceMatches.length > 0) {
+      // Try to load pending_properties from conversation_states
+      try {
+        const { data: convState } = await ctx.supabase
+          .from('conversation_states')
+          .select('pending_properties')
+          .eq('tenant_id', ctx.tenantId)
+          .eq('phone_number', ctx.phoneNumber)
+          .maybeSingle();
+
+        const pendingProps = convState?.pending_properties;
+        if (pendingProps && Array.isArray(pendingProps) && pendingProps.length > 0) {
+          const realPrices = pendingProps.map((p: any) => p.preco || p.price || 0);
+
+          for (const match of priceMatches) {
+            const numericValue = parsePriceFromText(match);
+            if (numericValue > 0) {
+              const matchesAnyReal = realPrices.some((rp: number) => {
+                if (rp === 0) return false;
+                const ratio = numericValue / rp;
+                return ratio >= 0.5 && ratio <= 2.0; // 50%-200% tolerance
+              });
+              if (!matchesAnyReal) {
+                hasCritical = true;
+                issues.push(`FABRICATED_PRICE: preço mencionado (${match.trim()}) não corresponde a nenhum imóvel real. Preços reais: ${realPrices.map((p: number) => `R$ ${p.toLocaleString('pt-BR')}`).join(', ')}`);
+                // Replace the fabricated response with a safe fallback
+                sanitized = `Encontrei algumas opções na região que você pediu! Vou te mandar os detalhes agora.`;
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ [PRE-CHECK] Erro ao verificar pending_properties:', e);
+      }
+    }
+  }
+
   if (issues.length > 0) {
     console.log(`🔍 [PRE-CHECK] ${issues.length} issue(s):`, issues);
   }
@@ -112,4 +154,29 @@ export function runPreCompletionChecks(
     issues,
     sanitizedResponse: sanitized,
   };
+}
+
+// Helper: extract numeric price value from text like "R$ 3.500.000" or "três milhões"
+function parsePriceFromText(text: string): number {
+  const clean = text.replace(/R\$\s*/g, '').replace(/\s+/g, ' ').trim();
+
+  // "3.500.000" or "3,5 milhões" or "350 mil"
+  const milhoes = clean.match(/([\d.,]+)\s*milh[oõ](?:es|ão|ões)/i);
+  if (milhoes) {
+    return parseFloat(milhoes[1].replace(/\./g, '').replace(',', '.')) * 1_000_000;
+  }
+
+  const mil = clean.match(/([\d.,]+)\s*mil/i);
+  if (mil) {
+    return parseFloat(mil[1].replace(/\./g, '').replace(',', '.')) * 1_000;
+  }
+
+  // Direct numeric: "3.500.000" or "15.000"
+  const direct = clean.match(/([\d.]+(?:,\d+)?)/);
+  if (direct) {
+    const num = direct[1].replace(/\./g, '').replace(',', '.');
+    return parseFloat(num);
+  }
+
+  return 0;
 }

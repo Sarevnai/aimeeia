@@ -20,7 +20,13 @@ export function buildContextSummary(qualificationData: QualificationData | null,
   if (qualificationData.detected_property_type) collected.push(`🏠 Tipo: ${qualificationData.detected_property_type}`);
   if (qualificationData.detected_bedrooms) collected.push(`🛏️ Quartos: ${qualificationData.detected_bedrooms}`);
   if (qualificationData.detected_budget_max) collected.push(`💰 Orçamento: até ${formatCurrency(qualificationData.detected_budget_max)}`);
-  if (qualificationData.detected_interest) collected.push(`🎯 Objetivo: ${qualificationData.detected_interest}`);
+  if (qualificationData.detected_interest) {
+    const interestLabel = qualificationData.detected_interest === 'ambos' ? 'venda e locação'
+      : qualificationData.detected_interest === 'locacao' ? 'locação'
+      : qualificationData.detected_interest === 'venda' ? 'venda'
+      : qualificationData.detected_interest;
+    collected.push(`🎯 Objetivo: ${interestLabel}`);
+  }
   if (qualificationData.detected_timeline) collected.push(`⏱️ Prazo: ${qualificationData.detected_timeline === '0-3m' ? 'até 3 meses' : qualificationData.detected_timeline === '3-6m' ? '3 a 6 meses' : 'acima de 6 meses'}`);
 
   if (collected.length === 0) return '';
@@ -44,6 +50,7 @@ ${missingText}
 
 Regras:
 - Se "Objetivo" = "venda", o cliente quer COMPRAR.
+- Se "Objetivo" = "venda e locação", o cliente está aberto a AMBAS as opções — busque nas duas finalidades.
 - Use esses dados ao buscar imóveis e no handoff para o CRM.
 - Avance a conversa: pergunte APENAS o que falta, não repita perguntas já respondidas.
 </lead_data>\n`;
@@ -59,7 +66,11 @@ export function buildReturningLeadContext(previousQualData: QualificationData | 
   if (previousQualData.detected_property_type) lines.push(`- Tipo: ${previousQualData.detected_property_type}`);
   if (previousQualData.detected_bedrooms) lines.push(`- Quartos: ${previousQualData.detected_bedrooms}`);
   if (previousQualData.detected_budget_max) lines.push(`- Orçamento: até ${formatCurrency(previousQualData.detected_budget_max)}`);
-  if (previousQualData.detected_interest) lines.push(`- Objetivo: ${previousQualData.detected_interest === 'locacao' ? 'Locação' : 'Venda'}`);
+  if (previousQualData.detected_interest) {
+    const label = previousQualData.detected_interest === 'ambos' ? 'Venda e Locação'
+      : previousQualData.detected_interest === 'locacao' ? 'Locação' : 'Venda';
+    lines.push(`- Objetivo: ${label}`);
+  }
 
   if (lines.length === 0) return '';
 

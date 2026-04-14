@@ -7,7 +7,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -35,13 +39,23 @@ import { supabase } from '@/integrations/supabase/client';
 import CreateUserDialog from '@/components/acessos/CreateUserDialog';
 
 // --- Types ---
+type DepartmentCode = 'vendas' | 'locacao' | 'administrativo' | 'remarketing';
+
 interface TeamMember {
   id: string;
   full_name: string | null;
   username: string | null;
   role: 'admin' | 'operator' | 'viewer' | 'super_admin';
+  department_code: DepartmentCode | null;
   created_at: string | null;
 }
+
+const DEPARTMENT_LABELS: Record<DepartmentCode, string> = {
+  vendas: 'Vendas',
+  locacao: 'Locação',
+  administrativo: 'Administrativo',
+  remarketing: 'Remarketing',
+};
 
 // --- Helpers ---
 const getRoleBadge = (role: string) => {
@@ -91,7 +105,7 @@ const AcessosPage: React.FC = () => {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, username, role, created_at')
+      .select('id, full_name, username, role, department_code, created_at')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: true });
 
@@ -136,8 +150,8 @@ const AcessosPage: React.FC = () => {
       body: {
         action: 'update_role',
         tenant_id: tenantId,
-        target_user_id: member.id,
-        new_role: newRole,
+        user_id: member.id,
+        role: newRole,
       },
     });
 
@@ -145,10 +159,37 @@ const AcessosPage: React.FC = () => {
       toast({ title: 'Erro', description: data?.error || 'Falha ao alterar perfil.', variant: 'destructive' });
     } else {
       setMembers((prev) =>
-        prev.map((m) => (m.id === member.id ? { ...m, role: newRole as any } : m))
+        prev.map((m) => (m.id === member.id ? {
+          ...m,
+          role: newRole as any,
+          // Backend clears department_code when role != operator — mirror on UI
+          department_code: newRole === 'operator' ? m.department_code : null,
+        } : m))
       );
       const roleLabel = getRoleBadge(newRole).label;
       toast({ title: 'Perfil alterado', description: `${member.full_name} agora é ${roleLabel}.` });
+    }
+  };
+
+  const handleChangeDepartment = async (member: TeamMember, newDept: DepartmentCode) => {
+    if (!tenantId) return;
+
+    const { data, error } = await supabase.functions.invoke('manage-team', {
+      body: {
+        action: 'update_department',
+        tenant_id: tenantId,
+        user_id: member.id,
+        department_code: newDept,
+      },
+    });
+
+    if (error || data?.error) {
+      toast({ title: 'Erro', description: data?.error || 'Falha ao alterar setor.', variant: 'destructive' });
+    } else {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === member.id ? { ...m, department_code: newDept } : m))
+      );
+      toast({ title: 'Setor alterado', description: `${member.full_name} agora é do setor ${DEPARTMENT_LABELS[newDept]}.` });
     }
   };
 
@@ -158,9 +199,9 @@ const AcessosPage: React.FC = () => {
 
     const { data, error } = await supabase.functions.invoke('manage-team', {
       body: {
-        action: 'remove_member',
+        action: 'remove_user',
         tenant_id: tenantId,
-        target_user_id: deleteTarget.id,
+        user_id: deleteTarget.id,
       },
     });
 
@@ -243,9 +284,10 @@ const AcessosPage: React.FC = () => {
         </CardHeader>
         <CardContent className="p-0">
           {/* Table Header */}
-          <div className="grid grid-cols-[1fr_150px_120px_48px] gap-4 px-6 py-3 border-b border-border bg-muted/20 text-sm font-medium text-muted-foreground">
+          <div className="grid grid-cols-[1fr_130px_130px_110px_48px] gap-4 px-6 py-3 border-b border-border bg-muted/20 text-sm font-medium text-muted-foreground">
             <span>Usuário</span>
             <span>Perfil</span>
+            <span>Setor</span>
             <span>Status</span>
             <span />
           </div>
@@ -266,7 +308,7 @@ const AcessosPage: React.FC = () => {
                 return (
                   <div
                     key={member.id}
-                    className="grid grid-cols-[1fr_150px_120px_48px] gap-4 px-6 py-4 items-center hover:bg-muted/20 transition-colors"
+                    className="grid grid-cols-[1fr_130px_130px_110px_48px] gap-4 px-6 py-4 items-center hover:bg-muted/20 transition-colors"
                   >
                     {/* Usuário */}
                     <div className="min-w-0">
@@ -282,6 +324,23 @@ const AcessosPage: React.FC = () => {
                       <Badge variant="secondary" className={`px-3 py-0.5 rounded-md text-xs font-semibold ${roleBadge.className}`}>
                         {roleBadge.label}
                       </Badge>
+                    </div>
+
+                    {/* Setor */}
+                    <div>
+                      {member.role === 'operator' ? (
+                        member.department_code ? (
+                          <Badge variant="outline" className="px-3 py-0.5 rounded-md text-xs font-medium bg-muted/40 border-border">
+                            {DEPARTMENT_LABELS[member.department_code]}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="px-3 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border-amber-200">
+                            Sem setor
+                          </Badge>
+                        )
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </div>
 
                     {/* Status */}
@@ -301,7 +360,8 @@ const AcessosPage: React.FC = () => {
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-52">
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Perfil</DropdownMenuLabel>
                             {member.role !== 'admin' && (
                               <DropdownMenuItem onClick={() => handleChangeRole(member, 'admin')} className="gap-2 cursor-pointer">
                                 <Pencil className="h-4 w-4" />
@@ -319,6 +379,31 @@ const AcessosPage: React.FC = () => {
                                 <Pencil className="h-4 w-4" />
                                 <span>Tornar Visualizador</span>
                               </DropdownMenuItem>
+                            )}
+                            {member.role === 'operator' && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Setor</DropdownMenuLabel>
+                                <DropdownMenuSub>
+                                  <DropdownMenuSubTrigger className="gap-2">
+                                    <Pencil className="h-4 w-4" />
+                                    <span>Alterar setor</span>
+                                  </DropdownMenuSubTrigger>
+                                  <DropdownMenuSubContent>
+                                    {(Object.keys(DEPARTMENT_LABELS) as DepartmentCode[]).map((dept) => (
+                                      <DropdownMenuItem
+                                        key={dept}
+                                        onClick={() => handleChangeDepartment(member, dept)}
+                                        disabled={member.department_code === dept}
+                                        className="cursor-pointer"
+                                      >
+                                        {DEPARTMENT_LABELS[dept]}
+                                        {member.department_code === dept && <span className="ml-auto text-xs text-muted-foreground">atual</span>}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                              </>
                             )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

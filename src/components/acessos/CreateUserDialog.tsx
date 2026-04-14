@@ -40,12 +40,14 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<string>('operator');
+  const [departmentCode, setDepartmentCode] = useState<string>('vendas');
 
   const resetForm = () => {
     setFullName('');
     setEmail('');
     setPassword('');
     setRole('operator');
+    setDepartmentCode('vendas');
   };
 
   const handleClose = (value: boolean) => {
@@ -68,6 +70,11 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
       return;
     }
 
+    if (role === 'operator' && !departmentCode) {
+      toast({ title: 'Escolha um setor para o operador', variant: 'destructive' });
+      return;
+    }
+
     setLoading(true);
 
     const { data, error } = await supabase.functions.invoke('manage-team', {
@@ -78,6 +85,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
         full_name: fullName.trim(),
         tenant_id: tenantId,
         role,
+        department_code: role === 'operator' ? departmentCode : null,
       },
     });
 
@@ -156,6 +164,26 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
               Admin pode gerenciar equipe e configurações. Operador usa o chat e pipeline. Visualizador apenas consulta.
             </p>
           </div>
+
+          {role === 'operator' && (
+            <div className="space-y-2">
+              <Label htmlFor="department">Setor</Label>
+              <Select value={departmentCode} onValueChange={setDepartmentCode} disabled={loading}>
+                <SelectTrigger id="department">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vendas">Vendas</SelectItem>
+                  <SelectItem value="locacao">Locação</SelectItem>
+                  <SelectItem value="administrativo">Administrativo</SelectItem>
+                  <SelectItem value="remarketing">Remarketing</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                O operador só verá leads, pipeline e conversas do seu setor.
+              </p>
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => handleClose(false)} disabled={loading}>

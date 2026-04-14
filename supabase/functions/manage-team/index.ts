@@ -4,10 +4,11 @@
 // verify_jwt is OFF — auth is handled entirely in our code below.
 //
 // Actions:
-//   create_user    → Create user immediately with password (no email confirmation)
-//   remove_user    → Remove user from tenant (deletes profile + auth user)
-//   update_role    → Change a user's role in the profiles table
-//   reset_password → Set a new password for a user via admin API
+//   create_user        → Create user immediately with password (no email confirmation)
+//   remove_user        → Remove user from tenant (deletes profile + auth user)
+//   update_role        → Change a user's role (clears department_code when role != operator)
+//   update_department  → Set/clear department_code (vendas | locacao | administrativo | remarketing)
+//   reset_password     → Set a new password for a user via admin API
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -124,6 +125,10 @@ serve(async (req: Request) => {
             return await updateRole(admin, body);
         }
 
+        if (action === 'update_department') {
+            return await updateDepartment(admin, body);
+        }
+
         if (action === 'reset_password') {
             return await resetPassword(admin, body);
         }
@@ -142,7 +147,7 @@ serve(async (req: Request) => {
 
 // deno-lint-ignore no-explicit-any
 async function createUser(admin: any, body: any): Promise<Response> {
-    const { email, password, full_name, tenant_id, role } = body;
+    const { email, password, full_name, tenant_id, role, department_code } = body;
 
     if (!email || !password || !full_name || !role) {
         return errorResponse('Missing required fields: email, password, full_name, role', 400);
@@ -162,7 +167,16 @@ async function createUser(admin: any, body: any): Promise<Response> {
         return errorResponse('Password must be at least 8 characters', 400);
     }
 
-    console.log(`👤 Creating user ${email} in tenant ${tenant_id || 'PLATFORM (super_admin)'} as ${role}`);
+    // department_code validation (only relevant for operators)
+    const allowedDepts = ['vendas', 'locacao', 'administrativo', 'remarketing'];
+    if (department_code && !allowedDepts.includes(department_code)) {
+        return errorResponse(`Invalid department_code. Must be one of: ${allowedDepts.join(', ')}`, 400);
+    }
+    if (role === 'operator' && !department_code) {
+        return errorResponse('Operators must have a department_code', 400);
+    }
+
+    console.log(`👤 Creating user ${email} in tenant ${tenant_id || 'PLATFORM (super_admin)'} as ${role}${department_code ? ` (${department_code})` : ''}`);
 
     const { data, error } = await admin.auth.admin.createUser({
         email,
@@ -184,6 +198,17 @@ async function createUser(admin: any, body: any): Promise<Response> {
             );
         }
         return errorResponse(error.message, 400);
+    }
+
+    // Set department_code after profile is created by handle_new_user() trigger
+    if (role === 'operator' && department_code && data.user?.id) {
+        const { error: deptErr } = await admin
+            .from('profiles')
+            .update({ department_code })
+            .eq('id', data.user.id);
+        if (deptErr) {
+            console.warn('⚠️ Failed to set department_code on new user:', deptErr.message);
+        }
     }
 
     console.log(`✅ User created: ${data.user?.id}`);
@@ -209,9 +234,13 @@ async function updateRole(admin: any, body: any): Promise<Response> {
 
     console.log(`✏️ Updating role of user ${user_id} to ${role}`);
 
+    // When role is not 'operator', department_code is not meaningful — clear it.
+    const patch: Record<string, unknown> = { role };
+    if (role !== 'operator') patch.department_code = null;
+
     const { error } = await admin
         .from('profiles')
-        .update({ role })
+        .update(patch)
         .eq('id', user_id);
 
     if (error) {
@@ -220,6 +249,51 @@ async function updateRole(admin: any, body: any): Promise<Response> {
     }
 
     console.log(`✅ Role of user ${user_id} updated to ${role}`);
+    return jsonResponse({ success: true });
+}
+
+// ═══════════════════════════════════════════════
+// UPDATE DEPARTMENT: Set/clear department_code
+// ═══════════════════════════════════════════════
+
+// deno-lint-ignore no-explicit-any
+async function updateDepartment(admin: any, body: any): Promise<Response> {
+    const { user_id, department_code } = body;
+
+    if (!user_id) {
+        return errorResponse('Missing required field: user_id', 400);
+    }
+
+    const allowedDepts = ['vendas', 'locacao', 'administrativo', 'remarketing'];
+    if (department_code !== null && !allowedDepts.includes(department_code)) {
+        return errorResponse(`Invalid department_code. Must be null or one of: ${allowedDepts.join(', ')}`, 400);
+    }
+
+    // Only operators can have a department_code. If the target is not an operator,
+    // reject attempts to set a department (but allow clearing).
+    const { data: prof, error: fetchErr } = await admin
+        .from('profiles')
+        .select('role')
+        .eq('id', user_id)
+        .single();
+    if (fetchErr) return errorResponse(`Profile lookup failed: ${fetchErr.message}`, 400);
+    if (department_code && prof.role !== 'operator') {
+        return errorResponse('Only operators can be assigned a department', 400);
+    }
+
+    console.log(`🏷️ Updating department_code of user ${user_id} to ${department_code ?? 'null'}`);
+
+    const { error } = await admin
+        .from('profiles')
+        .update({ department_code })
+        .eq('id', user_id);
+
+    if (error) {
+        console.error('❌ Update department error:', error.message);
+        return errorResponse(error.message, 400);
+    }
+
+    console.log(`✅ Department of user ${user_id} updated`);
     return jsonResponse({ success: true });
 }
 

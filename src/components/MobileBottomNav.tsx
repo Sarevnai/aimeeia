@@ -8,6 +8,8 @@ import {
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { getAllowedPaths } from '@/lib/access-control';
 
 const mobileNavItems = [
   { label: 'Início', icon: LayoutDashboard, path: '/' },
@@ -19,11 +21,16 @@ const mobileNavItems = [
 
 const MobileBottomNav: React.FC = () => {
   const location = useLocation();
+  const { profile } = useAuth();
+  const allowedPaths = getAllowedPaths(profile);
+  const visibleItems = mobileNavItems.filter((item) =>
+    allowedPaths.some((p) => item.path === p || (p !== '/' && item.path.startsWith(p)))
+  );
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border">
       <div className="flex items-center justify-around h-16">
-        {mobileNavItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive = location.pathname === item.path ||
             (item.path !== '/' && location.pathname.startsWith(item.path));
           return (

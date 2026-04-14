@@ -26,6 +26,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { getAllowedPaths } from '@/lib/access-control';
 
 interface NavItem {
   label: string;
@@ -45,38 +46,13 @@ interface AppSidebarProps {
   onToggle: () => void;
 }
 
-// Define which paths each role can access
-const ROLE_PATHS: Record<string, string[]> = {
-  super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios', '/chamados',
-    '/empreendimentos', '/campanhas', '/atualizacao',
-    '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia', '/admin'],
-  admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios', '/chamados',
-    '/empreendimentos', '/campanhas', '/atualizacao',
-    '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia'],
-  operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/chamados', '/empreendimentos', '/guia'],
-  viewer: ['/', '/relatorios', '/guia'],
-};
-
-// Department-specific paths for operators (overrides ROLE_PATHS.operator when set)
-const DEPT_PATHS: Record<string, string[]> = {
-  administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/financeiro', '/guia'],
-  vendas: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/empreendimentos', '/guia'],
-  locacao: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/empreendimentos', '/guia'],
-  remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/campanhas', '/empreendimentos', '/guia'],
-};
-
 const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
   const { tenantId, tenantInfo } = useTenant();
   const { profile } = useAuth();
   const [activeConvCount, setActiveConvCount] = useState(0);
   const [activeTicketCount, setActiveTicketCount] = useState(0);
-  const role = profile?.role || 'viewer';
-  const dept = profile?.department_code;
-  // Operators with a department_code get department-specific paths; admin/super_admin see everything
-  const allowedPaths = (role === 'operator' && dept && DEPT_PATHS[dept])
-    ? DEPT_PATHS[dept]
-    : (ROLE_PATHS[role] || ROLE_PATHS.viewer);
+  const allowedPaths = getAllowedPaths(profile);
 
   useEffect(() => {
     if (!tenantId) return;

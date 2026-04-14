@@ -26,6 +26,7 @@ const departments: { value: DepartmentFilter; label: string }[] = [
 const AppHeader: React.FC<AppHeaderProps> = ({ onMobileMenuToggle }) => {
   const { profile, signOut } = useAuth();
   const { department, setDepartment, isLocked } = useDepartmentFilter();
+  const isOperator = profile?.role === 'operator';
 
   const initials = profile?.full_name
     ?.split(' ')
@@ -46,20 +47,22 @@ const AppHeader: React.FC<AppHeaderProps> = ({ onMobileMenuToggle }) => {
           <Menu className="h-5 w-5" />
         </Button>
 
-        <Select value={department} onValueChange={(v) => setDepartment(v as DepartmentFilter)} disabled={isLocked}>
-          <SelectTrigger className="w-[160px] h-9 text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {departments
-              .filter((d) => !isLocked || d.value === department)
-              .map((d) => (
-                <SelectItem key={d.value} value={d.value}>
-                  {d.label}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
+        {!isOperator && (
+          <Select value={department} onValueChange={(v) => setDepartment(v as DepartmentFilter)} disabled={isLocked}>
+            <SelectTrigger className="w-[160px] h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {departments
+                .filter((d) => !isLocked || d.value === department)
+                .map((d) => (
+                  <SelectItem key={d.value} value={d.value}>
+                    {d.label}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <div className="flex items-center gap-3">

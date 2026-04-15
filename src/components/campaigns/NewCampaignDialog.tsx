@@ -81,15 +81,23 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
   useEffect(() => {
     if (step === 2 && tenantId) {
       setLoadingContacts(true);
-      supabase
-        .from('contacts')
-        .select('id, name, phone, department_code, tags')
-        .eq('tenant_id', tenantId)
-        .order('name')
-        .then(({ data }) => {
-          setContacts(data || []);
-          setLoadingContacts(false);
-        });
+      (async () => {
+        const PAGE = 1000;
+        const all: any[] = [];
+        for (let from = 0; ; from += PAGE) {
+          const { data } = await supabase
+            .from('contacts')
+            .select('id, name, phone, department_code, tags')
+            .eq('tenant_id', tenantId)
+            .order('name')
+            .range(from, from + PAGE - 1);
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < PAGE) break;
+        }
+        setContacts(all);
+        setLoadingContacts(false);
+      })();
     }
   }, [step, tenantId]);
 

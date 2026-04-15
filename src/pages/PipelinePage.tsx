@@ -112,7 +112,7 @@ const PipelinePage: React.FC = () => {
       .eq('tenant_id', tenantId)
       .not('crm_status', 'is', null)
       .order('updated_at', { ascending: false })
-      .limit(2000);
+      .limit(10000);
 
     if (effectiveScope === 'meus' && myBrokerId) q = q.eq('assigned_broker_id', myBrokerId);
     if (department !== 'all') q = q.eq('department_code', department);

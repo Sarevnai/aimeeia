@@ -173,15 +173,23 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
     useEffect(() => {
         if (!open || step !== 4 || !selectedTenantId) return;
         setLoadingContacts(true);
-        supabase
-            .from('contacts')
-            .select('id, name, phone, email, department_code')
-            .eq('tenant_id', selectedTenantId)
-            .order('name')
-            .then(({ data }) => {
-                setContacts((data as Contact[]) ?? []);
-                setLoadingContacts(false);
-            });
+        (async () => {
+            const PAGE = 1000;
+            const all: Contact[] = [];
+            for (let from = 0; ; from += PAGE) {
+                const { data } = await supabase
+                    .from('contacts')
+                    .select('id, name, phone, email, department_code')
+                    .eq('tenant_id', selectedTenantId)
+                    .order('name')
+                    .range(from, from + PAGE - 1);
+                if (!data || data.length === 0) break;
+                all.push(...(data as Contact[]));
+                if (data.length < PAGE) break;
+            }
+            setContacts(all);
+            setLoadingContacts(false);
+        })();
     }, [open, step, selectedTenantId]);
 
     /* ── Filtered contacts ── */

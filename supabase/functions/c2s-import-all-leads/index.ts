@@ -83,6 +83,7 @@ serve(async (req: Request) => {
         const seller = attrs.seller || {};
         const product = attrs.product || {};
         const leadStatus = attrs.lead_status || {};
+        const funnelStatus = attrs.funnel_status || {};
         const leadSource = attrs.lead_source || {};
         const archiveDetails = attrs.archive_details || {};
         const realEstate = product.real_estate_detail || {};
@@ -119,6 +120,7 @@ serve(async (req: Request) => {
           assigned_broker_id: assignedBrokerId,
 
           crm_status: leadStatus.name || null,
+          crm_funnel_status: funnelStatus.status || null,
           crm_source: leadSource.name || null,
           crm_property_ref: propRef,
           crm_neighborhood: product.neighbourhood || null,

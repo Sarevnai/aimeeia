@@ -15,6 +15,7 @@ import ChatPage from "@/pages/ChatPage";
 import HistoryPage from "@/pages/HistoryPage";
 import LeadsPage from "@/pages/LeadsPage";
 import PipelinePage from "@/pages/PipelinePage";
+import FollowUpArchivedPage from "@/pages/FollowUpArchivedPage";
 import MinhaAimeePage from "@/pages/MinhaAimeePage";
 import CampaignsPage from "@/pages/CampaignsPage";
 import CampaignDetailPage from "@/pages/CampaignDetailPage";
@@ -78,6 +79,7 @@ const App = () => (
                   <Route path="/history/:id" element={<HistoryPage />} />
                   <Route path="/leads" element={<LeadsPage />} />
                   <Route path="/pipeline" element={<PipelinePage />} />
+                  <Route path="/followup-arquivados" element={<FollowUpArchivedPage />} />
                   <Route path="/campanhas" element={<CampaignsPage />} />
                   <Route path="/campanhas/:id" element={<CampaignDetailPage />} />
                   <Route path="/relatorios" element={<ReportsPage />} />

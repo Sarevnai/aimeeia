@@ -12,12 +12,19 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Loader2, Settings, Archive, UserCheck, Building2, Sparkles, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 import {
   DndContext, DragOverlay, closestCorners, PointerSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
 } from '@dnd-kit/core';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import type { Tables } from '@/integrations/supabase/types';
+
+// C2S transitions that are fully supported (bi-directional drag writes to C2S).
+// Arquivado/Negócio fechado exigem endpoints /archive e /done com payload
+// específico ainda não mapeado — drag pra essas colunas mostra toast
+// informando o usuário (sem chamada à API, rollback otimista).
+const C2S_SUPPORTED_TRANSITIONS = new Set(['Novo', 'Em negociação']);
 
 type Stage = Tables<'conversation_stages'>;
 type Conversation = Tables<'conversations'>;
@@ -55,6 +62,7 @@ const PipelinePage: React.FC = () => {
   const { profile } = useAuth();
   const { department } = useDepartmentFilter();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const [mode, setMode] = useSessionState<'c2s' | 'local'>('pipeline_mode', 'c2s');
   const [scope, setScope] = useSessionState<'todos' | 'meus'>('pipeline_scope', 'todos');
@@ -64,6 +72,7 @@ const PipelinePage: React.FC = () => {
   // C2S mode
   const [crmCards, setCrmCards] = useState<Record<string, CrmCard[]>>({});
   const [crmLoading, setCrmLoading] = useState(true);
+  const [activeCrmCard, setActiveCrmCard] = useState<CrmCard | null>(null);
 
   // Local mode (drag-and-drop)
   const [stages, setStages] = useState<Stage[]>([]);
@@ -160,6 +169,83 @@ const PipelinePage: React.FC = () => {
     await supabase.from('conversations').update({ stage_id: newStageId }).eq('id', convId).eq('tenant_id', tenantId);
   };
 
+  /* C2S drag handlers */
+  const handleCrmDragStart = (event: DragStartEvent) => {
+    const contactId = event.active.id as string;
+    for (const list of Object.values(crmCards)) {
+      const found = list.find((c) => c.id === contactId);
+      if (found) { setActiveCrmCard(found); return; }
+    }
+  };
+
+  const handleCrmDragEnd = async (event: DragEndEvent) => {
+    setActiveCrmCard(null);
+    const { active, over } = event;
+    if (!over || !tenantId) return;
+
+    const contactId = active.id as string;
+    const newStatus = over.id as string;
+
+    // Find current status
+    let oldStatus: string | null = null;
+    let movedCard: CrmCard | null = null;
+    for (const [status, list] of Object.entries(crmCards)) {
+      const found = list.find((c) => c.id === contactId);
+      if (found) { oldStatus = status; movedCard = found; break; }
+    }
+    if (!oldStatus || !movedCard || oldStatus === newStatus) return;
+
+    // Block transitions to Arquivado / Negócio fechado (pending C2S payload mapping)
+    if (!C2S_SUPPORTED_TRANSITIONS.has(newStatus)) {
+      toast({
+        title: 'Transição não suportada ainda',
+        description: `"${newStatus}" requer motivo/valor específico. Por enquanto, faça essa mudança no C2S.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!C2S_SUPPORTED_TRANSITIONS.has(oldStatus)) {
+      toast({
+        title: 'Origem não suportada ainda',
+        description: `Reabrir lead de "${oldStatus}" requer endpoint dedicado. Faça no C2S.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Optimistic move
+    const updatedCard = { ...movedCard, crmStatus: newStatus };
+    setCrmCards((prev) => ({
+      ...prev,
+      [oldStatus!]: prev[oldStatus!].filter((c) => c.id !== contactId),
+      [newStatus]: [updatedCard, ...(prev[newStatus] || [])],
+    }));
+
+    // Call edge function
+    const { data, error } = await supabase.functions.invoke('c2s-update-lead-status', {
+      body: { tenant_id: tenantId, contact_id: contactId, new_status: newStatus },
+    });
+
+    if (error || !(data as any)?.success) {
+      // Rollback
+      setCrmCards((prev) => ({
+        ...prev,
+        [newStatus]: prev[newStatus].filter((c) => c.id !== contactId),
+        [oldStatus!]: [movedCard!, ...(prev[oldStatus!] || [])],
+      }));
+      toast({
+        title: 'Erro ao atualizar no C2S',
+        description: (data as any)?.message || error?.message || 'Status revertido.',
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Status atualizado',
+        description: `"${movedCard.name || movedCard.phone}" movido para ${newStatus}.`,
+      });
+    }
+  };
+
   /* ─── Render ─── */
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -191,6 +277,10 @@ const PipelinePage: React.FC = () => {
         <CrmPipeline
           cards={crmCards}
           loading={crmLoading}
+          activeCard={activeCrmCard}
+          sensors={sensors}
+          onDragStart={handleCrmDragStart}
+          onDragEnd={handleCrmDragEnd}
           onCardClick={(id) => navigate(`/leads?focus=${id}`)}
           onFollowUp={() => navigate('/followup-arquivados')}
         />
@@ -210,13 +300,17 @@ const PipelinePage: React.FC = () => {
   );
 };
 
-/* ─── C2S Pipeline (read-only, 4 colunas fixas) ─── */
+/* ─── C2S Pipeline (drag entre Novo ↔ Em negociação; demais bloqueiam) ─── */
 const CrmPipeline: React.FC<{
   cards: Record<string, CrmCard[]>;
   loading: boolean;
+  activeCard: CrmCard | null;
+  sensors: ReturnType<typeof useSensors>;
+  onDragStart: (e: DragStartEvent) => void;
+  onDragEnd: (e: DragEndEvent) => void;
   onCardClick: (contactId: string) => void;
   onFollowUp: () => void;
-}> = ({ cards, loading, onCardClick, onFollowUp }) => {
+}> = ({ cards, loading, activeCard, sensors, onDragStart, onDragEnd, onCardClick, onFollowUp }) => {
   if (loading) {
     return (
       <div className="flex gap-4 p-4">
@@ -233,48 +327,96 @@ const CrmPipeline: React.FC<{
 
   return (
     <ScrollArea className="flex-1">
-      <div className="flex gap-4 p-4 min-w-max h-full">
-        {C2S_STATUS_COLUMNS.map((col) => {
-          const list = cards[col.key] || [];
-          const isArchived = col.key === 'Arquivado';
-          return (
-            <div key={col.key} className="flex flex-col w-80 shrink-0 rounded-lg border border-border bg-muted/30">
-              <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
-                <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
-                <span className="text-sm font-semibold text-foreground">{col.label}</span>
-                <Badge variant="secondary" className="text-[10px]">{list.length}</Badge>
-                {isArchived && (
-                  <Button size="sm" variant="outline" className="ml-auto h-7 text-[11px] gap-1.5" onClick={onFollowUp}>
-                    <Send className="h-3 w-3" /> Follow-up
-                  </Button>
-                )}
-              </div>
-              {col.hint && (
-                <div className="px-3 py-1.5 bg-muted/50 border-b border-border/60">
-                  <p className="text-[11px] text-muted-foreground flex items-center gap-1.5"><Sparkles className="h-3 w-3" />{col.hint}</p>
-                </div>
-              )}
-              <div className="flex-1 p-2 space-y-2 overflow-auto max-h-[calc(100vh-16rem)]">
-                {list.slice(0, 100).map((card) => (
-                  <CrmCardRow key={card.id} card={card} onClick={() => onCardClick(card.id)} />
-                ))}
-                {list.length > 100 && (
-                  <div className="p-3 text-center">
-                    <p className="text-[11px] text-muted-foreground">+{list.length - 100} leads ocultos</p>
-                  </div>
-                )}
-                {list.length === 0 && (
-                  <div className="p-6 text-center">
-                    <p className="text-[11px] text-muted-foreground">Nenhum lead nesta coluna</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <div className="flex gap-4 p-4 min-w-max h-full">
+          {C2S_STATUS_COLUMNS.map((col) => {
+            const list = cards[col.key] || [];
+            return (
+              <CrmColumn
+                key={col.key}
+                col={col}
+                list={list}
+                onCardClick={onCardClick}
+                onFollowUp={onFollowUp}
+              />
+            );
+          })}
+        </div>
+        <DragOverlay>
+          {activeCard && (
+            <div className="w-80"><CrmCardRow card={activeCard} onClick={() => {}} /></div>
+          )}
+        </DragOverlay>
+      </DndContext>
       <ScrollBar orientation="horizontal" />
     </ScrollArea>
+  );
+};
+
+const CrmColumn: React.FC<{
+  col: typeof C2S_STATUS_COLUMNS[number];
+  list: CrmCard[];
+  onCardClick: (id: string) => void;
+  onFollowUp: () => void;
+}> = ({ col, list, onCardClick, onFollowUp }) => {
+  const { setNodeRef, isOver } = useDroppable({ id: col.key });
+  const isArchived = col.key === 'Arquivado';
+  const isSupported = C2S_SUPPORTED_TRANSITIONS.has(col.key);
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'flex flex-col w-80 shrink-0 rounded-lg border bg-muted/30 transition-colors',
+        isOver && isSupported && 'border-accent bg-accent/5',
+        isOver && !isSupported && 'border-destructive/40 bg-destructive/5',
+        !isOver && 'border-border',
+      )}
+    >
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
+        <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
+        <span className="text-sm font-semibold text-foreground">{col.label}</span>
+        <Badge variant="secondary" className="text-[10px]">{list.length}</Badge>
+        {!isSupported && (
+          <Badge variant="outline" className="text-[9px] text-muted-foreground ml-1">Somente C2S</Badge>
+        )}
+        {isArchived && (
+          <Button size="sm" variant="outline" className="ml-auto h-7 text-[11px] gap-1.5" onClick={onFollowUp}>
+            <Send className="h-3 w-3" /> Follow-up
+          </Button>
+        )}
+      </div>
+      {col.hint && (
+        <div className="px-3 py-1.5 bg-muted/50 border-b border-border/60">
+          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5"><Sparkles className="h-3 w-3" />{col.hint}</p>
+        </div>
+      )}
+      <div className="flex-1 p-2 space-y-2 overflow-auto max-h-[calc(100vh-16rem)]">
+        {list.slice(0, 100).map((card) => (
+          <DraggableCrmCard key={card.id} card={card} onClick={() => onCardClick(card.id)} />
+        ))}
+        {list.length > 100 && (
+          <div className="p-3 text-center">
+            <p className="text-[11px] text-muted-foreground">+{list.length - 100} leads ocultos</p>
+          </div>
+        )}
+        {list.length === 0 && (
+          <div className="p-6 text-center">
+            <p className="text-[11px] text-muted-foreground">Nenhum lead nesta coluna</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const DraggableCrmCard: React.FC<{ card: CrmCard; onClick: () => void }> = ({ card, onClick }) => {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: card.id });
+  const style = transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined;
+  return (
+    <div ref={setNodeRef} style={style} className={cn(isDragging && 'opacity-30')} {...attributes} {...listeners}>
+      <CrmCardRow card={card} onClick={onClick} />
+    </div>
   );
 };
 

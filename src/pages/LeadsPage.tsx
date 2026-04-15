@@ -129,6 +129,8 @@ const LeadsPage: React.FC = () => {
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
 
   const isSuperAdmin = profile?.role === 'super_admin';
+  const isAdmin = profile?.role === 'admin' || isSuperAdmin;
+  const effectiveTab: 'todos' | 'meus' = isAdmin ? activeTab : 'meus';
 
   // Resolve current user's broker_id once
   useEffect(() => {
@@ -146,7 +148,7 @@ const LeadsPage: React.FC = () => {
 
   const fetchLeads = async () => {
     if (!tenantId) return;
-    if (activeTab === 'meus' && !myBrokerId) {
+    if (effectiveTab === 'meus' && !myBrokerId) {
       setLeads([]);
       setTotal(0);
       setLoading(false);
@@ -163,7 +165,7 @@ const LeadsPage: React.FC = () => {
       .order('updated_at', { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-    if (activeTab === 'meus' && myBrokerId) {
+    if (effectiveTab === 'meus' && myBrokerId) {
       contactQuery = contactQuery.eq('assigned_broker_id', myBrokerId);
     }
     if (department !== 'all') {
@@ -247,8 +249,8 @@ const LeadsPage: React.FC = () => {
     setLoading(false);
   };
 
-  useEffect(() => { setPage(0); }, [department, search, activeTab, myBrokerId]);
-  useEffect(() => { fetchLeads(); }, [tenantId, department, search, page, activeTab, myBrokerId]);
+  useEffect(() => { setPage(0); }, [department, search, effectiveTab, myBrokerId]);
+  useEffect(() => { fetchLeads(); }, [tenantId, department, search, page, effectiveTab, myBrokerId]);
   useEffect(() => { setCheckedIds(new Set()); }, [leads]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -291,15 +293,19 @@ const LeadsPage: React.FC = () => {
 
       <div className="px-6 py-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'todos' | 'meus')}>
-            <TabsList>
-              <TabsTrigger value="todos">Todos{isSuperAdmin ? '' : ' do time'}</TabsTrigger>
-              <TabsTrigger value="meus" disabled={!myBrokerId}>
-                Meus leads
-                {!myBrokerId && <span className="ml-1.5 text-[10px] opacity-60">(sem corretor vinculado)</span>}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {isAdmin ? (
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'todos' | 'meus')}>
+              <TabsList>
+                <TabsTrigger value="todos">Todos{isSuperAdmin ? '' : ' do time'}</TabsTrigger>
+                <TabsTrigger value="meus" disabled={!myBrokerId}>
+                  Meus leads
+                  {!myBrokerId && <span className="ml-1.5 text-[10px] opacity-60">(sem corretor vinculado)</span>}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          ) : (
+            <h2 className="text-sm font-semibold text-foreground">Meus leads</h2>
+          )}
           <span className="text-sm font-semibold text-primary">Exibindo {total} leads</span>
         </div>
       </div>

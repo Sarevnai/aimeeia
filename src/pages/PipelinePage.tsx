@@ -83,17 +83,27 @@ const PipelinePage: React.FC = () => {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const isSuperAdmin = profile?.role === 'super_admin';
+  const isAdmin = profile?.role === 'admin' || isSuperAdmin;
+  const effectiveScope: 'todos' | 'meus' = isAdmin ? scope : 'meus';
 
   // Resolve broker_id for current user
   useEffect(() => {
     if (!profile?.id) return;
     supabase.from('brokers').select('id').eq('profile_id', profile.id).maybeSingle()
-      .then(({ data }) => setMyBrokerId(data?.id || null));
+      .then(({ data, error }) => {
+        if (error) console.error('[PipelinePage] broker lookup failed:', error);
+        setMyBrokerId(data?.id || null);
+      });
   }, [profile?.id]);
 
   // Fetch C2S pipeline data
   const fetchCrm = useCallback(async () => {
     if (!tenantId) return;
+    if (effectiveScope === 'meus' && !myBrokerId) {
+      setCrmCards({});
+      setCrmLoading(false);
+      return;
+    }
     setCrmLoading(true);
 
     let q = supabase
@@ -104,7 +114,7 @@ const PipelinePage: React.FC = () => {
       .order('updated_at', { ascending: false })
       .limit(2000);
 
-    if (scope === 'meus' && myBrokerId) q = q.eq('assigned_broker_id', myBrokerId);
+    if (effectiveScope === 'meus' && myBrokerId) q = q.eq('assigned_broker_id', myBrokerId);
     if (department !== 'all') q = q.eq('department_code', department);
 
     const { data } = await q;
@@ -129,11 +139,17 @@ const PipelinePage: React.FC = () => {
     });
     setCrmCards(byStatus);
     setCrmLoading(false);
-  }, [tenantId, scope, myBrokerId, department]);
+  }, [tenantId, effectiveScope, myBrokerId, department]);
 
   // Fetch local-mode data (conversation_stages)
   const fetchLocal = useCallback(async () => {
     if (!tenantId) return;
+    if (effectiveScope === 'meus' && !myBrokerId) {
+      setStages([]);
+      setConversations([]);
+      setLocalLoading(false);
+      return;
+    }
     setLocalLoading(true);
 
     let stageQuery = supabase.from('conversation_stages').select('*').eq('tenant_id', tenantId).order('order_index', { ascending: true });
@@ -143,12 +159,15 @@ const PipelinePage: React.FC = () => {
       stageQuery = stageQuery.eq('department_code', department);
       convQuery = convQuery.eq('department_code', department);
     }
+    if (effectiveScope === 'meus' && myBrokerId) {
+      convQuery = convQuery.eq('assigned_broker_id', myBrokerId);
+    }
 
     const [stageRes, convRes] = await Promise.all([stageQuery, convQuery]);
     setStages(stageRes.data ?? []);
     setConversations((convRes.data as ConvWithContact[]) ?? []);
     setLocalLoading(false);
-  }, [tenantId, department]);
+  }, [tenantId, department, effectiveScope, myBrokerId]);
 
   useEffect(() => {
     if (mode === 'c2s') fetchCrm(); else fetchLocal();
@@ -258,12 +277,14 @@ const PipelinePage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Tabs value={scope} onValueChange={(v) => setScope(v as 'todos' | 'meus')}>
-            <TabsList>
-              <TabsTrigger value="todos">Todos{isSuperAdmin ? '' : ' do time'}</TabsTrigger>
-              <TabsTrigger value="meus" disabled={!myBrokerId}>Meus leads</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {isAdmin && (
+            <Tabs value={scope} onValueChange={(v) => setScope(v as 'todos' | 'meus')}>
+              <TabsList>
+                <TabsTrigger value="todos">Todos{isSuperAdmin ? '' : ' do time'}</TabsTrigger>
+                <TabsTrigger value="meus" disabled={!myBrokerId}>Meus leads</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          )}
           <Tabs value={mode} onValueChange={(v) => setMode(v as 'c2s' | 'local')}>
             <TabsList>
               <TabsTrigger value="c2s">Status C2S</TabsTrigger>

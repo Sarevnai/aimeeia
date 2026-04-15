@@ -138,11 +138,20 @@ const LeadsPage: React.FC = () => {
       .select('id')
       .eq('profile_id', profile.id)
       .maybeSingle()
-      .then(({ data }) => setMyBrokerId(data?.id || null));
+      .then(({ data, error }) => {
+        if (error) console.error('[LeadsPage] broker lookup failed:', error);
+        setMyBrokerId(data?.id || null);
+      });
   }, [profile?.id]);
 
   const fetchLeads = async () => {
     if (!tenantId) return;
+    if (activeTab === 'meus' && !myBrokerId) {
+      setLeads([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     let contactQuery = supabase

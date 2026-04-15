@@ -373,22 +373,27 @@ const CrmColumn: React.FC<{
         !isOver && 'border-border',
       )}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border min-w-0">
         <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
-        <span className="text-sm font-semibold text-foreground">{col.label}</span>
-        <Badge variant="secondary" className="text-[10px]">{list.length}</Badge>
+        <span className="text-sm font-semibold text-foreground truncate min-w-0">{col.label}</span>
+        <Badge variant="secondary" className="text-[10px] shrink-0">{list.length}</Badge>
         {!isSupported && (
-          <Badge variant="outline" className="text-[9px] text-muted-foreground ml-1">Somente C2S</Badge>
-        )}
-        {isArchived && (
-          <Button size="sm" variant="outline" className="ml-auto h-7 text-[11px] gap-1.5" onClick={onFollowUp}>
-            <Send className="h-3 w-3" /> Follow-up
-          </Button>
+          <Badge variant="outline" className="text-[9px] text-muted-foreground shrink-0 ml-auto" title="Somente via C2S">C2S</Badge>
         )}
       </div>
-      {col.hint && (
-        <div className="px-3 py-1.5 bg-muted/50 border-b border-border/60">
-          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5"><Sparkles className="h-3 w-3" />{col.hint}</p>
+      {(col.hint || isArchived) && (
+        <div className="px-3 py-1.5 bg-muted/50 border-b border-border/60 flex items-center justify-between gap-2 min-w-0">
+          {col.hint ? (
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 min-w-0 truncate">
+              <Sparkles className="h-3 w-3 shrink-0" />
+              <span className="truncate">{col.hint}</span>
+            </p>
+          ) : <span />}
+          {isArchived && (
+            <Button size="sm" variant="outline" className="h-6 text-[11px] gap-1 px-2 shrink-0" onClick={onFollowUp}>
+              <Send className="h-3 w-3" /> Follow-up
+            </Button>
+          )}
         </div>
       )}
       <div className="flex-1 p-2 space-y-2 overflow-auto max-h-[calc(100vh-16rem)]">

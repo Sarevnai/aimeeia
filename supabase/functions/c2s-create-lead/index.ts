@@ -104,6 +104,10 @@ serve(async (req: Request) => {
 
     let c2sResult = null;
     let c2sSent = false;
+    let c2sLeadId: string | null = null;
+    let c2sLeadInternalId: number | null = null;
+    let c2sSellerId: string | null = null;
+    let assignedBrokerId: string | null = null;
 
     if (c2sConfig?.setting_value?.api_url && c2sConfig?.setting_value?.api_key) {
       // Send to C2S
@@ -118,8 +122,60 @@ serve(async (req: Request) => {
         development_title: finalDevTitle,
         property_details: propertyDetails,
       });
-      // Only consider sent if no error in response
       c2sSent = c2sResult && !c2sResult.error;
+
+      // Capture lead_id + seller from response
+      const created = c2sResult?.data || c2sResult;
+      if (c2sSent && created) {
+        c2sLeadId = created.id || null;
+        c2sLeadInternalId = created.internal_id || null;
+        const sellerInAttrs = created.attributes?.seller?.id || null;
+        const sellerInRel = created.relationships?.seller?.data?.id || null;
+        c2sSellerId = sellerInAttrs || sellerInRel;
+
+        // Enrich via GET if seller not in create response
+        if (!c2sSellerId && c2sLeadId) {
+          try {
+            const detailRes = await fetch(
+              `https://api.contact2sale.com/integration/leads/${c2sLeadId}`,
+              { headers: { 'Authentication': `Bearer ${c2sConfig.setting_value.api_key}`, 'Content-Type': 'application/json' } },
+            );
+            if (detailRes.ok) {
+              const detail = await detailRes.json();
+              c2sSellerId = detail?.data?.attributes?.seller?.id || null;
+            }
+          } catch (err) {
+            console.warn('⚠️ c2s-create-lead: seller detail fetch failed', err);
+          }
+        }
+
+        // Resolve broker_id in our DB
+        if (c2sSellerId) {
+          const { data: broker } = await supabase
+            .from('brokers')
+            .select('id')
+            .eq('tenant_id', tenant_id)
+            .eq('c2s_seller_id', c2sSellerId)
+            .maybeSingle();
+          assignedBrokerId = broker?.id || null;
+        }
+      }
+
+      // Persist on contact + conversation
+      if (c2sLeadId && contact_id) {
+        await supabase.from('contacts').update({
+          c2s_lead_id: c2sLeadId,
+          c2s_lead_internal_id: c2sLeadInternalId,
+          c2s_lead_synced_at: new Date().toISOString(),
+          assigned_broker_id: assignedBrokerId,
+        }).eq('id', contact_id);
+      }
+      if (c2sLeadId && conversation_id) {
+        await supabase.from('conversations').update({
+          c2s_lead_id: c2sLeadId,
+          assigned_broker_id: assignedBrokerId,
+        }).eq('id', conversation_id);
+      }
     }
 
     // Log the lead to portal_leads_log
@@ -140,16 +196,9 @@ serve(async (req: Request) => {
     });
     if (logError_) console.error('⚠️ portal_leads_log insert error:', logError_.message);
 
-    // Disable AI for this conversation (operator takeover)
-    await supabase
-      .from('conversation_states')
-      .upsert({
-        tenant_id,
-        phone_number,
-        is_ai_active: false,
-        operator_takeover_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'tenant_id,phone_number' });
+    // NOTE: Aimee KEEPS attending after handoff (per transcript 2026-04-14).
+    // AI only pauses when: (a) broker clicks pause on panel, or (b) visit is confirmed.
+    // Previously we set is_ai_active=false here, which broke the E3 flow.
 
     // Log activity
     await logActivity(supabase, tenant_id, 'lead_handoff', 'conversations', conversation_id, {
@@ -164,6 +213,9 @@ serve(async (req: Request) => {
     return jsonResponse({
       success: true,
       c2s_sent: c2sSent,
+      c2s_lead_id: c2sLeadId,
+      c2s_seller_id: c2sSellerId,
+      assigned_broker_id: assignedBrokerId,
       c2s_response: c2sResult,
     });
 

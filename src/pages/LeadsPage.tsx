@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
 import { useSessionState } from '@/hooks/useSessionState';
 import { useNavigate } from 'react-router-dom';
@@ -8,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Label } from '@/components/ui/label';
@@ -16,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Search, Loader2, ChevronLeft, ChevronRight, Phone, User, MessageSquare, Tag, Filter,
-  Download, Send, Megaphone, Globe, Facebook, Home, Trash2, SlidersHorizontal, ArrowRight, ClipboardList, Clock
+  Download, Send, Megaphone, Globe, Facebook, Home, Trash2, SlidersHorizontal, ArrowRight, ClipboardList, Clock, UserCheck, Building2, MapPin
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -39,6 +41,19 @@ interface LeadRow {
   tags: string[] | null;
   status: string | null;
   propertyId?: string | null;
+  /* broker + CRM fields */
+  assignedBrokerId: string | null;
+  brokerName: string | null;
+  brokerEmail: string | null;
+  c2sLeadId: string | null;
+  crmStatus: string | null;
+  crmSource: string | null;
+  crmPropertyRef: string | null;
+  crmNeighborhood: string | null;
+  crmPriceHint: string | null;
+  crmNatureza: string | null;
+  crmArchiveReason: string | null;
+  crmBrokerNotes: string | null;
 }
 
 /* ─── constants ─── */
@@ -94,6 +109,7 @@ const AiStatusText: React.FC<{ triageStage: string | null; isAiActive: boolean |
 /* ─── Main ─── */
 const LeadsPage: React.FC = () => {
   const { tenantId } = useTenant();
+  const { profile } = useAuth();
   const { department } = useDepartmentFilter();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -106,9 +122,24 @@ const LeadsPage: React.FC = () => {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [summaryLead, setSummaryLead] = useState<LeadRow | null>(null);
   const [c2sLead, setC2sLead] = useState<LeadRow | null>(null);
+  const [activeTab, setActiveTab] = useSessionState<'todos' | 'meus'>('leads_tab', 'todos');
+  const [myBrokerId, setMyBrokerId] = useState<string | null>(null);
 
   // Filters State
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+
+  const isSuperAdmin = profile?.role === 'super_admin';
+
+  // Resolve current user's broker_id once
+  useEffect(() => {
+    if (!profile?.id) return;
+    supabase
+      .from('brokers')
+      .select('id')
+      .eq('profile_id', profile.id)
+      .maybeSingle()
+      .then(({ data }) => setMyBrokerId(data?.id || null));
+  }, [profile?.id]);
 
   const fetchLeads = async () => {
     if (!tenantId) return;
@@ -116,13 +147,16 @@ const LeadsPage: React.FC = () => {
 
     let contactQuery = supabase
       .from('contacts')
-      .select('*', { count: 'exact' })
+      .select('*, broker:brokers!assigned_broker_id(id, full_name, email)', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .not('channel_source', 'eq', 'simulation')
       .not('phone', 'like', 'SIM-%')
       .order('updated_at', { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
+    if (activeTab === 'meus' && myBrokerId) {
+      contactQuery = contactQuery.eq('assigned_broker_id', myBrokerId);
+    }
     if (department !== 'all') {
       contactQuery = contactQuery.eq('department_code', department);
     }
@@ -185,6 +219,18 @@ const LeadsPage: React.FC = () => {
         tags: c.tags,
         status: c.status,
         propertyId: null,
+        assignedBrokerId: c.assigned_broker_id ?? null,
+        brokerName: c.broker?.full_name ?? null,
+        brokerEmail: c.broker?.email ?? null,
+        c2sLeadId: c.c2s_lead_id ?? null,
+        crmStatus: c.crm_status ?? null,
+        crmSource: c.crm_source ?? null,
+        crmPropertyRef: c.crm_property_ref ?? null,
+        crmNeighborhood: c.crm_neighborhood ?? null,
+        crmPriceHint: c.crm_price_hint ?? null,
+        crmNatureza: c.crm_natureza ?? null,
+        crmArchiveReason: c.crm_archive_reason ?? null,
+        crmBrokerNotes: c.crm_broker_notes ?? null,
       };
     });
 
@@ -192,8 +238,8 @@ const LeadsPage: React.FC = () => {
     setLoading(false);
   };
 
-  useEffect(() => { setPage(0); }, [department, search]);
-  useEffect(() => { fetchLeads(); }, [tenantId, department, search, page]);
+  useEffect(() => { setPage(0); }, [department, search, activeTab, myBrokerId]);
+  useEffect(() => { fetchLeads(); }, [tenantId, department, search, page, activeTab, myBrokerId]);
   useEffect(() => { setCheckedIds(new Set()); }, [leads]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -234,8 +280,19 @@ const LeadsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="px-6 py-4 flex items-center justify-between">
-        <span className="text-sm font-semibold text-primary">Exibindo {total} leads</span>
+      <div className="px-6 py-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'todos' | 'meus')}>
+            <TabsList>
+              <TabsTrigger value="todos">Todos{isSuperAdmin ? '' : ' do time'}</TabsTrigger>
+              <TabsTrigger value="meus" disabled={!myBrokerId}>
+                Meus leads
+                {!myBrokerId && <span className="ml-1.5 text-[10px] opacity-60">(sem corretor vinculado)</span>}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <span className="text-sm font-semibold text-primary">Exibindo {total} leads</span>
+        </div>
       </div>
 
       {/* Table */}
@@ -271,8 +328,10 @@ const LeadsPage: React.FC = () => {
                   <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Lead</TableHead>
                   <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Contato</TableHead>
                   <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Operação</TableHead>
+                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Corretor</TableHead>
+                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Imóvel de interesse</TableHead>
                   <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Canal</TableHead>
-                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">CRM</TableHead>
+                  <TableHead className="font-semibold text-muted-foreground h-11 text-xs uppercase tracking-wider">Status C2S</TableHead>
                   <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -316,6 +375,43 @@ const LeadsPage: React.FC = () => {
                         </div>
                       </TableCell>
 
+                      {/* Corretor vinculado (C2S → brokers) */}
+                      <TableCell>
+                        {lead.brokerName ? (
+                          <div className="flex items-center gap-2">
+                            <UserCheck className="h-3.5 w-3.5 text-accent shrink-0" />
+                            <div className="space-y-0.5 min-w-0">
+                              <p className="font-medium text-foreground text-[13px] leading-none truncate">{lead.brokerName}</p>
+                              {lead.brokerEmail && <p className="text-[11px] text-muted-foreground truncate max-w-[160px]">{lead.brokerEmail}</p>}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[12px] text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* Imóvel de interesse (prop_ref do C2S) + bairro */}
+                      <TableCell>
+                        {lead.crmPropertyRef || lead.crmNeighborhood ? (
+                          <div className="space-y-0.5 min-w-0 max-w-[220px]">
+                            {lead.crmPropertyRef && (
+                              <div className="flex items-center gap-1.5">
+                                <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
+                                <p className="text-[12px] text-foreground truncate">{lead.crmPropertyRef}</p>
+                              </div>
+                            )}
+                            {lead.crmNeighborhood && (
+                              <div className="flex items-center gap-1.5">
+                                <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
+                                <p className="text-[11px] text-muted-foreground truncate">{lead.crmNeighborhood}</p>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[12px] text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+
                       <TableCell>
                         <div className="space-y-1">
                           <div className="flex items-center gap-1.5">
@@ -326,18 +422,23 @@ const LeadsPage: React.FC = () => {
                         </div>
                       </TableCell>
 
+                      {/* Status C2S (crm_status + enviado/pronto) */}
                       <TableCell>
-                        {/* We use LeadRow specific render due to logic scope here */}
                         <div className="space-y-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <div className={cn("h-2 w-2 rounded-full", (lead.isAiActive === false || lead.triageStage === 'completed') ? "bg-success" : "bg-muted-foreground")} />
-                            <span className="text-[13px] font-medium text-foreground">{(lead.isAiActive === false || lead.triageStage === 'completed') ? "Enviado ao CRM" : "Não pronto"}</span>
-                          </div>
-                          {(lead.isAiActive === false || lead.triageStage === 'completed') ? (
-                            <p className="text-[11px] text-muted-foreground pl-3.5">Enviado pela Aimee {formatDateTime(lead.operatorTakeoverAt || lead.convCreatedAt)}</p>
+                          {lead.crmStatus ? (
+                            <Badge variant="secondary" className="text-[11px] font-medium">
+                              {lead.crmStatus}
+                            </Badge>
                           ) : (
-                            <p className="text-[11px] text-muted-foreground pl-3.5">—</p>
+                            <div className="flex items-center gap-1.5">
+                              <div className={cn("h-2 w-2 rounded-full", (lead.isAiActive === false || lead.triageStage === 'completed') ? "bg-success" : "bg-muted-foreground")} />
+                              <span className="text-[12px] font-medium text-foreground">
+                                {(lead.isAiActive === false || lead.triageStage === 'completed') ? "Enviado ao CRM" : "Não pronto"}
+                              </span>
+                            </div>
                           )}
+                          {lead.c2sLeadId && <p className="text-[10px] text-muted-foreground font-mono truncate max-w-[120px]">{lead.c2sLeadId.slice(0, 10)}…</p>}
+                          {lead.crmSource && <p className="text-[11px] text-muted-foreground">via {lead.crmSource}</p>}
                         </div>
                       </TableCell>
 
@@ -479,22 +580,74 @@ const LeadsPage: React.FC = () => {
 
       {/* Summary Dialog */}
       <Dialog open={!!summaryLead} onOpenChange={(open) => !open && setSummaryLead(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Resumo da Conversa</DialogTitle>
             <DialogDescription>
               {summaryLead?.name ? `Lead: ${summaryLead.name}` : `Contato: ${summaryLead?.phone}`}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
             <div className="p-4 bg-muted/30 rounded-lg text-sm text-foreground">
               <p className="font-medium mb-2 text-primary">Interesse Principal</p>
               <p>{summaryLead?.notes || "A inteligência artificial ainda não gerou um resumo final para este atendimento ou a conversa é muito curta. Verifique a conversa completa para mais detalhes."}</p>
             </div>
+
             <div className="flex items-center gap-2">
               <Tag className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">{DEPT_LABELS[summaryLead?.departmentCode || ''] || 'Operação não definida'}</span>
             </div>
+
+            {/* CRM / C2S section */}
+            {(summaryLead?.brokerName || summaryLead?.c2sLeadId || summaryLead?.crmStatus || summaryLead?.crmPropertyRef) && (
+              <div className="border border-border/60 rounded-lg p-4 space-y-3">
+                <p className="font-semibold text-sm text-primary flex items-center gap-1.5"><UserCheck className="h-4 w-4" /> CRM / C2S</p>
+                <dl className="grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
+                  {summaryLead.brokerName && (<>
+                    <dt className="text-muted-foreground col-span-1">Corretor</dt>
+                    <dd className="col-span-2 font-medium">{summaryLead.brokerName}{summaryLead.brokerEmail && <span className="block text-xs text-muted-foreground font-normal">{summaryLead.brokerEmail}</span>}</dd>
+                  </>)}
+                  {summaryLead.crmStatus && (<>
+                    <dt className="text-muted-foreground col-span-1">Status</dt>
+                    <dd className="col-span-2"><Badge variant="secondary">{summaryLead.crmStatus}</Badge></dd>
+                  </>)}
+                  {summaryLead.crmNatureza && (<>
+                    <dt className="text-muted-foreground col-span-1">Natureza</dt>
+                    <dd className="col-span-2 font-medium">{summaryLead.crmNatureza}</dd>
+                  </>)}
+                  {summaryLead.crmPropertyRef && (<>
+                    <dt className="text-muted-foreground col-span-1">Imóvel</dt>
+                    <dd className="col-span-2 text-foreground">{summaryLead.crmPropertyRef}</dd>
+                  </>)}
+                  {summaryLead.crmNeighborhood && (<>
+                    <dt className="text-muted-foreground col-span-1">Bairro</dt>
+                    <dd className="col-span-2">{summaryLead.crmNeighborhood}</dd>
+                  </>)}
+                  {summaryLead.crmPriceHint && (<>
+                    <dt className="text-muted-foreground col-span-1">Faixa</dt>
+                    <dd className="col-span-2">{summaryLead.crmPriceHint}</dd>
+                  </>)}
+                  {summaryLead.crmSource && (<>
+                    <dt className="text-muted-foreground col-span-1">Origem</dt>
+                    <dd className="col-span-2">{summaryLead.crmSource}</dd>
+                  </>)}
+                  {summaryLead.crmArchiveReason && (<>
+                    <dt className="text-muted-foreground col-span-1">Motivo arquivo</dt>
+                    <dd className="col-span-2">{summaryLead.crmArchiveReason}</dd>
+                  </>)}
+                  {summaryLead.c2sLeadId && (<>
+                    <dt className="text-muted-foreground col-span-1">C2S ID</dt>
+                    <dd className="col-span-2 font-mono text-xs">{summaryLead.c2sLeadId}</dd>
+                  </>)}
+                </dl>
+                {summaryLead.crmBrokerNotes && (
+                  <div className="pt-2 border-t border-border/40">
+                    <p className="text-xs text-muted-foreground mb-1">Anotação do corretor</p>
+                    <p className="text-sm whitespace-pre-wrap">{summaryLead.crmBrokerNotes}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSummaryLead(null)}>Fechar</Button>

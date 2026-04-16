@@ -108,6 +108,7 @@ const ChatPage: React.FC = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [senderNames, setSenderNames] = useState<Record<string, string>>({});
+  const [sendingToWA, setSendingToWA] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -440,6 +441,113 @@ const ChatPage: React.FC = () => {
     setShowTransferModal(true);
   };
 
+  const handleSendToBrokerWA = async () => {
+    if (!conversation || !tenantId || !user) return;
+    setSendingToWA(true);
+
+    try {
+      // Find the assigned broker for this conversation
+      const brokerId = conversation.assigned_broker_id;
+      if (!brokerId) {
+        alert('Esta conversa não tem corretor atribuído. Atribua um corretor primeiro.');
+        setSendingToWA(false);
+        return;
+      }
+
+      const { data: broker } = await supabase
+        .from('brokers')
+        .select('id, full_name, phone')
+        .eq('id', brokerId)
+        .single();
+
+      if (!broker?.phone) {
+        alert('O corretor atribuído não tem telefone cadastrado.');
+        setSendingToWA(false);
+        return;
+      }
+
+      const brokerName = broker.full_name || 'Corretor';
+      const contactName = contact?.name || 'Lead';
+      const clientPhone = conversation.phone_number;
+
+      // Build qualification summary for broker context
+      const qualSummary = leadQual
+        ? [
+            leadQual.detected_interest && `Interesse: ${leadQual.detected_interest}`,
+            leadQual.detected_neighborhood && `Bairro: ${leadQual.detected_neighborhood}`,
+            leadQual.detected_budget_max && `Orçamento: R$ ${Number(leadQual.detected_budget_max).toLocaleString('pt-BR')}`,
+            leadQual.detected_property_type && `Tipo: ${leadQual.detected_property_type}`,
+            leadQual.detected_bedrooms && `Quartos: ${leadQual.detected_bedrooms}`,
+          ].filter(Boolean).join(' | ')
+        : 'Sem qualificação coletada ainda';
+
+      // 1. Pause AI and assign operator
+      await supabase
+        .from('conversation_states')
+        .update({
+          is_ai_active: false,
+          operator_id: user.id,
+          operator_takeover_at: new Date().toISOString(),
+        })
+        .eq('phone_number', clientPhone)
+        .eq('tenant_id', tenantId);
+
+      // 2. Send message to broker's WhatsApp with lead context
+      const brokerMsg = `Olá ${brokerName}! O lead *${contactName}* (${clientPhone}) foi transferido pra você.\n\n📋 *Contexto:*\n${qualSummary}\n\nA Aimee pausou o atendimento automático. Continue o atendimento diretamente com o cliente.`;
+
+      await supabase.functions.invoke('send-wa-message', {
+        body: {
+          tenant_id: tenantId,
+          phone_number: broker.phone,
+          message: brokerMsg,
+          sender_type: 'system',
+        },
+      });
+
+      // 3. Send message to client informing the transfer
+      const clientMsg = `${contactName}, vou te conectar com ${brokerName}, nosso especialista. Ele vai continuar seu atendimento pelo WhatsApp dele. Foi um prazer te atender!`;
+
+      await supabase.functions.invoke('send-wa-message', {
+        body: {
+          tenant_id: tenantId,
+          phone_number: clientPhone,
+          message: clientMsg,
+          conversation_id: id,
+          department_code: conversation.department_code,
+          sender_type: 'system',
+        },
+      });
+
+      // 4. Log system events
+      await supabase.from('messages').insert({
+        tenant_id: tenantId,
+        conversation_id: id,
+        direction: 'outbound',
+        body: `Conversa enviada para o WhatsApp do corretor ${brokerName}`,
+        sender_type: 'system',
+        event_type: 'sent_to_broker_wa',
+        sender_id: user.id,
+      });
+
+      await supabase.from('conversation_events').insert({
+        tenant_id: tenantId,
+        conversation_id: id,
+        event_type: 'operator_joined',
+        actor_id: user.id,
+        metadata: { action: 'sent_to_broker_wa', broker_id: brokerId, broker_phone: broker.phone },
+      });
+
+      setConvState((prev) =>
+        prev ? { ...prev, is_ai_active: false, operator_id: user.id, operator_takeover_at: new Date().toISOString() } : prev
+      );
+    } catch (error) {
+      console.error('Error sending to broker WA:', error);
+      alert('Erro ao enviar para o WhatsApp do corretor. Tente novamente.');
+    } finally {
+      setSendingToWA(false);
+    }
+  };
+
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '';
     return new Date(dateStr).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -545,6 +653,23 @@ const ChatPage: React.FC = () => {
                   <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transferir
                 </Button>
               </>
+            )}
+            {conversation?.assigned_broker_id && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSendToBrokerWA}
+                disabled={sendingToWA}
+                className="text-xs"
+                title="Enviar para o WhatsApp do corretor"
+              >
+                {sendingToWA ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                ) : (
+                  <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                )}
+                Enviar pro WA
+              </Button>
             )}
             <Button size="sm" variant="outline" onClick={() => setC2sDialogOpen(true)} className="text-xs" title="Encaminhar ao C2S">
               <ExternalLink className="h-3.5 w-3.5 mr-1" /> C2S

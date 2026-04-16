@@ -21,6 +21,7 @@ const resultStatusMap: Record<string, { label: string; variant: 'default' | 'sec
 interface CampaignResult {
   id: string;
   phone: string;
+  contact_id: string | null;
   status: string | null;
   sent_at: string | null;
   delivered_at: string | null;
@@ -35,6 +36,7 @@ const CampaignDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const [campaign, setCampaign] = useState<any>(null);
   const [results, setResults] = useState<CampaignResult[]>([]);
+  const [contactNames, setContactNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,7 +49,21 @@ const CampaignDetailPage: React.FC = () => {
         supabase.from('campaign_results').select('*').eq('campaign_id', id).eq('tenant_id', tenantId).order('sent_at', { ascending: true }),
       ]);
       if (campRes.data) setCampaign(campRes.data);
-      if (resultsRes.data) setResults(resultsRes.data);
+
+      const resultsData = (resultsRes.data || []) as CampaignResult[];
+      setResults(resultsData);
+
+      const contactIds = [...new Set(resultsData.map((r) => r.contact_id).filter((x): x is string => !!x))];
+      if (contactIds.length > 0) {
+        const { data: contactsData } = await supabase
+          .from('contacts')
+          .select('id, name')
+          .in('id', contactIds);
+        const map: Record<string, string> = {};
+        contactsData?.forEach((c: any) => { if (c.id) map[c.id] = c.name || ''; });
+        setContactNames(map);
+      }
+
       setLoading(false);
     };
     fetchData();
@@ -60,9 +76,18 @@ const CampaignDetailPage: React.FC = () => {
         schema: 'public',
         table: 'campaign_results',
         filter: `campaign_id=eq.${id}`,
-      }, (payload) => {
+      }, async (payload) => {
         if (payload.eventType === 'INSERT') {
-          setResults((prev) => [...prev, payload.new as CampaignResult]);
+          const newRow = payload.new as CampaignResult;
+          setResults((prev) => [...prev, newRow]);
+          if (newRow.contact_id) {
+            const { data: c } = await supabase
+              .from('contacts')
+              .select('id, name')
+              .eq('id', newRow.contact_id)
+              .maybeSingle();
+            if (c) setContactNames((m) => ({ ...m, [c.id]: c.name || '' }));
+          }
         } else if (payload.eventType === 'UPDATE') {
           setResults((prev) => prev.map((r) => r.id === (payload.new as any).id ? payload.new as CampaignResult : r));
         }
@@ -145,7 +170,7 @@ const CampaignDetailPage: React.FC = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Telefone</TableHead>
+                <TableHead>Contato</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Enviado</TableHead>
                 <TableHead>Entregue</TableHead>
@@ -156,9 +181,15 @@ const CampaignDetailPage: React.FC = () => {
             <TableBody>
               {results.map((r) => {
                 const st = resultStatusMap[r.status || 'sent'] || resultStatusMap.sent;
+                const name = r.contact_id ? contactNames[r.contact_id] : '';
                 return (
                   <TableRow key={r.id}>
-                    <TableCell className="font-mono text-sm">{r.phone}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col leading-tight">
+                        <span className="text-sm font-medium text-foreground">{name || 'Sem nome'}</span>
+                        <span className="font-mono text-[11px] text-muted-foreground">{r.phone}</span>
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={st.variant}>{st.label}</Badge>
                     </TableCell>

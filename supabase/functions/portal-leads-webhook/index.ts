@@ -83,6 +83,58 @@ serve(async (req: Request) => {
       contact = newContact;
     }
 
+    // ---- Broker assignment: try to find the lead in C2S and get the assigned seller ----
+    let assignedBrokerId: string | null = null;
+    let c2sLeadId: string | null = null;
+    try {
+      const { data: c2sConfig } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('tenant_id', tenant_id)
+        .eq('setting_key', 'c2s_config')
+        .maybeSingle();
+
+      const apiKey = (c2sConfig?.setting_value as any)?.api_key;
+      if (apiKey) {
+        // Canal Pro already created the lead in C2S — search by phone to get seller_id
+        const searchRes = await fetch(
+          `https://api.contact2sale.com/integration/leads?perpage=5&sort=-created_at&phone=${encodeURIComponent(phone)}`,
+          { headers: { 'Authentication': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
+        );
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const leads = searchData?.data || [];
+          if (leads.length > 0) {
+            const latestLead = leads[0];
+            c2sLeadId = latestLead.id || null;
+            const sellerId = latestLead.attributes?.seller?.id || null;
+            if (sellerId) {
+              const { data: broker } = await supabase
+                .from('brokers')
+                .select('id')
+                .eq('tenant_id', tenant_id)
+                .eq('c2s_seller_id', sellerId)
+                .maybeSingle();
+              assignedBrokerId = broker?.id || null;
+              if (assignedBrokerId) {
+                console.log(`🔗 portal-leads-webhook: broker ${assignedBrokerId} linked via C2S seller ${sellerId}`);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ portal-leads-webhook: C2S broker lookup failed (non-blocking):', err);
+    }
+
+    // Update contact with C2S link + broker if found
+    if (contact?.id && (assignedBrokerId || c2sLeadId)) {
+      const contactUpdate: any = {};
+      if (assignedBrokerId) contactUpdate.assigned_broker_id = assignedBrokerId;
+      if (c2sLeadId) contactUpdate.c2s_lead_id = c2sLeadId;
+      await supabase.from('contacts').update(contactUpdate).eq('id', contact.id);
+    }
+
     // Create conversation
     const { data: conversation } = await supabase
       .from('conversations')
@@ -93,6 +145,7 @@ serve(async (req: Request) => {
         department_code: 'vendas',
         status: 'active',
         last_message_at: new Date().toISOString(),
+        assigned_broker_id: assignedBrokerId,
       })
       .select('id')
       .single();

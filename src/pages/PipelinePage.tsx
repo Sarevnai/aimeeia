@@ -79,6 +79,7 @@ const PipelinePage: React.FC = () => {
   const [activeCrmCard, setActiveCrmCard] = useState<CrmCard | null>(null);
   const [crmLastSync, setCrmLastSync] = useState<Date | null>(null);
   const [crmLive, setCrmLive] = useState(false);
+  const [crmLiveStatus, setCrmLiveStatus] = useState<string>('pending');
 
   // Pending transition (Arquivado ou Negócio fechado) aguardando motivo/valor
   const [pendingTransition, setPendingTransition] = useState<{
@@ -198,6 +199,7 @@ const PipelinePage: React.FC = () => {
   useEffect(() => {
     if (!tenantId || mode !== 'c2s') {
       setCrmLive(false);
+      setCrmLiveStatus('pending');
       return;
     }
 
@@ -206,21 +208,48 @@ const PipelinePage: React.FC = () => {
       debounceRef.current = setTimeout(() => { fetchCrm(true); }, 1500);
     };
 
+    // Fallback de polling — se realtime não subir em 5s, refaz fetch a cada 30s
+    // pra manter o pipeline "quase em tempo real" mesmo sem WebSocket.
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    const startPollingFallback = () => {
+      if (pollInterval) return;
+      console.warn('[pipeline] realtime unavailable — ligando polling 30s');
+      pollInterval = setInterval(() => { fetchCrm(true); }, 30000);
+    };
+    const stopPollingFallback = () => {
+      if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+    };
+
     const channel = supabase
       .channel(`pipeline-contacts-${tenantId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'contacts', filter: `tenant_id=eq.${tenantId}` },
-        () => scheduleRefresh(),
+        (payload) => {
+          console.log('[pipeline] realtime event', payload.eventType, (payload.new as any)?.id);
+          scheduleRefresh();
+        },
       )
-      .subscribe((status) => {
-        setCrmLive(status === 'SUBSCRIBED');
+      .subscribe((status, err) => {
+        console.log('[pipeline] realtime status:', status, err?.message || '');
+        setCrmLiveStatus(status);
+        if (status === 'SUBSCRIBED') {
+          setCrmLive(true);
+          stopPollingFallback();
+        } else {
+          setCrmLive(false);
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            startPollingFallback();
+          }
+        }
       });
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      stopPollingFallback();
       supabase.removeChannel(channel);
       setCrmLive(false);
+      setCrmLiveStatus('pending');
     };
   }, [tenantId, mode, fetchCrm]);
 
@@ -360,20 +389,25 @@ const PipelinePage: React.FC = () => {
             <p className="text-sm text-muted-foreground">
               {mode === 'c2s' ? 'Espelho dos status do C2S' : 'Organize seus leads em estágios personalizados'}
             </p>
-            {mode === 'c2s' && (
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5 border',
-                  crmLive
-                    ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
-                    : 'bg-muted text-muted-foreground border-border',
-                )}
-                title={crmLastSync ? `Última atualização: ${crmLastSync.toLocaleTimeString('pt-BR')}` : 'Aguardando sincronização'}
-              >
-                <span className={cn('h-1.5 w-1.5 rounded-full', crmLive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground')} />
-                {crmLive ? 'Ao vivo' : 'Offline'}
-              </span>
-            )}
+            {mode === 'c2s' && (() => {
+              const isPolling = !crmLive && (crmLiveStatus === 'CHANNEL_ERROR' || crmLiveStatus === 'TIMED_OUT' || crmLiveStatus === 'CLOSED');
+              const label = crmLive ? 'Ao vivo' : isPolling ? 'Sync 30s' : crmLiveStatus === 'pending' ? 'Conectando…' : 'Offline';
+              const tone = crmLive
+                ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
+                : isPolling
+                  ? 'bg-amber-500/10 text-amber-700 border-amber-500/20'
+                  : 'bg-muted text-muted-foreground border-border';
+              const dotTone = crmLive ? 'bg-emerald-500 animate-pulse' : isPolling ? 'bg-amber-500 animate-pulse' : 'bg-muted-foreground';
+              return (
+                <span
+                  className={cn('inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5 border', tone)}
+                  title={`status=${crmLiveStatus}${crmLastSync ? ` · última atualização ${crmLastSync.toLocaleTimeString('pt-BR')}` : ''}`}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full', dotTone)} />
+                  {label}
+                </span>
+              );
+            })()}
           </div>
         </div>
         <div className="flex items-center gap-3">

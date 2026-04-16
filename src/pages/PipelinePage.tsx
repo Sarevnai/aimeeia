@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -73,6 +73,8 @@ const PipelinePage: React.FC = () => {
   const [crmCards, setCrmCards] = useState<Record<string, CrmCard[]>>({});
   const [crmLoading, setCrmLoading] = useState(true);
   const [activeCrmCard, setActiveCrmCard] = useState<CrmCard | null>(null);
+  const [crmLastSync, setCrmLastSync] = useState<Date | null>(null);
+  const [crmLive, setCrmLive] = useState(false);
 
   // Local mode (drag-and-drop)
   const [stages, setStages] = useState<Stage[]>([]);
@@ -96,15 +98,15 @@ const PipelinePage: React.FC = () => {
       });
   }, [profile?.id]);
 
-  // Fetch C2S pipeline data
-  const fetchCrm = useCallback(async () => {
+  // Fetch C2S pipeline data. `silent=true` pula o toggle de loading (usado por refresh em realtime).
+  const fetchCrm = useCallback(async (silent = false) => {
     if (!tenantId) return;
     if (effectiveScope === 'meus' && !myBrokerId) {
       setCrmCards({});
-      setCrmLoading(false);
+      if (!silent) setCrmLoading(false);
       return;
     }
-    setCrmLoading(true);
+    if (!silent) setCrmLoading(true);
 
     let q = supabase
       .from('contacts')
@@ -138,7 +140,8 @@ const PipelinePage: React.FC = () => {
       });
     });
     setCrmCards(byStatus);
-    setCrmLoading(false);
+    setCrmLastSync(new Date());
+    if (!silent) setCrmLoading(false);
   }, [tenantId, effectiveScope, myBrokerId, department]);
 
   // Fetch local-mode data (conversation_stages)
@@ -172,6 +175,38 @@ const PipelinePage: React.FC = () => {
   useEffect(() => {
     if (mode === 'c2s') fetchCrm(); else fetchLocal();
   }, [mode, fetchCrm, fetchLocal]);
+
+  /* Realtime: espelha o C2S (delta-sync grava em contacts a cada 1min;
+     aqui escutamos o postgres_changes pra refletir na tela em segundos). */
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!tenantId || mode !== 'c2s') {
+      setCrmLive(false);
+      return;
+    }
+
+    const scheduleRefresh = () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => { fetchCrm(true); }, 1500);
+    };
+
+    const channel = supabase
+      .channel(`pipeline-contacts-${tenantId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'contacts', filter: `tenant_id=eq.${tenantId}` },
+        () => scheduleRefresh(),
+      )
+      .subscribe((status) => {
+        setCrmLive(status === 'SUBSCRIBED');
+      });
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      supabase.removeChannel(channel);
+      setCrmLive(false);
+    };
+  }, [tenantId, mode, fetchCrm]);
 
   const handleDragStart = (event: DragStartEvent) => {
     const conv = conversations.find((c) => c.id === event.active.id);
@@ -272,9 +307,25 @@ const PipelinePage: React.FC = () => {
       <div className="p-4 border-b border-border bg-card flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="font-display text-2xl font-bold text-foreground">Pipeline</h2>
-          <p className="text-sm text-muted-foreground">
-            {mode === 'c2s' ? 'Espelho dos status do C2S' : 'Organize seus leads em estágios personalizados'}
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-sm text-muted-foreground">
+              {mode === 'c2s' ? 'Espelho dos status do C2S' : 'Organize seus leads em estágios personalizados'}
+            </p>
+            {mode === 'c2s' && (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5 border',
+                  crmLive
+                    ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
+                    : 'bg-muted text-muted-foreground border-border',
+                )}
+                title={crmLastSync ? `Última atualização: ${crmLastSync.toLocaleTimeString('pt-BR')}` : 'Aguardando sincronização'}
+              >
+                <span className={cn('h-1.5 w-1.5 rounded-full', crmLive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground')} />
+                {crmLive ? 'Ao vivo' : 'Offline'}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           {isAdmin && (

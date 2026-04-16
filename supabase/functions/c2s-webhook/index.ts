@@ -55,6 +55,10 @@ serve(async (req: Request) => {
     body = await req.json();
   } catch {
     console.error('❌ c2s-webhook invalid JSON body');
+    await supabase.from('c2s_webhook_events').insert({
+      tenant_id, event_type: event, action: 'ignored_invalid_json',
+      error_message: 'JSON parse failed',
+    });
     return jsonResponse({ ok: true, ignored: 'invalid_json' }, 200);
   }
 
@@ -64,28 +68,43 @@ serve(async (req: Request) => {
 
   if (!leadId) {
     console.warn('⚠️  c2s-webhook payload without lead id', JSON.stringify(body).slice(0, 300));
+    await supabase.from('c2s_webhook_events').insert({
+      tenant_id, event_type: event, action: 'ignored_no_lead_id',
+      raw_payload: body,
+    });
     return jsonResponse({ ok: true, ignored: 'no_lead_id' }, 200);
   }
 
   try {
     const brokerMap = await loadBrokerMap(supabase, tenant_id);
     const { payload, phone } = mapC2sLeadToContactPayload(lead, tenant_id, brokerMap);
-    if (!payload || !phone) {
-      console.warn(`⚠️  c2s-webhook lead ${leadId} has no phone, skipping`);
-    } else {
-      const action = await upsertContactFromC2sPayload(supabase, tenant_id, payload, String(leadId), phone);
+    let action = 'skipped_no_phone';
+    if (payload && phone) {
+      action = await upsertContactFromC2sPayload(supabase, tenant_id, payload, String(leadId), phone);
       console.log(`✅ c2s-webhook event=${event} lead=${leadId} action=${action}`);
+    } else {
+      console.warn(`⚠️  c2s-webhook lead ${leadId} has no phone, skipping`);
     }
+
+    await supabase.from('c2s_webhook_events').insert({
+      tenant_id, event_type: event, lead_id: String(leadId), action,
+      raw_payload: body,
+    });
 
     await supabase
       .from('tenants')
       .update({ c2s_webhook_last_event_at: new Date().toISOString() })
       .eq('id', tenant_id);
 
-    return jsonResponse({ ok: true, event, lead_id: leadId }, 200);
+    return jsonResponse({ ok: true, event, lead_id: leadId, action }, 200);
   } catch (error) {
-    console.error('❌ c2s-webhook processing error:', (error as Error).message);
+    const msg = (error as Error).message;
+    console.error('❌ c2s-webhook processing error:', msg);
+    await supabase.from('c2s_webhook_events').insert({
+      tenant_id, event_type: event, lead_id: String(leadId), action: 'error',
+      error_message: msg, raw_payload: body,
+    });
     // Retorna 200 mesmo assim (não queremos retry do C2S). Reconciliação pelo delta-sync.
-    return jsonResponse({ ok: true, error: (error as Error).message }, 200);
+    return jsonResponse({ ok: true, error: msg }, 200);
   }
 });

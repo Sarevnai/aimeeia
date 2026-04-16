@@ -115,8 +115,9 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
         for (let from = 0; ; from += PAGE) {
           const { data } = await supabase
             .from('contacts')
-            .select('id, name, phone, department_code, tags, crm_status, crm_archive_reason')
+            .select('id, name, phone, department_code, tags, crm_status, crm_archive_reason, phone_valid, quality_issues')
             .eq('tenant_id', tenantId)
+            .neq('phone_valid', false)
             .order('name')
             .range(from, from + PAGE - 1);
           if (!data || data.length === 0) break;

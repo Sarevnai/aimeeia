@@ -340,7 +340,12 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
               ) : (
                 <ScrollArea className="max-h-[40vh]">
                   <div className="space-y-1">
-                    {filteredContacts.map((c) => (
+                    {filteredContacts.length > 200 && (
+                      <p className="text-[11px] text-muted-foreground px-1 pb-1 sticky top-0 bg-background/95 backdrop-blur z-10">
+                        Mostrando 200 de {filteredContacts.length} — use busca/filtro de status para refinar. <strong>Selecionar todos</strong> marca os {filteredContacts.length} filtrados.
+                      </p>
+                    )}
+                    {filteredContacts.slice(0, 200).map((c) => (
                       <label
                         key={c.id}
                         className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-pointer"
@@ -353,13 +358,15 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
                           <p className="text-sm font-medium truncate">{c.name || 'Sem nome'}</p>
                           <p className="text-xs text-muted-foreground">{c.phone}</p>
                         </div>
-                        <Badge
-                          variant="outline"
-                          className={cn('text-[10px] shrink-0 font-medium', statusBadgeClass(c.crm_status))}
-                          title={c.crm_archive_reason ? `Motivo: ${c.crm_archive_reason}` : undefined}
-                        >
-                          {c.crm_status || 'Sem status'}
-                        </Badge>
+                        {c.crm_status && (
+                          <Badge
+                            variant="outline"
+                            className={cn('text-[10px] shrink-0 font-medium', statusBadgeClass(c.crm_status))}
+                            title={c.crm_archive_reason ? `Motivo: ${c.crm_archive_reason}` : undefined}
+                          >
+                            {c.crm_status}
+                          </Badge>
+                        )}
                         {c.department_code && (
                           <Badge variant="outline" className="text-xs">{c.department_code}</Badge>
                         )}

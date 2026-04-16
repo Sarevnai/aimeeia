@@ -32,6 +32,8 @@ interface Contact {
     channel_source: string | null;
     created_at: string | null;
     tenant_id: string;
+    crm_status: string | null;
+    crm_archive_reason: string | null;
 }
 
 interface ContactForm {
@@ -79,6 +81,31 @@ const emptyForm: ContactForm = {
 
 const PAGE_SIZE = 25;
 
+/* Valores possíveis de crm_status (origem: C2S). "sem_status" = NULL no DB. */
+const STATUS_OPTIONS = [
+    { value: 'all', label: 'Todos os status' },
+    { value: 'Novo', label: 'Novo' },
+    { value: 'Em negociação', label: 'Em negociação' },
+    { value: 'Negócio fechado', label: 'Negócio fechado' },
+    { value: 'Arquivado', label: 'Arquivado' },
+    { value: 'sem_status', label: 'Sem status' },
+] as const;
+
+const statusBadgeClass = (status: string | null): string => {
+    switch (status) {
+        case 'Novo':
+            return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
+        case 'Em negociação':
+            return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
+        case 'Negócio fechado':
+            return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
+        case 'Arquivado':
+            return 'bg-muted text-muted-foreground border-border';
+        default:
+            return 'bg-muted/50 text-muted-foreground border-border';
+    }
+};
+
 /* ─── Helper: normalize phone ─── */
 const normalizePhone = (raw: string): string => {
     const digits = raw.replace(/\D/g, '');
@@ -106,6 +133,7 @@ const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
     const [contacts, setContacts] = useState<Contact[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState<string>('all');
     const [page, setPage] = useState(0);
     const [total, setTotal] = useState(0);
 
@@ -143,6 +171,12 @@ const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
             query = query.or(`name.ilike.%${search.trim()}%,phone.ilike.%${search.trim()}%,email.ilike.%${search.trim()}%`);
         }
 
+        if (statusFilter === 'sem_status') {
+            query = query.is('crm_status', null);
+        } else if (statusFilter !== 'all') {
+            query = query.eq('crm_status', statusFilter);
+        }
+
         const { data, count, error } = await query;
         if (error) {
             toast({ title: 'Erro ao carregar contatos', description: error.message, variant: 'destructive' });
@@ -150,7 +184,7 @@ const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
         setContacts((data as Contact[]) ?? []);
         setTotal(count ?? 0);
         setLoading(false);
-    }, [tenantId, page, search, toast]);
+    }, [tenantId, page, search, statusFilter, toast]);
 
     useEffect(() => { fetchContacts(); }, [fetchContacts]);
 
@@ -361,15 +395,27 @@ const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
                 </div>
             </div>
 
-            {/* Search */}
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                    placeholder="Buscar por nome, telefone ou email..."
-                    value={search}
-                    onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-                    className="pl-9 bg-muted/40"
-                />
+            {/* Search + Status filter */}
+            <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Buscar por nome, telefone ou email..."
+                        value={search}
+                        onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+                        className="pl-9 bg-muted/40"
+                    />
+                </div>
+                <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
+                    <SelectTrigger className="sm:w-[200px] bg-muted/40">
+                        <SelectValue placeholder="Status do lead" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {STATUS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
 
             {/* Contacts list */}
@@ -422,6 +468,13 @@ const AdminContactsTab: React.FC<Props> = ({ tenantId }) => {
 
                                 {/* Tags */}
                                 <div className="hidden sm:flex items-center gap-1">
+                                    <Badge
+                                        variant="outline"
+                                        className={cn('text-[10px] font-medium', statusBadgeClass(c.crm_status))}
+                                        title={c.crm_archive_reason ? `Motivo: ${c.crm_archive_reason}` : undefined}
+                                    >
+                                        {c.crm_status || 'Sem status'}
+                                    </Badge>
                                     {c.department_code && (
                                         <Badge variant="outline" className="text-[10px]">{c.department_code}</Badge>
                                     )}

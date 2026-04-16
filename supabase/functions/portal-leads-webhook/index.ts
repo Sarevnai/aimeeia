@@ -83,9 +83,12 @@ serve(async (req: Request) => {
       contact = newContact;
     }
 
-    // ---- Broker assignment: try to find the lead in C2S and get the assigned seller ----
+    // ---- Create lead in C2S for broker distribution (plantão) ----
+    // Canal Pro does NOT create leads in C2S — it only sends a webhook to the configured CRM.
+    // We create the lead in C2S so the plantão queue distributes to the correct broker.
     let assignedBrokerId: string | null = null;
     let c2sLeadId: string | null = null;
+    let c2sSellerId: string | null = null;
     try {
       const { data: c2sConfig } = await supabase
         .from('system_settings')
@@ -94,45 +97,95 @@ serve(async (req: Request) => {
         .eq('setting_key', 'c2s_config')
         .maybeSingle();
 
-      const apiKey = (c2sConfig?.setting_value as any)?.api_key;
-      if (apiKey) {
-        // Canal Pro already created the lead in C2S — search by phone to get seller_id
-        const searchRes = await fetch(
-          `https://api.contact2sale.com/integration/leads?perpage=5&sort=-created_at&phone=${encodeURIComponent(phone)}`,
-          { headers: { 'Authentication': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
-        );
-        if (searchRes.ok) {
-          const searchData = await searchRes.json();
-          const leads = searchData?.data || [];
-          if (leads.length > 0) {
-            const latestLead = leads[0];
-            c2sLeadId = latestLead.id || null;
-            const sellerId = latestLead.attributes?.seller?.id || null;
-            if (sellerId) {
-              const { data: broker } = await supabase
-                .from('brokers')
-                .select('id')
-                .eq('tenant_id', tenant_id)
-                .eq('c2s_seller_id', sellerId)
-                .maybeSingle();
-              assignedBrokerId = broker?.id || null;
-              if (assignedBrokerId) {
-                console.log(`🔗 portal-leads-webhook: broker ${assignedBrokerId} linked via C2S seller ${sellerId}`);
+      const config = c2sConfig?.setting_value as any;
+      if (config?.api_url && config?.api_key) {
+        const tags = ['Aimee', 'Portal', source || 'zap'].filter(Boolean);
+
+        const c2sPayload = {
+          data: {
+            type: 'lead',
+            attributes: {
+              name: lead_name || 'Lead Portal',
+              phone,
+              email: lead_email || null,
+              source: source || 'portal',
+              body: [
+                '━━━ LEAD VIA PORTAL ━━━',
+                '',
+                `📱 Origem: ${source || 'portal'}`,
+                property_code ? `🏠 Imóvel: ${property_code}` : null,
+                property_title ? `📋 ${property_title}` : null,
+                message ? `💬 Mensagem: ${message}` : null,
+              ].filter(Boolean).join('\n'),
+              tags,
+              prop_ref: property_code || null,
+            },
+          },
+        };
+
+        console.log('📤 portal-leads-webhook → C2S:', JSON.stringify(c2sPayload).slice(0, 500));
+
+        const c2sRes = await fetch(config.api_url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.api_key}`,
+          },
+          body: JSON.stringify(c2sPayload),
+        });
+
+        if (c2sRes.ok) {
+          const c2sData = await c2sRes.json();
+          const created = c2sData?.data || c2sData;
+          c2sLeadId = created?.id || null;
+
+          // Get seller from create response
+          c2sSellerId = created?.attributes?.seller?.id
+            || created?.relationships?.seller?.data?.id
+            || null;
+
+          // If seller not in response, try GET detail
+          if (!c2sSellerId && c2sLeadId) {
+            try {
+              const detailRes = await fetch(
+                `https://api.contact2sale.com/integration/leads/${c2sLeadId}`,
+                { headers: { 'Authentication': `Bearer ${config.api_key}`, 'Content-Type': 'application/json' } },
+              );
+              if (detailRes.ok) {
+                const detail = await detailRes.json();
+                c2sSellerId = detail?.data?.attributes?.seller?.id || null;
               }
-            }
+            } catch (_) { /* non-blocking */ }
           }
+
+          // Resolve broker in Aimee
+          if (c2sSellerId) {
+            const { data: broker } = await supabase
+              .from('brokers')
+              .select('id')
+              .eq('tenant_id', tenant_id)
+              .eq('c2s_seller_id', c2sSellerId)
+              .maybeSingle();
+            assignedBrokerId = broker?.id || null;
+          }
+
+          console.log(`✅ portal-leads-webhook: C2S lead ${c2sLeadId}, seller ${c2sSellerId}, broker ${assignedBrokerId}`);
+        } else {
+          console.warn(`⚠️ portal-leads-webhook: C2S create failed [${c2sRes.status}]`);
         }
       }
     } catch (err) {
-      console.warn('⚠️ portal-leads-webhook: C2S broker lookup failed (non-blocking):', err);
+      console.warn('⚠️ portal-leads-webhook: C2S create failed (non-blocking):', err);
     }
 
-    // Update contact with C2S link + broker if found
-    if (contact?.id && (assignedBrokerId || c2sLeadId)) {
+    // Update contact with C2S link + broker
+    if (contact?.id) {
       const contactUpdate: any = {};
       if (assignedBrokerId) contactUpdate.assigned_broker_id = assignedBrokerId;
       if (c2sLeadId) contactUpdate.c2s_lead_id = c2sLeadId;
-      await supabase.from('contacts').update(contactUpdate).eq('id', contact.id);
+      if (Object.keys(contactUpdate).length > 0) {
+        await supabase.from('contacts').update(contactUpdate).eq('id', contact.id);
+      }
     }
 
     // Create conversation

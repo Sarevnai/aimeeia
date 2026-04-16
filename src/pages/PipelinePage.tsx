@@ -208,25 +208,32 @@ const PipelinePage: React.FC = () => {
       debounceRef.current = setTimeout(() => { fetchCrm(true); }, 1500);
     };
 
-    // Fallback de polling — se realtime não subir em 5s, refaz fetch a cada 30s
-    // pra manter o pipeline "quase em tempo real" mesmo sem WebSocket.
+    // Fallback de polling — se realtime não subir, refaz fetch a cada 15s
+    // pra manter o pipeline próximo de realtime mesmo sem WebSocket.
     let pollInterval: ReturnType<typeof setInterval> | null = null;
     const startPollingFallback = () => {
       if (pollInterval) return;
-      console.warn('[pipeline] realtime unavailable — ligando polling 30s');
-      pollInterval = setInterval(() => { fetchCrm(true); }, 30000);
+      console.warn('[pipeline] realtime unavailable — ligando polling 15s');
+      pollInterval = setInterval(() => { fetchCrm(true); }, 15000);
     };
     const stopPollingFallback = () => {
       if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
     };
 
+    // Usamos subscription sem filtro (schema-level) e filtramos por tenant_id
+    // no callback. Subscriptions filtradas no Supabase Realtime dependem de
+    // REPLICA IDENTITY FULL, role/JWT e flags internas que às vezes dão
+    // CHANNEL_ERROR silencioso. Sem filtro é mais resiliente; o custo é só
+    // receber alguns eventos a mais que são descartados no cliente.
     const channel = supabase
       .channel(`pipeline-contacts-${tenantId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'contacts', filter: `tenant_id=eq.${tenantId}` },
+        { event: '*', schema: 'public', table: 'contacts' },
         (payload) => {
-          console.log('[pipeline] realtime event', payload.eventType, (payload.new as any)?.id);
+          const row = (payload.new as any) || (payload.old as any) || {};
+          if (row.tenant_id && row.tenant_id !== tenantId) return;
+          console.log('[pipeline] realtime event', payload.eventType, row.id);
           scheduleRefresh();
         },
       )
@@ -244,7 +251,14 @@ const PipelinePage: React.FC = () => {
         }
       });
 
+    // Safety net: se em 8s o canal não chegou em SUBSCRIBED, liga o polling.
+    // Protege contra casos onde o callback de status não dispara nunca.
+    const safetyTimeout = setTimeout(() => {
+      if (!pollInterval) startPollingFallback();
+    }, 8000);
+
     return () => {
+      clearTimeout(safetyTimeout);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       stopPollingFallback();
       supabase.removeChannel(channel);
@@ -391,7 +405,7 @@ const PipelinePage: React.FC = () => {
             </p>
             {mode === 'c2s' && (() => {
               const isPolling = !crmLive && (crmLiveStatus === 'CHANNEL_ERROR' || crmLiveStatus === 'TIMED_OUT' || crmLiveStatus === 'CLOSED');
-              const label = crmLive ? 'Ao vivo' : isPolling ? 'Sync 30s' : crmLiveStatus === 'pending' ? 'Conectando…' : 'Offline';
+              const label = crmLive ? 'Ao vivo' : isPolling ? 'Sync 15s' : crmLiveStatus === 'pending' ? 'Conectando…' : 'Offline';
               const tone = crmLive
                 ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
                 : isPolling

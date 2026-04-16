@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, ArrowRight, ArrowLeft, Send, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Props {
   open: boolean;
@@ -30,6 +31,8 @@ interface Contact {
   phone: string;
   department_code: string | null;
   tags: string[] | null;
+  crm_status: string | null;
+  crm_archive_reason: string | null;
 }
 
 const DEPARTMENTS = [
@@ -37,6 +40,30 @@ const DEPARTMENTS = [
   { code: 'vendas', label: 'Vendas' },
   { code: 'administrativo', label: 'Administrativo' },
 ];
+
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'Todos os status' },
+  { value: 'Novo', label: 'Novo' },
+  { value: 'Em negociação', label: 'Em negociação' },
+  { value: 'Negócio fechado', label: 'Negócio fechado' },
+  { value: 'Arquivado', label: 'Arquivado' },
+  { value: 'sem_status', label: 'Sem status' },
+] as const;
+
+const statusBadgeClass = (status: string | null): string => {
+  switch (status) {
+    case 'Novo':
+      return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
+    case 'Em negociação':
+      return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
+    case 'Negócio fechado':
+      return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
+    case 'Arquivado':
+      return 'bg-muted text-muted-foreground border-border';
+    default:
+      return 'bg-muted/50 text-muted-foreground border-border';
+  }
+};
 
 const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) => {
   const { tenantId } = useTenant();
@@ -56,6 +83,7 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [contactSearch, setContactSearch] = useState('');
   const [contactDeptFilter, setContactDeptFilter] = useState('all');
+  const [contactStatusFilter, setContactStatusFilter] = useState('all');
   const [loadingContacts, setLoadingContacts] = useState(false);
 
   useEffect(() => {
@@ -87,7 +115,7 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
         for (let from = 0; ; from += PAGE) {
           const { data } = await supabase
             .from('contacts')
-            .select('id, name, phone, department_code, tags')
+            .select('id, name, phone, department_code, tags, crm_status, crm_archive_reason')
             .eq('tenant_id', tenantId)
             .order('name')
             .range(from, from + PAGE - 1);
@@ -102,11 +130,14 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
   }, [step, tenantId]);
 
   const filteredContacts = contacts.filter((c) => {
-    const matchSearch = !contactSearch || 
+    const matchSearch = !contactSearch ||
       (c.name || '').toLowerCase().includes(contactSearch.toLowerCase()) ||
       c.phone.includes(contactSearch);
     const matchDept = contactDeptFilter === 'all' || c.department_code === contactDeptFilter;
-    return matchSearch && matchDept;
+    const matchStatus =
+      contactStatusFilter === 'all' ||
+      (contactStatusFilter === 'sem_status' ? !c.crm_status : c.crm_status === contactStatusFilter);
+    return matchSearch && matchDept && matchStatus;
   });
 
   const toggleContact = (id: string) => {
@@ -266,7 +297,7 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
 
           {step === 2 && (
             <div className="space-y-3 py-2">
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -277,11 +308,19 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
                   />
                 </div>
                 <Select value={contactDeptFilter} onValueChange={setContactDeptFilter}>
-                  <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="all">Todos deptos</SelectItem>
                     {DEPARTMENTS.map((d) => (
                       <SelectItem key={d.code} value={d.code}>{d.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={contactStatusFilter} onValueChange={setContactStatusFilter}>
+                  <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="Status do lead" /></SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -314,6 +353,13 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
                           <p className="text-sm font-medium truncate">{c.name || 'Sem nome'}</p>
                           <p className="text-xs text-muted-foreground">{c.phone}</p>
                         </div>
+                        <Badge
+                          variant="outline"
+                          className={cn('text-[10px] shrink-0 font-medium', statusBadgeClass(c.crm_status))}
+                          title={c.crm_archive_reason ? `Motivo: ${c.crm_archive_reason}` : undefined}
+                        >
+                          {c.crm_status || 'Sem status'}
+                        </Badge>
                         {c.department_code && (
                           <Badge variant="outline" className="text-xs">{c.department_code}</Badge>
                         )}

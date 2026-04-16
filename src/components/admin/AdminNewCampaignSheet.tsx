@@ -48,10 +48,37 @@ interface Contact {
     phone: string;
     email: string | null;
     department_code: string | null;
+    crm_status: string | null;
+    crm_archive_reason: string | null;
 }
 
 type CampaignType = 'marketing' | 'remarketing' | 'atualizacao';
 type Step = 1 | 2 | 3 | 4 | 5;
+
+/* Valores possíveis de crm_status (origem: C2S). "sem_status" = NULL no DB. */
+const STATUS_OPTIONS = [
+    { value: 'all', label: 'Todos os status' },
+    { value: 'Novo', label: 'Novo' },
+    { value: 'Em negociação', label: 'Em negociação' },
+    { value: 'Negócio fechado', label: 'Negócio fechado' },
+    { value: 'Arquivado', label: 'Arquivado' },
+    { value: 'sem_status', label: 'Sem status' },
+] as const;
+
+const statusBadgeClass = (status: string | null): string => {
+    switch (status) {
+        case 'Novo':
+            return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
+        case 'Em negociação':
+            return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
+        case 'Negócio fechado':
+            return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
+        case 'Arquivado':
+            return 'bg-muted text-muted-foreground border-border';
+        default:
+            return 'bg-muted/50 text-muted-foreground border-border';
+    }
+};
 
 interface Props {
     open: boolean;
@@ -112,6 +139,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
     const [loadingContacts, setLoadingContacts] = useState(false);
     const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
     const [contactSearch, setContactSearch] = useState('');
+    const [contactStatusFilter, setContactStatusFilter] = useState<string>('all');
 
     // Step 5 — Name + dispatch mode
     const [campaignName, setCampaignName] = useState('');
@@ -133,6 +161,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
         setContacts([]);
         setSelectedContactIds(new Set());
         setContactSearch('');
+        setContactStatusFilter('all');
         setCampaignName('');
         setCampaignDesc('');
         setDispatchNow(false);
@@ -179,7 +208,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
             for (let from = 0; ; from += PAGE) {
                 const { data } = await supabase
                     .from('contacts')
-                    .select('id, name, phone, email, department_code')
+                    .select('id, name, phone, email, department_code, crm_status, crm_archive_reason')
                     .eq('tenant_id', selectedTenantId)
                     .order('name')
                     .range(from, from + PAGE - 1);
@@ -194,6 +223,11 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
 
     /* ── Filtered contacts ── */
     const filteredContacts = contacts.filter((c) => {
+        if (contactStatusFilter === 'sem_status') {
+            if (c.crm_status) return false;
+        } else if (contactStatusFilter !== 'all') {
+            if (c.crm_status !== contactStatusFilter) return false;
+        }
         if (!contactSearch.trim()) return true;
         const q = contactSearch.toLowerCase();
         return (
@@ -590,8 +624,8 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                                 </p>
                             </div>
 
-                            {/* Search + Select All */}
-                            <div className="flex items-center gap-2">
+                            {/* Search + Status filter + Select All */}
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                 <div className="relative flex-1">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <Input
@@ -601,6 +635,16 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                                         className="pl-9 bg-muted/40 h-9 text-sm"
                                     />
                                 </div>
+                                <Select value={contactStatusFilter} onValueChange={setContactStatusFilter}>
+                                    <SelectTrigger className="sm:w-[180px] h-9 text-sm bg-muted/40">
+                                        <SelectValue placeholder="Status do lead" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {STATUS_OPTIONS.map((opt) => (
+                                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -647,6 +691,13 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
                                                         <Phone className="h-3 w-3" /> {c.phone}
                                                     </p>
                                                 </div>
+                                                <Badge
+                                                    variant="outline"
+                                                    className={cn('text-[10px] shrink-0 font-medium', statusBadgeClass(c.crm_status))}
+                                                    title={c.crm_archive_reason ? `Motivo: ${c.crm_archive_reason}` : undefined}
+                                                >
+                                                    {c.crm_status || 'Sem status'}
+                                                </Badge>
                                                 {c.department_code && (
                                                     <Badge variant="outline" className="text-[10px] shrink-0">{c.department_code}</Badge>
                                                 )}

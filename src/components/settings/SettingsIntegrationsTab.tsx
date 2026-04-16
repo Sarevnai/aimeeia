@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { FieldGroup, Section } from './SettingsFormParts';
-import { Loader2, Save, Plus, Pencil, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Save, Plus, Pencil, Trash2, Eye, EyeOff, Zap, ZapOff } from 'lucide-react';
 import type { Tables, Json } from '@/integrations/supabase/types';
 
 type Region = Tables<'regions'>;
@@ -42,6 +42,9 @@ const SettingsIntegrationsTab: React.FC = () => {
   const [savingC2s, setSavingC2s] = useState(false);
   const [c2sSettingId, setC2sSettingId] = useState<string | null>(null);
   const [testingC2s, setTestingC2s] = useState(false);
+  const [c2sWebhookSubscribedAt, setC2sWebhookSubscribedAt] = useState<string | null>(null);
+  const [c2sWebhookLastEventAt, setC2sWebhookLastEventAt] = useState<string | null>(null);
+  const [subscribingWebhook, setSubscribingWebhook] = useState(false);
 
   // Business hours
   const [hours, setHours] = useState<BusinessHours>({ days: ['mon', 'tue', 'wed', 'thu', 'fri'], start: '08:00', end: '18:00', timezone: 'America/Sao_Paulo' });
@@ -60,7 +63,7 @@ const SettingsIntegrationsTab: React.FC = () => {
     const fetch = async () => {
       setLoading(true);
       const [tenantRes, hoursRes, regionsRes, c2sRes] = await Promise.all([
-        supabase.from('tenants').select('wa_phone_number_id, wa_access_token, wa_verify_token, waba_id, crm_type, crm_api_key, crm_api_url').eq('id', tenantId).single(),
+        supabase.from('tenants').select('wa_phone_number_id, wa_access_token, wa_verify_token, waba_id, crm_type, crm_api_key, crm_api_url, c2s_webhook_subscribed_at, c2s_webhook_last_event_at').eq('id', tenantId).single(),
         supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'business_hours').single(),
         supabase.from('regions').select('*').eq('tenant_id', tenantId).order('region_name'),
         supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'c2s_config').maybeSingle(),
@@ -70,6 +73,8 @@ const SettingsIntegrationsTab: React.FC = () => {
         const t = tenantRes.data as any;
         setWaForm({ wa_phone_number_id: t.wa_phone_number_id || '', wa_access_token: t.wa_access_token || '', wa_verify_token: t.wa_verify_token || '', waba_id: t.waba_id || '' });
         setCrmForm({ crm_type: t.crm_type || 'vista', crm_api_key: t.crm_api_key || '', crm_api_url: t.crm_api_url || '' });
+        setC2sWebhookSubscribedAt(t.c2s_webhook_subscribed_at || null);
+        setC2sWebhookLastEventAt(t.c2s_webhook_last_event_at || null);
       }
       if (hoursRes.data) {
         setHoursSettingId(hoursRes.data.id);
@@ -118,6 +123,38 @@ const SettingsIntegrationsTab: React.FC = () => {
     }
     setSavingC2s(false);
     toast({ title: 'C2S salvo' });
+  };
+
+  const subscribeC2sWebhooks = async (action: 'subscribe' | 'unsubscribe') => {
+    if (!tenantId) return;
+    if (!c2sForm.api_key) {
+      toast({ title: 'Configure e salve a API Key do C2S primeiro', variant: 'destructive' });
+      return;
+    }
+    setSubscribingWebhook(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('c2s-subscribe-webhooks', {
+        body: { tenant_id: tenantId, action },
+      });
+      if (error) throw error;
+      if (!data?.success) {
+        const failed = (data?.results || []).filter((r: any) => !r.ok);
+        toast({
+          title: action === 'subscribe' ? 'Falha ao assinar webhooks' : 'Falha ao cancelar',
+          description: failed.map((r: any) => `${r.hook_action}: ${r.status}`).join(' · ') || 'erro desconhecido',
+          variant: 'destructive',
+        });
+      } else if (action === 'subscribe') {
+        setC2sWebhookSubscribedAt(new Date().toISOString());
+        toast({ title: 'Webhooks assinados', description: 'C2S agora envia eventos em tempo real.' });
+      } else {
+        setC2sWebhookSubscribedAt(null);
+        toast({ title: 'Webhooks cancelados' });
+      }
+    } catch (err: any) {
+      toast({ title: 'Erro', description: err.message, variant: 'destructive' });
+    }
+    setSubscribingWebhook(false);
   };
 
   const testC2sConnection = async () => {
@@ -271,6 +308,60 @@ const SettingsIntegrationsTab: React.FC = () => {
             <Button onClick={saveC2s} disabled={savingC2s} size="sm">
               {savingC2s ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />} Salvar
             </Button>
+          </div>
+
+          {/* Webhooks realtime */}
+          <div className="pt-4 mt-2 border-t border-border space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold flex items-center gap-1.5">
+                  {c2sWebhookSubscribedAt ? (
+                    <Zap className="h-4 w-4 text-emerald-600" />
+                  ) : (
+                    <ZapOff className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  Webhooks em tempo real
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Recebe eventos on_create_lead, on_update_lead e on_close_lead direto do C2S. Sem polling.
+                </p>
+              </div>
+              <Badge variant={c2sWebhookSubscribedAt ? 'default' : 'secondary'}>
+                {c2sWebhookSubscribedAt ? 'Ativo' : 'Inativo'}
+              </Badge>
+            </div>
+            {c2sWebhookSubscribedAt && (
+              <div className="rounded-md bg-muted/40 p-2.5 text-[11px] text-muted-foreground space-y-0.5">
+                <p>Assinado em {new Date(c2sWebhookSubscribedAt).toLocaleString('pt-BR')}</p>
+                <p>
+                  Último evento: {c2sWebhookLastEventAt ? new Date(c2sWebhookLastEventAt).toLocaleString('pt-BR') : 'aguardando primeiro disparo'}
+                </p>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              {c2sWebhookSubscribedAt && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => subscribeC2sWebhooks('unsubscribe')}
+                  disabled={subscribingWebhook}
+                >
+                  {subscribingWebhook ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ZapOff className="h-4 w-4 mr-1" />}
+                  Cancelar
+                </Button>
+              )}
+              <Button
+                size="sm"
+                onClick={() => subscribeC2sWebhooks('subscribe')}
+                disabled={subscribingWebhook}
+              >
+                {subscribingWebhook ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Zap className="h-4 w-4 mr-1" />}
+                {c2sWebhookSubscribedAt ? 'Reassinar' : 'Ativar webhooks'}
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              ⚠️ O C2S aceita 1 endpoint por token. Ativar aqui substitui qualquer endpoint registrado externamente com o mesmo token.
+            </p>
           </div>
         </CardContent>
       </Card>

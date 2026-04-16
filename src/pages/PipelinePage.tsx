@@ -10,9 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Loader2, Settings, Archive, UserCheck, Building2, Sparkles, Send } from 'lucide-react';
+import { Loader2, Settings, Archive, UserCheck, Building2, Sparkles, Send, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   DndContext, DragOverlay, closestCorners, PointerSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
@@ -20,11 +24,11 @@ import {
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import type { Tables } from '@/integrations/supabase/types';
 
-// C2S transitions that are fully supported (bi-directional drag writes to C2S).
-// Arquivado/Negócio fechado exigem endpoints /archive e /done com payload
-// específico ainda não mapeado — drag pra essas colunas mostra toast
-// informando o usuário (sem chamada à API, rollback otimista).
-const C2S_SUPPORTED_TRANSITIONS = new Set(['Novo', 'Em negociação']);
+// Todos os 4 status C2S agora aceitam drag. Novo ↔ Em negociação é direto;
+// Arquivado/Negócio fechado abrem dialog pedindo motivo/valor antes de chamar
+// a API (endpoints update_status e done_deal).
+const C2S_DIRECT_TRANSITIONS = new Set(['Novo', 'Em negociação']);
+const C2S_DIALOG_TRANSITIONS = new Set(['Arquivado', 'Negócio fechado']);
 
 type Stage = Tables<'conversation_stages'>;
 type Conversation = Tables<'conversations'>;
@@ -75,6 +79,18 @@ const PipelinePage: React.FC = () => {
   const [activeCrmCard, setActiveCrmCard] = useState<CrmCard | null>(null);
   const [crmLastSync, setCrmLastSync] = useState<Date | null>(null);
   const [crmLive, setCrmLive] = useState(false);
+
+  // Pending transition (Arquivado ou Negócio fechado) aguardando motivo/valor
+  const [pendingTransition, setPendingTransition] = useState<{
+    contactId: string;
+    card: CrmCard;
+    oldStatus: string;
+    newStatus: 'Arquivado' | 'Negócio fechado';
+  } | null>(null);
+  const [dialogBusy, setDialogBusy] = useState(false);
+  const [archiveReason, setArchiveReason] = useState('');
+  const [dealValue, setDealValue] = useState('');
+  const [dealInfo, setDealInfo] = useState('');
 
   // Local mode (drag-and-drop)
   const [stages, setStages] = useState<Stage[]>([]);
@@ -232,6 +248,46 @@ const PipelinePage: React.FC = () => {
     }
   };
 
+  const applyCrmMove = useCallback(async (
+    contactId: string,
+    movedCard: CrmCard,
+    oldStatus: string,
+    newStatus: string,
+    extraBody: Record<string, unknown> = {},
+  ) => {
+    const updatedCard = { ...movedCard, crmStatus: newStatus };
+    setCrmCards((prev) => ({
+      ...prev,
+      [oldStatus]: (prev[oldStatus] || []).filter((c) => c.id !== contactId),
+      [newStatus]: [updatedCard, ...(prev[newStatus] || [])],
+    }));
+
+    const { data, error } = await supabase.functions.invoke('c2s-update-lead-status', {
+      body: { tenant_id: tenantId, contact_id: contactId, new_status: newStatus, ...extraBody },
+    });
+
+    if (error || !(data as any)?.success) {
+      // Rollback
+      setCrmCards((prev) => ({
+        ...prev,
+        [newStatus]: (prev[newStatus] || []).filter((c) => c.id !== contactId),
+        [oldStatus]: [movedCard, ...(prev[oldStatus] || [])],
+      }));
+      toast({
+        title: 'Erro ao atualizar no C2S',
+        description: (data as any)?.message || (data as any)?.details || error?.message || 'Status revertido.',
+        variant: 'destructive',
+      });
+      return false;
+    }
+
+    toast({
+      title: 'Status atualizado',
+      description: `"${movedCard.name || movedCard.phone}" movido para ${newStatus}.`,
+    });
+    return true;
+  }, [tenantId, toast]);
+
   const handleCrmDragEnd = async (event: DragEndEvent) => {
     setActiveCrmCard(null);
     const { active, over } = event;
@@ -240,7 +296,6 @@ const PipelinePage: React.FC = () => {
     const contactId = active.id as string;
     const newStatus = over.id as string;
 
-    // Find current status
     let oldStatus: string | null = null;
     let movedCard: CrmCard | null = null;
     for (const [status, list] of Object.entries(crmCards)) {
@@ -249,55 +304,49 @@ const PipelinePage: React.FC = () => {
     }
     if (!oldStatus || !movedCard || oldStatus === newStatus) return;
 
-    // Block transitions to Arquivado / Negócio fechado (pending C2S payload mapping)
-    if (!C2S_SUPPORTED_TRANSITIONS.has(newStatus)) {
-      toast({
-        title: 'Transição não suportada ainda',
-        description: `"${newStatus}" requer motivo/valor específico. Por enquanto, faça essa mudança no C2S.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-    if (!C2S_SUPPORTED_TRANSITIONS.has(oldStatus)) {
-      toast({
-        title: 'Origem não suportada ainda',
-        description: `Reabrir lead de "${oldStatus}" requer endpoint dedicado. Faça no C2S.`,
-        variant: 'destructive',
+    if (C2S_DIALOG_TRANSITIONS.has(newStatus)) {
+      // Abre dialog — só aplica o move após confirmar.
+      setArchiveReason('');
+      setDealValue('');
+      setDealInfo('');
+      setPendingTransition({
+        contactId,
+        card: movedCard,
+        oldStatus,
+        newStatus: newStatus as 'Arquivado' | 'Negócio fechado',
       });
       return;
     }
 
-    // Optimistic move
-    const updatedCard = { ...movedCard, crmStatus: newStatus };
-    setCrmCards((prev) => ({
-      ...prev,
-      [oldStatus!]: prev[oldStatus!].filter((c) => c.id !== contactId),
-      [newStatus]: [updatedCard, ...(prev[newStatus] || [])],
-    }));
-
-    // Call edge function
-    const { data, error } = await supabase.functions.invoke('c2s-update-lead-status', {
-      body: { tenant_id: tenantId, contact_id: contactId, new_status: newStatus },
-    });
-
-    if (error || !(data as any)?.success) {
-      // Rollback
-      setCrmCards((prev) => ({
-        ...prev,
-        [newStatus]: prev[newStatus].filter((c) => c.id !== contactId),
-        [oldStatus!]: [movedCard!, ...(prev[oldStatus!] || [])],
-      }));
+    if (!C2S_DIRECT_TRANSITIONS.has(newStatus) || !C2S_DIRECT_TRANSITIONS.has(oldStatus)) {
       toast({
-        title: 'Erro ao atualizar no C2S',
-        description: (data as any)?.message || error?.message || 'Status revertido.',
+        title: 'Transição não suportada',
+        description: `"${oldStatus}" → "${newStatus}" ainda não mapeado. Faça essa mudança no C2S.`,
         variant: 'destructive',
       });
+      return;
+    }
+
+    await applyCrmMove(contactId, movedCard, oldStatus, newStatus);
+  };
+
+  const confirmPendingTransition = async () => {
+    if (!pendingTransition) return;
+    const { contactId, card, oldStatus, newStatus } = pendingTransition;
+    setDialogBusy(true);
+
+    const extra: Record<string, unknown> = {};
+    if (newStatus === 'Arquivado') {
+      extra.archive_message = archiveReason.trim() || 'Arquivado via Aimee';
     } else {
-      toast({
-        title: 'Status atualizado',
-        description: `"${movedCard.name || movedCard.phone}" movido para ${newStatus}.`,
-      });
+      // Negócio fechado: value é opcional mas recomendado.
+      if (dealValue.trim()) extra.deal_value = dealValue.trim();
+      if (dealInfo.trim()) extra.deal_info = dealInfo.trim();
     }
+
+    const ok = await applyCrmMove(contactId, card, oldStatus, newStatus, extra);
+    setDialogBusy(false);
+    if (ok) setPendingTransition(null);
   };
 
   /* ─── Render ─── */
@@ -368,6 +417,87 @@ const PipelinePage: React.FC = () => {
           onCardClick={(id) => navigate(`/chat/${id}`)}
         />
       )}
+
+      {/* Dialog pra Arquivado / Negócio fechado */}
+      <Dialog
+        open={!!pendingTransition}
+        onOpenChange={(o) => { if (!o && !dialogBusy) setPendingTransition(null); }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {pendingTransition?.newStatus === 'Arquivado' ? (
+                <><Archive className="h-5 w-5 text-muted-foreground" /> Arquivar lead</>
+              ) : (
+                <><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Fechar negócio</>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {pendingTransition && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg bg-muted p-3 space-y-0.5">
+                <p className="text-sm font-medium">{pendingTransition.card.name || 'Sem nome'}</p>
+                <p className="text-xs text-muted-foreground">{pendingTransition.card.phone}</p>
+                {pendingTransition.card.crmPropertyRef && (
+                  <p className="text-xs text-muted-foreground truncate">{pendingTransition.card.crmPropertyRef}</p>
+                )}
+              </div>
+
+              {pendingTransition.newStatus === 'Arquivado' ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="archive-reason">Motivo do arquivamento</Label>
+                  <Textarea
+                    id="archive-reason"
+                    placeholder="Ex: cliente desistiu, sem retorno após 3 tentativas, etc."
+                    value={archiveReason}
+                    onChange={(e) => setArchiveReason(e.target.value)}
+                    rows={3}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Este texto é enviado ao C2S no campo <span className="font-mono">archive_notes</span>.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="deal-value">Valor do negócio (R$)</Label>
+                    <Input
+                      id="deal-value"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Ex: 500000"
+                      value={dealValue}
+                      onChange={(e) => setDealValue(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="deal-info">Observações (opcional)</Label>
+                    <Textarea
+                      id="deal-info"
+                      placeholder="Detalhes do fechamento..."
+                      value={dealInfo}
+                      onChange={(e) => setDealInfo(e.target.value)}
+                      rows={2}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingTransition(null)} disabled={dialogBusy}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={confirmPendingTransition}
+              disabled={dialogBusy}
+              variant={pendingTransition?.newStatus === 'Arquivado' ? 'destructive' : 'default'}
+            >
+              {dialogBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : pendingTransition?.newStatus === 'Arquivado' ? 'Arquivar' : 'Fechar negócio'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
@@ -433,15 +563,13 @@ const CrmColumn: React.FC<{
 }> = ({ col, list, onCardClick, onFollowUp }) => {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
   const isArchived = col.key === 'Arquivado';
-  const isSupported = C2S_SUPPORTED_TRANSITIONS.has(col.key);
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
         'flex flex-col w-80 shrink-0 rounded-lg border bg-muted/30 transition-colors',
-        isOver && isSupported && 'border-accent bg-accent/5',
-        isOver && !isSupported && 'border-destructive/40 bg-destructive/5',
+        isOver && 'border-accent bg-accent/5',
         !isOver && 'border-border',
       )}
     >
@@ -449,9 +577,6 @@ const CrmColumn: React.FC<{
         <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
         <span className="text-sm font-semibold text-foreground truncate min-w-0">{col.label}</span>
         <Badge variant="secondary" className="text-[10px] shrink-0">{list.length}</Badge>
-        {!isSupported && (
-          <Badge variant="outline" className="text-[9px] text-muted-foreground shrink-0 ml-auto" title="Somente via C2S">C2S</Badge>
-        )}
       </div>
       {(col.hint || isArchived) && (
         <div className="px-3 py-1.5 bg-muted/50 border-b border-border/60 flex items-center justify-between gap-2 min-w-0">

@@ -162,10 +162,7 @@ const AdminTenantsPage: React.FC = () => {
                             {tenants.length} cliente{tenants.length !== 1 ? 's' : ''} na plataforma
                         </p>
                     </div>
-                    <Button size="sm" className="gap-1.5" style={{ background: 'hsl(250 70% 60%)' }}>
-                        <Plus className="h-4 w-4" />
-                        Novo Tenant
-                    </Button>
+                    {/* TODO: Implementar criação de tenant */}
                 </div>
 
                 {/* Filters */}
@@ -263,9 +260,6 @@ const AdminTenantsPage: React.FC = () => {
                                     </span>
                                 </td>
                                 <td className="py-3 px-4 text-right">
-                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                                    </Button>
                                 </td>
                             </tr>
                         ))}

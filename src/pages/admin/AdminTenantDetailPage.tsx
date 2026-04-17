@@ -138,6 +138,11 @@ const AdminTenantDetailPage: React.FC = () => {
     const [testingC2s, setTestingC2s] = useState(false);
     const [showC2sKey, setShowC2sKey] = useState(false);
 
+    // ── Canal Pro state ──────────────────────────────────────────────
+    const [canalProSecret, setCanalProSecret] = useState('');
+    const [savingCanalPro, setSavingCanalPro] = useState(false);
+    const [showCanalProKey, setShowCanalProKey] = useState(false);
+
     // ── Invite user state ──────────────────────────────────────────────
     const [inviteOpen, setInviteOpen] = useState(false);
     const [inviteLoading, setInviteLoading] = useState(false);
@@ -324,6 +329,32 @@ const AdminTenantDetailPage: React.FC = () => {
                 });
             }
 
+            // Canal Pro
+            const { data: canalProData } = await supabase
+                .from('system_settings')
+                .select('setting_value')
+                .eq('tenant_id', tenantId)
+                .eq('setting_key', 'canal_pro_secret')
+                .maybeSingle();
+
+            if (canalProData?.setting_value) {
+                setCanalProSecret(String(canalProData.setting_value));
+                intgs.push({
+                    name: 'Canal Pro (Grupo OLX)',
+                    status: 'connected',
+                    icon: '📡',
+                    detail: 'Webhook configurado',
+                });
+            } else {
+                setCanalProSecret('');
+                intgs.push({
+                    name: 'Canal Pro (Grupo OLX)',
+                    status: 'disconnected',
+                    icon: '📡',
+                    detail: 'Não configurado',
+                });
+            }
+
             // Vista integration
             if (agentData?.vista_integration_enabled) {
                 intgs.push({
@@ -384,6 +415,25 @@ const AdminTenantDetailPage: React.FC = () => {
             toast({ title: 'Falha ao conectar no C2S', description: err.message, variant: 'destructive' });
         } finally {
             setTestingC2s(false);
+        }
+    };
+
+    const handleSaveCanalPro = async () => {
+        if (!tenant) return;
+        setSavingCanalPro(true);
+        try {
+            await supabase
+                .from('system_settings')
+                .upsert({
+                    tenant_id: tenant.id,
+                    setting_key: 'canal_pro_secret',
+                    setting_value: canalProSecret.trim() as any,
+                }, { onConflict: 'tenant_id,setting_key' });
+            toast({ title: 'Canal Pro salvo com sucesso' });
+        } catch (err) {
+            toast({ title: 'Erro ao salvar Canal Pro', variant: 'destructive' });
+        } finally {
+            setSavingCanalPro(false);
         }
     };
 
@@ -708,7 +758,6 @@ const AdminTenantDetailPage: React.FC = () => {
                         {[
                             { value: 'overview', label: 'Visão Geral', icon: Building2 },
                             { value: 'agent', label: 'Config IA', icon: Bot },
-                            { value: 'billing', label: 'Billing', icon: CreditCard },
                             { value: 'users', label: 'Usuários', icon: Users },
                             { value: 'integrations', label: 'Integrações', icon: Plug },
                             { value: 'conversations', label: 'Conversas', icon: MessageSquare },
@@ -1139,6 +1188,71 @@ const AdminTenantDetailPage: React.FC = () => {
                                     <Button size="sm" onClick={handleSaveC2s} disabled={savingC2s}>
                                         {savingC2s ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
                                         Salvar C2S
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Canal Pro (Grupo OLX / ZAP / VivaReal) Config */}
+                        <div className="bg-card border border-border rounded-xl p-5">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-sm font-semibold text-foreground">Canal Pro (Grupo OLX)</h3>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${canalProSecret ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'}`}>
+                                    {canalProSecret ? (
+                                        <><CheckCircle2 className="h-3 w-3" /> Configurado</>
+                                    ) : (
+                                        <><XCircle className="h-3 w-3" /> Não configurado</>
+                                    )}
+                                </span>
+                            </div>
+                            <div className="space-y-3">
+                                <div>
+                                    <Label className="text-xs text-muted-foreground">SECRET_KEY</Label>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5 mb-1">
+                                        Chave de autenticação Basic Auth enviada pelo Canal Pro (formato: vivareal:SECRET_KEY)
+                                    </p>
+                                    <div className="relative mt-1">
+                                        <Input
+                                            type={showCanalProKey ? 'text' : 'password'}
+                                            value={canalProSecret}
+                                            onChange={(e) => setCanalProSecret(e.target.value)}
+                                            placeholder="SECRET_KEY do Canal Pro"
+                                            className="pr-10"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowCanalProKey(!showCanalProKey)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            {showCanalProKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <Label className="text-xs text-muted-foreground">URL do Webhook (copie e cole no Canal Pro)</Label>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <Input
+                                            readOnly
+                                            value={`https://vnysbpnggnplvgkfokin.supabase.co/functions/v1/portal-leads-webhook?tenant=${tenant?.id || ''}`}
+                                            className="text-xs bg-muted"
+                                        />
+                                        <Button
+                                            size="icon"
+                                            variant="outline"
+                                            className="shrink-0 h-9 w-9"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(`https://vnysbpnggnplvgkfokin.supabase.co/functions/v1/portal-leads-webhook?tenant=${tenant?.id || ''}`);
+                                                toast({ title: 'URL copiada!' });
+                                            }}
+                                        >
+                                            <ExternalLink className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <Button size="sm" onClick={handleSaveCanalPro} disabled={savingCanalPro}>
+                                        {savingCanalPro ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                                        Salvar Canal Pro
                                     </Button>
                                 </div>
                             </div>

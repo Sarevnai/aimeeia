@@ -49,7 +49,6 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
             label: 'Clientes',
             items: [
                 { label: 'Tenants', icon: Building2, path: '/admin/tenants' },
-                { label: 'Billing', icon: CreditCard, path: '/admin/billing' },
             ],
         },
         {
@@ -64,7 +63,6 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
                 { label: 'Agentes IA', icon: Bot, path: '/admin/agents' },
                 { label: 'Módulos', icon: Brain, path: '/admin/modulos' },
                 { label: 'AI Lab', icon: FlaskConical, path: '/admin/lab' },
-                { label: 'Planos', icon: ScrollText, path: '/admin/billing' },
             ],
         },
         {
@@ -72,7 +70,6 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ collapsed, onToggle }) => {
             items: [
                 { label: 'Administradores', icon: ShieldCheck, path: '/admin/users' },
                 { label: 'Métricas', icon: TrendingUp, path: '/admin/metrics' },
-                { label: 'Logs de Erro', icon: FileText, path: '/admin/metrics' },
             ],
         },
     ];

@@ -40,7 +40,6 @@ import AdminDashboardPage from "@/pages/admin/AdminDashboardPage";
 import AdminTenantsPage from "@/pages/admin/AdminTenantsPage";
 import AdminTenantDetailPage from "@/pages/admin/AdminTenantDetailPage";
 import AdminBillingPage from "@/pages/admin/AdminBillingPage";
-import AdminAgentPage from "@/pages/admin/AdminAgentPage";
 import AdminMetricsPage from "@/pages/admin/AdminMetricsPage";
 import AdminCampaignsPage from "@/pages/admin/AdminCampaignsPage";
 import AgentsOverviewPage from "@/pages/admin/AgentsOverviewPage";

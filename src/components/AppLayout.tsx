@@ -67,19 +67,43 @@ const AppLayout: React.FC = () => {
   if (profile && !isPathAllowed(location.pathname, profile)) {
     const allowed = getAllowedPaths(profile);
     if (allowed.length === 0) {
+      const handleSelectDept = async (dept: string) => {
+        if (!profile?.id) return;
+        await supabase.from('profiles').update({ department_code: dept }).eq('id', profile.id);
+        refreshProfile();
+      };
+
       return (
         <div className="flex min-h-screen items-center justify-center flex-col bg-background p-6 text-center">
-          <h2 className="text-xl font-bold font-display text-foreground mb-2">Acesso não configurado</h2>
+          <h2 className="text-xl font-bold font-display text-foreground mb-2">Selecione seu setor</h2>
           <p className="text-muted-foreground text-sm max-w-sm mb-6">
-            Seu usuário ainda não foi classificado em um setor. Peça ao administrador da sua imobiliária para definir seu setor (Vendas, Locação, Administrativo ou Remarketing).
+            Para continuar, escolha o setor em que você atua:
           </p>
+          <div className="grid grid-cols-2 gap-3 max-w-md w-full mb-6">
+            {[
+              { code: 'vendas', label: 'Vendas', icon: '🏠', desc: 'Atendimento de leads de compra' },
+              { code: 'locacao', label: 'Locação', icon: '🔑', desc: 'Atendimento de leads de aluguel' },
+              { code: 'administrativo', label: 'Administrativo', icon: '📋', desc: 'Tickets, contratos, suporte' },
+              { code: 'remarketing', label: 'Remarketing', icon: '💎', desc: 'Reengajamento de leads' },
+            ].map(dept => (
+              <button
+                key={dept.code}
+                onClick={() => handleSelectDept(dept.code)}
+                className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border hover:border-accent hover:bg-accent/5 transition-colors"
+              >
+                <span className="text-2xl">{dept.icon}</span>
+                <span className="text-sm font-semibold text-foreground">{dept.label}</span>
+                <span className="text-[10px] text-muted-foreground">{dept.desc}</span>
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => {
               supabase.auth.signOut().then(() => window.location.href = '/auth');
             }}
-            className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm hover:bg-primary/90"
+            className="text-xs text-muted-foreground hover:text-foreground underline"
           >
-            Voltar para o Login
+            Sair da conta
           </button>
         </div>
       );

@@ -119,11 +119,19 @@ const renderCustomPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, perc
   );
 };
 
+/* ─── Operator Dashboard ─── */
+import OperatorDashboard from '@/components/dashboard/OperatorDashboard';
+
 /* ─── Main ─── */
 
 const DashboardPage: React.FC = () => {
   const { profile, loading: authLoading } = useAuth();
   const { tenantId } = useTenant();
+
+  // Operators get a dedicated workspace dashboard
+  if (!authLoading && profile?.role === 'operator') {
+    return <OperatorDashboard />;
+  }
 
   // Month filter
   const now = new Date();

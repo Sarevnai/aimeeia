@@ -24,12 +24,6 @@ import {
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import type { Tables } from '@/integrations/supabase/types';
 
-// Todos os 4 status C2S agora aceitam drag. Novo ↔ Em negociação é direto;
-// Arquivado/Negócio fechado abrem dialog pedindo motivo/valor antes de chamar
-// a API (endpoints update_status e done_deal).
-const C2S_DIRECT_TRANSITIONS = new Set(['Novo', 'Em negociação']);
-const C2S_DIALOG_TRANSITIONS = new Set(['Arquivado', 'Negócio fechado']);
-
 type Stage = Tables<'conversation_stages'>;
 type Conversation = Tables<'conversations'>;
 type Contact = Tables<'contacts'>;
@@ -49,16 +43,63 @@ interface CrmCard {
   crmSource: string | null;
   crmBrokerNotes: string | null;
   brokerName: string | null;
+  price: number | null;
   updatedAt: string | null;
 }
 
-/* ─── C2S status columns (ordem + cor) ─── */
-const C2S_STATUS_COLUMNS: { key: string; label: string; color: string; hint?: string }[] = [
-  { key: 'Novo', label: 'Novo', color: '#3b82f6' },
-  { key: 'Em negociação', label: 'Em negociação', color: '#eab308' },
-  { key: 'Negócio fechado', label: 'Negócio fechado', color: '#22c55e' },
-  { key: 'Arquivado', label: 'Arquivado', color: '#94a3b8', hint: 'Disponível pra follow-up' },
+/* ─── C2S pipeline columns (espelha o funil do C2S: 5 principais + 2 terminais) ─── */
+interface PipelineColumn {
+  key: string;
+  label: string;
+  color: string;           // accent/bolinha
+  bgClass: string;         // pastel de fundo da coluna
+  borderClass: string;
+  headerBgClass: string;   // cabeçalho pastel mais forte (como no C2S)
+  terminal?: boolean;      // colunas finais (fechado/arquivado) com peso visual menor
+  dragTarget: 'direct' | 'dialog' | 'blocked';
+  updatePayloadStatus?: 'Novo' | 'Em negociação' | 'Arquivado' | 'Negócio fechado';
+  hint?: string;
+}
+
+const PIPELINE_COLUMNS: PipelineColumn[] = [
+  { key: 'Novos',            label: 'Novos',            color: '#f43f5e', bgClass: 'bg-rose-50/40',    borderClass: 'border-rose-200',    headerBgClass: 'bg-rose-100/80 dark:bg-rose-500/15',      dragTarget: 'direct', updatePayloadStatus: 'Novo' },
+  { key: 'Em atendimento',   label: 'Em atendimento',   color: '#f97316', bgClass: 'bg-orange-50/40',  borderClass: 'border-orange-200',  headerBgClass: 'bg-orange-100/80 dark:bg-orange-500/15',  dragTarget: 'direct', updatePayloadStatus: 'Em negociação' },
+  { key: 'Visita agendada',  label: 'Visita agendada',  color: '#eab308', bgClass: 'bg-amber-50/40',   borderClass: 'border-amber-200',   headerBgClass: 'bg-amber-100/80 dark:bg-amber-500/15',    dragTarget: 'blocked', hint: 'Agende a visita no C2S' },
+  { key: 'Visita realizada', label: 'Visita realizada', color: '#84cc16', bgClass: 'bg-lime-50/40',    borderClass: 'border-lime-200',    headerBgClass: 'bg-lime-100/80 dark:bg-lime-500/15',      dragTarget: 'blocked', hint: 'Marque a visita como feita no C2S' },
+  { key: 'Proposta criada',  label: 'Proposta criada',  color: '#22c55e', bgClass: 'bg-emerald-50/40', borderClass: 'border-emerald-200', headerBgClass: 'bg-emerald-100/80 dark:bg-emerald-500/15',dragTarget: 'blocked', hint: 'Crie a proposta no C2S' },
+  { key: 'Negócio fechado',  label: 'Negócio fechado',  color: '#14b8a6', bgClass: 'bg-teal-50/50',    borderClass: 'border-teal-300',    headerBgClass: 'bg-teal-100/90 dark:bg-teal-500/15',      terminal: true, dragTarget: 'dialog', updatePayloadStatus: 'Negócio fechado' },
+  { key: 'Arquivado',        label: 'Arquivado',        color: '#94a3b8', bgClass: 'bg-muted/30',      borderClass: 'border-border',      headerBgClass: 'bg-muted/60',                             terminal: true, dragTarget: 'dialog', updatePayloadStatus: 'Arquivado', hint: 'Disponível pra follow-up' },
 ];
+
+/* Classifica cada contato na coluna correta combinando crm_status + crm_funnel_status */
+function classifyCard(card: { crmStatus: string | null; crmFunnelStatus: string | null }): string {
+  if (card.crmStatus === 'Novo') return 'Novos';
+  if (card.crmStatus === 'Arquivado') return 'Arquivado';
+  if (card.crmStatus === 'Negócio fechado') return 'Negócio fechado';
+  // crm_status === 'Em negociação' ou fallback
+  const f = card.crmFunnelStatus;
+  if (f === 'Scheduled visit') return 'Visita agendada';
+  if (f === 'Done visit') return 'Visita realizada';
+  if (f === 'Created offer') return 'Proposta criada';
+  return 'Em atendimento';
+}
+
+/* Formatação R$ estilo C2S (sem centavos em valores altos). Aceita number|string|null. */
+function formatBRL(v: number | string | null | undefined): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'string' ? parseFloat(v.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : Number(v);
+  if (!isFinite(n) || n === 0) return null;
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+}
+
+/* Dias desde última atualização — pra tag "Não interagido" */
+function daysSince(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
+const STALE_DAYS_THRESHOLD = 7;
 
 /* ─── Main ─── */
 const PipelinePage: React.FC = () => {
@@ -127,7 +168,7 @@ const PipelinePage: React.FC = () => {
 
     let q = supabase
       .from('contacts')
-      .select('id, name, phone, crm_status, crm_funnel_status, crm_property_ref, crm_neighborhood, crm_source, crm_broker_notes, updated_at, broker:brokers!assigned_broker_id(full_name)')
+      .select('id, name, phone, crm_status, crm_funnel_status, crm_property_ref, crm_neighborhood, crm_source, crm_broker_notes, crm_price_hint, updated_at, broker:brokers!assigned_broker_id(full_name)')
       .eq('tenant_id', tenantId)
       .not('crm_status', 'is', null)
       .order('updated_at', { ascending: false })
@@ -138,11 +179,13 @@ const PipelinePage: React.FC = () => {
 
     const { data } = await q;
     const byStatus: Record<string, CrmCard[]> = {};
-    C2S_STATUS_COLUMNS.forEach((c) => { byStatus[c.key] = []; });
+    PIPELINE_COLUMNS.forEach((c) => { byStatus[c.key] = []; });
     (data || []).forEach((c: any) => {
-      const s = c.crm_status as string;
-      if (!byStatus[s]) byStatus[s] = [];
-      byStatus[s].push({
+      const priceRaw = c.crm_price_hint;
+      const priceNum = priceRaw !== null && priceRaw !== undefined && priceRaw !== ''
+        ? Number(String(priceRaw).replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
+        : NaN;
+      const card: CrmCard = {
         id: c.id,
         name: c.name,
         phone: c.phone,
@@ -153,8 +196,12 @@ const PipelinePage: React.FC = () => {
         crmSource: c.crm_source,
         crmBrokerNotes: c.crm_broker_notes,
         brokerName: c.broker?.full_name ?? null,
+        price: isFinite(priceNum) && priceNum > 0 ? priceNum : null,
         updatedAt: c.updated_at,
-      });
+      };
+      const colKey = classifyCard(card);
+      if (!byStatus[colKey]) byStatus[colKey] = [];
+      byStatus[colKey].push(card);
     });
     setCrmCards(byStatus);
     setCrmLastSync(new Date());
@@ -296,9 +343,16 @@ const PipelinePage: React.FC = () => {
     movedCard: CrmCard,
     oldStatus: string,
     newStatus: string,
-    extraBody: Record<string, unknown> = {},
+    extraBody: Record<string, unknown> & { new_status_override?: string } = {},
   ) => {
-    const updatedCard = { ...movedCard, crmStatus: newStatus };
+    const { new_status_override, ...rest } = extraBody;
+    // Coluna → status C2S real: 'Novos' → 'Novo', 'Em atendimento' → 'Em negociação', terminais iguais.
+    const c2sStatus = new_status_override
+      || (newStatus === 'Novos' ? 'Novo'
+        : newStatus === 'Em atendimento' ? 'Em negociação'
+        : newStatus);
+
+    const updatedCard = { ...movedCard, crmStatus: c2sStatus };
     setCrmCards((prev) => ({
       ...prev,
       [oldStatus]: (prev[oldStatus] || []).filter((c) => c.id !== contactId),
@@ -306,7 +360,7 @@ const PipelinePage: React.FC = () => {
     }));
 
     const { data, error } = await supabase.functions.invoke('c2s-update-lead-status', {
-      body: { tenant_id: tenantId, contact_id: contactId, new_status: newStatus, ...extraBody },
+      body: { tenant_id: tenantId, contact_id: contactId, new_status: c2sStatus, ...rest },
     });
 
     if (error || !(data as any)?.success) {
@@ -337,40 +391,43 @@ const PipelinePage: React.FC = () => {
     if (!over || !tenantId) return;
 
     const contactId = active.id as string;
-    const newStatus = over.id as string;
+    const targetColumnKey = over.id as string;
 
-    let oldStatus: string | null = null;
+    let oldColumnKey: string | null = null;
     let movedCard: CrmCard | null = null;
-    for (const [status, list] of Object.entries(crmCards)) {
+    for (const [colKey, list] of Object.entries(crmCards)) {
       const found = list.find((c) => c.id === contactId);
-      if (found) { oldStatus = status; movedCard = found; break; }
+      if (found) { oldColumnKey = colKey; movedCard = found; break; }
     }
-    if (!oldStatus || !movedCard || oldStatus === newStatus) return;
+    if (!oldColumnKey || !movedCard || oldColumnKey === targetColumnKey) return;
 
-    if (C2S_DIALOG_TRANSITIONS.has(newStatus)) {
-      // Abre dialog — só aplica o move após confirmar.
+    const targetCol = PIPELINE_COLUMNS.find((c) => c.key === targetColumnKey);
+    if (!targetCol) return;
+
+    if (targetCol.dragTarget === 'blocked') {
+      toast({
+        title: 'Transição não automatizável',
+        description: targetCol.hint || `"${targetCol.label}" precisa de ação específica no C2S (criar atividade, agendar visita, etc).`,
+      });
+      return;
+    }
+
+    if (targetCol.dragTarget === 'dialog' && (targetColumnKey === 'Arquivado' || targetColumnKey === 'Negócio fechado')) {
       setArchiveReason('');
       setDealValue('');
       setDealInfo('');
       setPendingTransition({
         contactId,
         card: movedCard,
-        oldStatus,
-        newStatus: newStatus as 'Arquivado' | 'Negócio fechado',
+        oldStatus: oldColumnKey,
+        newStatus: targetColumnKey,
       });
       return;
     }
 
-    if (!C2S_DIRECT_TRANSITIONS.has(newStatus) || !C2S_DIRECT_TRANSITIONS.has(oldStatus)) {
-      toast({
-        title: 'Transição não suportada',
-        description: `"${oldStatus}" → "${newStatus}" ainda não mapeado. Faça essa mudança no C2S.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    await applyCrmMove(contactId, movedCard, oldStatus, newStatus);
+    // direct
+    if (!targetCol.updatePayloadStatus) return;
+    await applyCrmMove(contactId, movedCard, oldColumnKey, targetColumnKey, { new_status_override: targetCol.updatePayloadStatus });
   };
 
   const confirmPendingTransition = async () => {
@@ -579,7 +636,7 @@ const CrmPipeline: React.FC<{
     <ScrollArea className="flex-1">
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex gap-4 p-4 min-w-max h-full">
-          {C2S_STATUS_COLUMNS.map((col) => {
+          {PIPELINE_COLUMNS.map((col) => {
             const list = cards[col.key] || [];
             return (
               <CrmColumn
@@ -604,30 +661,43 @@ const CrmPipeline: React.FC<{
 };
 
 const CrmColumn: React.FC<{
-  col: typeof C2S_STATUS_COLUMNS[number];
+  col: PipelineColumn;
   list: CrmCard[];
   onCardClick: (id: string) => void;
   onFollowUp: () => void;
 }> = ({ col, list, onCardClick, onFollowUp }) => {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
   const isArchived = col.key === 'Arquivado';
+  const totalValue = list.reduce((sum, c) => sum + (c.price || 0), 0);
+  const totalValueLabel = totalValue > 0 ? formatBRL(totalValue) : null;
+  const width = col.terminal ? 'w-72' : 'w-80';
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        'flex flex-col w-80 shrink-0 rounded-lg border bg-muted/30 transition-colors',
-        isOver && 'border-accent bg-accent/5',
-        !isOver && 'border-border',
+        'flex flex-col shrink-0 rounded-lg border transition-colors',
+        width,
+        col.borderClass,
+        col.bgClass,
+        isOver && col.dragTarget === 'blocked' && 'ring-2 ring-destructive/40',
+        isOver && col.dragTarget !== 'blocked' && 'ring-2 ring-accent/60',
       )}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border min-w-0">
-        <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
-        <span className="text-sm font-semibold text-foreground truncate min-w-0">{col.label}</span>
-        <Badge variant="secondary" className="text-[10px] shrink-0">{list.length}</Badge>
+      {/* Header pastel estilo C2S */}
+      <div className={cn('px-3 py-2.5 rounded-t-lg border-b', col.borderClass, col.headerBgClass)}>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
+          <span className="text-sm font-semibold text-foreground truncate min-w-0">{col.label}</span>
+          <Badge variant="secondary" className="text-[10px] shrink-0 bg-card/80">{list.length}</Badge>
+        </div>
+        {totalValueLabel && (
+          <p className="mt-1 text-[13px] font-bold text-foreground font-display">{totalValueLabel}</p>
+        )}
       </div>
+
       {(col.hint || isArchived) && (
-        <div className="px-3 py-1.5 bg-muted/50 border-b border-border/60 flex items-center justify-between gap-2 min-w-0">
+        <div className="px-3 py-1.5 bg-muted/40 border-b border-border/60 flex items-center justify-between gap-2 min-w-0">
           {col.hint ? (
             <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 min-w-0 truncate">
               <Sparkles className="h-3 w-3 shrink-0" />
@@ -680,11 +750,21 @@ const CrmCardRow: React.FC<{ card: CrmCard; onClick: () => void }> = ({ card, on
     const days = Math.floor(h / 24);
     return `${days}d`;
   };
+  const days = daysSince(card.updatedAt);
+  const stale = days !== null && days >= STALE_DAYS_THRESHOLD;
+  const priceLabel = card.price ? formatBRL(card.price) : null;
   return (
-    <Card className="p-3 cursor-pointer hover:shadow-elevated transition-shadow space-y-1.5" onClick={onClick}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-foreground truncate">{card.name || card.phone}</span>
-        <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(card.updatedAt)}</span>
+    <Card className="p-3 cursor-pointer hover:shadow-elevated transition-shadow space-y-1.5 bg-card" onClick={onClick}>
+      {stale && (
+        <div className="inline-flex items-center gap-1 rounded-md bg-destructive/10 text-destructive text-[10px] font-semibold px-1.5 py-0.5 -mt-1">
+          Não interagido · {days}d
+        </div>
+      )}
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-sm font-semibold text-foreground truncate">{card.name || card.phone}</span>
+        {priceLabel && (
+          <span className="text-[12px] font-bold text-foreground font-display shrink-0">{priceLabel}</span>
+        )}
       </div>
       {card.crmPropertyRef && (
         <div className="flex items-center gap-1.5 min-w-0">
@@ -693,19 +773,22 @@ const CrmCardRow: React.FC<{ card: CrmCard; onClick: () => void }> = ({ card, on
         </div>
       )}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {card.crmFunnelStatus && (
-          <Badge variant="outline" className="text-[10px] font-normal">{card.crmFunnelStatus}</Badge>
-        )}
         {card.crmSource && (
           <Badge variant="secondary" className="text-[10px] font-normal">{card.crmSource}</Badge>
         )}
+        {card.crmNeighborhood && (
+          <Badge variant="outline" className="text-[10px] font-normal">{card.crmNeighborhood}</Badge>
+        )}
       </div>
-      {card.brokerName && (
-        <div className="flex items-center gap-1.5 pt-1 border-t border-border/40">
-          <UserCheck className="h-3 w-3 text-accent shrink-0" />
-          <span className="text-[11px] font-medium text-foreground truncate">{card.brokerName}</span>
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40">
+        {card.brokerName ? (
+          <div className="flex items-center gap-1.5 min-w-0">
+            <UserCheck className="h-3 w-3 text-accent shrink-0" />
+            <span className="text-[11px] font-medium text-foreground truncate">{card.brokerName}</span>
+          </div>
+        ) : <span />}
+        <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(card.updatedAt)}</span>
+      </div>
     </Card>
   );
 };

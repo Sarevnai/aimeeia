@@ -20,6 +20,7 @@ import MinhaAimeePage from "@/pages/MinhaAimeePage";
 import CampaignsPage from "@/pages/CampaignsPage";
 import CampaignDetailPage from "@/pages/CampaignDetailPage";
 import ReportsPage from "@/pages/ReportsPage";
+import C2SAnalyticsPage from "@/pages/C2SAnalyticsPage";
 import DevelopmentsPage from "@/pages/DevelopmentsPage";
 import DevelopmentFormPage from "@/pages/DevelopmentFormPage";
 import AcessosPage from "@/pages/AcessosPage";
@@ -83,6 +84,7 @@ const App = () => (
                   <Route path="/campanhas" element={<CampaignsPage />} />
                   <Route path="/campanhas/:id" element={<CampaignDetailPage />} />
                   <Route path="/relatorios" element={<ReportsPage />} />
+                  <Route path="/dashboard-c2s" element={<C2SAnalyticsPage />} />
                   <Route path="/empreendimentos" element={<DevelopmentsPage />} />
                   <Route path="/empreendimentos/novo" element={<DevelopmentFormPage />} />
                   <Route path="/empreendimentos/:id/editar" element={<DevelopmentFormPage />} />

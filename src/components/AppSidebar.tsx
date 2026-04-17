@@ -84,6 +84,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
       items: [
         { label: 'Leads', icon: Users, path: '/leads' },
         { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
+        { label: 'Dashboard C2S', icon: BarChart3, path: '/dashboard-c2s' },
         { label: 'Captação', icon: Radar, path: '/captacao' },
         { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
         { label: 'Chamados', icon: Ticket, path: '/chamados', badge: activeTicketCount },

@@ -10,23 +10,23 @@ export interface AccessProfile {
 }
 
 export const ROLE_PATHS: Record<string, string[]> = {
-  super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios', '/chamados',
+  super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao',
     '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia', '/admin'],
-  admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/captacao', '/relatorios', '/chamados',
+  admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao',
     '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia'],
-  operator: ['/inbox', '/chat', '/leads', '/pipeline'],
-  viewer: ['/', '/relatorios', '/guia'],
+  operator: ['/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
+  viewer: ['/', '/relatorios', '/dashboard-c2s', '/guia'],
 };
 
 // Department-specific paths for operators (overrides ROLE_PATHS.operator when set).
 // Vendas/locacao limited to Leads, Pipeline, Conversas per product decision.
 export const DEPT_PATHS: Record<string, string[]> = {
-  administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/financeiro', '/guia'],
-  vendas: ['/inbox', '/chat', '/leads', '/pipeline'],
-  locacao: ['/inbox', '/chat', '/leads', '/pipeline'],
-  remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/campanhas', '/empreendimentos', '/guia'],
+  administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/dashboard-c2s', '/financeiro', '/guia'],
+  vendas: ['/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
+  locacao: ['/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
+  remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/campanhas', '/empreendimentos', '/guia'],
 };
 
 export function getAllowedPaths(profile: AccessProfile | null | undefined): string[] {

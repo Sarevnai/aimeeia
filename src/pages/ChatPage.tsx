@@ -109,6 +109,7 @@ const ChatPage: React.FC = () => {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [senderNames, setSenderNames] = useState<Record<string, string>>({});
   const [sendingToWA, setSendingToWA] = useState(false);
+  const [showWADialog, setShowWADialog] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -441,47 +442,48 @@ const ChatPage: React.FC = () => {
     setShowTransferModal(true);
   };
 
-  const handleSendToBrokerWA = async () => {
+  // Build pre-made messages for the WhatsApp redirect dialog
+  const waMessages = useMemo(() => {
+    const contactName = contact?.name || 'cliente';
+    const brokerName = profile?.full_name || 'corretor';
+    const qualParts = [
+      leadQual?.detected_neighborhood && `região ${leadQual.detected_neighborhood}`,
+      leadQual?.detected_property_type,
+      leadQual?.detected_bedrooms && `${leadQual.detected_bedrooms} quartos`,
+      leadQual?.detected_budget_max && `orçamento até R$ ${Number(leadQual.detected_budget_max).toLocaleString('pt-BR')}`,
+    ].filter(Boolean).join(', ');
+
+    return [
+      {
+        label: '👋 Apresentação inicial',
+        text: `Olá ${contactName}! Sou ${brokerName}, corretor da Smolka Imóveis. A Aimee me passou seu atendimento pra que eu possa te ajudar pessoalmente. Como posso te ajudar?`,
+      },
+      {
+        label: '🏠 Continuando a busca',
+        text: `Olá ${contactName}! Aqui é ${brokerName} da Smolka Imóveis. Vi que você está buscando ${qualParts || 'imóvel'}. Vou te ajudar a encontrar a melhor opção! Posso te ligar ou prefere continuar por aqui?`,
+      },
+      {
+        label: '📅 Agendar visita',
+        text: `Olá ${contactName}! Sou ${brokerName} da Smolka. A Aimee me informou seu interesse e separei algumas opções pra você. Qual o melhor dia e horário pra visitarmos?`,
+      },
+      {
+        label: '🔄 Retomando contato',
+        text: `Olá ${contactName}! Aqui é ${brokerName} da Smolka Imóveis. Estou retomando seu atendimento pra dar sequência na sua busca. Tudo bem por aí? Podemos conversar agora?`,
+      },
+    ];
+  }, [contact?.name, profile?.full_name, leadQual]);
+
+  const handleOpenWALink = async (messageText: string) => {
     if (!conversation || !tenantId || !user) return;
     setSendingToWA(true);
 
     try {
-      // Find the assigned broker for this conversation
-      const brokerId = conversation.assigned_broker_id;
-      if (!brokerId) {
-        alert('Esta conversa não tem corretor atribuído. Atribua um corretor primeiro.');
-        setSendingToWA(false);
-        return;
-      }
+      // Build wa.me link with the LEAD's phone number
+      const leadPhone = conversation.phone_number.replace(/\D/g, '');
+      const encodedMsg = encodeURIComponent(messageText);
+      const waUrl = `https://wa.me/${leadPhone}?text=${encodedMsg}`;
 
-      const { data: broker } = await supabase
-        .from('brokers')
-        .select('id, full_name, phone')
-        .eq('id', brokerId)
-        .single();
-
-      if (!broker?.phone) {
-        alert('O corretor atribuído não tem telefone cadastrado.');
-        setSendingToWA(false);
-        return;
-      }
-
-      const brokerName = broker.full_name || 'Corretor';
-      const contactName = contact?.name || 'Lead';
-      const clientPhone = conversation.phone_number;
-
-      // Build qualification summary for broker context
-      const qualSummary = leadQual
-        ? [
-            leadQual.detected_interest && `Interesse: ${leadQual.detected_interest}`,
-            leadQual.detected_neighborhood && `Bairro: ${leadQual.detected_neighborhood}`,
-            leadQual.detected_budget_max && `Orçamento: R$ ${Number(leadQual.detected_budget_max).toLocaleString('pt-BR')}`,
-            leadQual.detected_property_type && `Tipo: ${leadQual.detected_property_type}`,
-            leadQual.detected_bedrooms && `Quartos: ${leadQual.detected_bedrooms}`,
-          ].filter(Boolean).join(' | ')
-        : 'Sem qualificação coletada ainda';
-
-      // 1. Pause AI and assign operator
+      // Pause AI so it doesn't interfere
       await supabase
         .from('conversation_states')
         .update({
@@ -489,41 +491,16 @@ const ChatPage: React.FC = () => {
           operator_id: user.id,
           operator_takeover_at: new Date().toISOString(),
         })
-        .eq('phone_number', clientPhone)
+        .eq('phone_number', conversation.phone_number)
         .eq('tenant_id', tenantId);
 
-      // 2. Send message to broker's WhatsApp with lead context
-      const brokerMsg = `Olá ${brokerName}! O lead *${contactName}* (${clientPhone}) foi transferido pra você.\n\n📋 *Contexto:*\n${qualSummary}\n\nA Aimee pausou o atendimento automático. Continue o atendimento diretamente com o cliente.`;
-
-      await supabase.functions.invoke('send-wa-message', {
-        body: {
-          tenant_id: tenantId,
-          phone_number: broker.phone,
-          message: brokerMsg,
-          sender_type: 'system',
-        },
-      });
-
-      // 3. Send message to client informing the transfer
-      const clientMsg = `${contactName}, vou te conectar com ${brokerName}, nosso especialista. Ele vai continuar seu atendimento pelo WhatsApp dele. Foi um prazer te atender!`;
-
-      await supabase.functions.invoke('send-wa-message', {
-        body: {
-          tenant_id: tenantId,
-          phone_number: clientPhone,
-          message: clientMsg,
-          conversation_id: id,
-          department_code: conversation.department_code,
-          sender_type: 'system',
-        },
-      });
-
-      // 4. Log system events
+      // Log the action
+      const myName = profile?.full_name || 'Operador';
       await supabase.from('messages').insert({
         tenant_id: tenantId,
         conversation_id: id,
         direction: 'outbound',
-        body: `Conversa enviada para o WhatsApp do corretor ${brokerName}`,
+        body: `${myName} continuou o atendimento pelo WhatsApp pessoal`,
         sender_type: 'system',
         event_type: 'sent_to_broker_wa',
         sender_id: user.id,
@@ -534,15 +511,18 @@ const ChatPage: React.FC = () => {
         conversation_id: id,
         event_type: 'operator_joined',
         actor_id: user.id,
-        metadata: { action: 'sent_to_broker_wa', broker_id: brokerId, broker_phone: broker.phone },
+        metadata: { action: 'sent_to_personal_wa', lead_phone: leadPhone },
       });
 
       setConvState((prev) =>
         prev ? { ...prev, is_ai_active: false, operator_id: user.id, operator_takeover_at: new Date().toISOString() } : prev
       );
+
+      // Open WhatsApp link in new tab
+      window.open(waUrl, '_blank');
+      setShowWADialog(false);
     } catch (error) {
-      console.error('Error sending to broker WA:', error);
-      alert('Erro ao enviar para o WhatsApp do corretor. Tente novamente.');
+      console.error('Error preparing WA redirect:', error);
     } finally {
       setSendingToWA(false);
     }
@@ -654,23 +634,16 @@ const ChatPage: React.FC = () => {
                 </Button>
               </>
             )}
-            {conversation?.assigned_broker_id && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSendToBrokerWA}
-                disabled={sendingToWA}
-                className="text-xs"
-                title="Enviar para o WhatsApp do corretor"
-              >
-                {sendingToWA ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                ) : (
-                  <MessageSquare className="h-3.5 w-3.5 mr-1" />
-                )}
-                Enviar pro WA
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowWADialog(true)}
+              className="text-xs"
+              title="Continuar atendimento no WhatsApp pessoal"
+            >
+              <Phone className="h-3.5 w-3.5 mr-1" />
+              WhatsApp
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setC2sDialogOpen(true)} className="text-xs" title="Encaminhar ao C2S">
               <ExternalLink className="h-3.5 w-3.5 mr-1" /> C2S
             </Button>
@@ -990,6 +963,40 @@ const ChatPage: React.FC = () => {
           contactName={contact.name || undefined}
         />
       )}
+
+      {/* WhatsApp Redirect Dialog */}
+      <Dialog open={showWADialog} onOpenChange={setShowWADialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Phone className="h-5 w-5 text-green-500" />
+              Continuar no WhatsApp
+            </DialogTitle>
+            <DialogDescription>
+              Escolha uma mensagem pronta para abrir o WhatsApp com o lead {contact?.name || ''} ({conversation?.phone_number}).
+              A IA será pausada automaticamente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 mt-2 max-h-[400px] overflow-y-auto">
+            {waMessages.map((msg, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleOpenWALink(msg.text)}
+                disabled={sendingToWA}
+                className="flex flex-col gap-1 w-full rounded-lg px-4 py-3 text-left hover:bg-accent/50 transition-colors border border-border"
+              >
+                <p className="text-sm font-medium text-foreground">{msg.label}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2">{msg.text}</p>
+              </button>
+            ))}
+          </div>
+          <div className="pt-2 border-t">
+            <p className="text-[10px] text-muted-foreground text-center">
+              Ao clicar, o WhatsApp abre com a mensagem pronta. A Aimee pausa o atendimento automático.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showTransferModal} onOpenChange={setShowTransferModal}>
         <DialogContent className="sm:max-w-md">

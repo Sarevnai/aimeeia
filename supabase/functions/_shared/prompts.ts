@@ -9,7 +9,7 @@ import { formatCurrency } from './utils.ts';
 
 // ========== CONTEXT SUMMARY (anti-loop) ==========
 
-export function buildContextSummary(qualificationData: QualificationData | null, contactName?: string | null, phoneNumber?: string | null): string {
+export function buildContextSummary(qualificationData: QualificationData | null, contactName?: string | null, phoneNumber?: string | null, qualChangedThisTurn?: boolean): string {
   if (!qualificationData) return '';
 
   const collected: string[] = [];
@@ -43,14 +43,33 @@ export function buildContextSummary(qualificationData: QualificationData | null,
     ? `\n⚠️ DADOS QUE AINDA FALTAM (pergunte APENAS estes): ${missing.join(', ')}`
     : '\n✅ QUALIFICAÇÃO COMPLETA — pode buscar imóveis quando o cliente pedir.';
 
+  // Bug #1 fix: inject qualification as structured JSON to prevent hallucination
+  const qualJSON = JSON.stringify({
+    nome: contactName || null,
+    telefone: phoneNumber || null,
+    interesse: qualificationData.detected_interest || null,
+    tipo_imovel: qualificationData.detected_property_type || null,
+    bairro: qualificationData.detected_neighborhood || null,
+    quartos: qualificationData.detected_bedrooms || null,
+    orcamento_maximo: qualificationData.detected_budget_max || null,
+    prazo: qualificationData.detected_timeline || null,
+  }, null, 2);
+
   return `\n<lead_data>
 📋 DADOS JÁ COLETADOS — NUNCA re-pergunte o que já está aqui:
 ${collected.join('\n')}
 ${missingText}
 
-Regras:
-- Se "Objetivo" = "venda", o cliente quer COMPRAR.
-- Se "Objetivo" = "venda e locação", o cliente está aberto a AMBAS as opções — busque nas duas finalidades.
+<qualification_json>
+${qualJSON}
+</qualification_json>
+
+⛔ REGRAS OBRIGATÓRIAS:
+- NUNCA invente, assuma ou adivinhe dados do cliente que NÃO estão acima.
+- Se um campo é null, você NÃO SABE essa informação — pergunte antes de usar.
+- Ao confirmar o perfil do cliente, use EXATAMENTE os valores acima, sem modificar.${qualChangedThisTurn ? '\n- ⚠️ O PERFIL DO CLIENTE MUDOU NESTE TURNO. Se já buscou imóveis antes, FAÇA UMA NOVA BUSCA com os dados atualizados ANTES de apresentar qualquer imóvel. NÃO use resultados anteriores.' : ''}
+- Se "interesse" = "venda", o cliente quer COMPRAR.
+- Se "interesse" = "ambos", busque nas duas finalidades.
 - Use esses dados ao buscar imóveis e no handoff para o CRM.
 - Avance a conversa: pergunte APENAS o que falta, não repita perguntas já respondidas.
 </lead_data>\n`;

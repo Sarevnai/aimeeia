@@ -249,7 +249,7 @@ ${handoffModule.prompt_instructions}
 
   // ===== DYNAMIC CONTEXT =====
 
-  const contextSummary = buildContextSummary(qualData, contactName);
+  const contextSummary = buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (contextSummary) sections.push(contextSummary);
   const regionKnowledge = generateRegionKnowledge(regions);
   if (regionKnowledge) sections.push(regionKnowledge);
@@ -518,7 +518,7 @@ Formato das respostas:
 </exclusions>`);
 
   // Context summary (already collected data)
-  const contextSummary = buildContextSummary(qualData, contactName);
+  const contextSummary = buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (contextSummary) sections.push(contextSummary);
 
   // Region knowledge
@@ -648,7 +648,7 @@ function buildStructuredRemarketingPrompt(ctx: AgentContext): string {
   sections.push(`- Responda de forma concisa e objetiva. Máximo 5 parágrafos curtos.`);
 
   // Dynamic sections
-  const contextSummary = buildContextSummary(qualData, contactName);
+  const contextSummary = buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (contextSummary) sections.push(contextSummary);
 
   const regionKnowledge = generateRegionKnowledge(regions);
@@ -681,7 +681,7 @@ function buildLegacyRemarketingPrompt(ctx: AgentContext): string {
   prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
   prompt = prompt.replaceAll('{{CITY}}', tenant.city);
   prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
-  prompt += buildContextSummary(qualData, contactName);
+  prompt += buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (ctx.isReturningLead) prompt += buildReturningLeadContext(ctx.previousQualificationData);
   prompt += generateRegionKnowledge(regions);
   if (config.custom_instructions) {

@@ -54,7 +54,7 @@ ${activeModule.prompt_instructions}
   }
 
   // Dynamic sections (same XML format as existing prompts)
-  const contextSummary = buildContextSummary(qualData, contactName);
+  const contextSummary = buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (contextSummary) sections.push(contextSummary);
 
   const regionKnowledge = generateRegionKnowledge(regions);
@@ -159,7 +159,7 @@ REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
 REGRAS:
 - Pergunte UMA informação por vez, de forma natural
 - Responda em português BR, max 3 parágrafos
-${buildContextSummary(qualData, contactName)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildPostHandoffFollowup()}`;
+${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildPostHandoffFollowup()}`;
 }
 
 function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig): string {
@@ -252,7 +252,7 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
   sections.push(`- Responda de forma concisa e objetiva. Máximo 3 parágrafos curtos.`);
 
   // Dynamic sections
-  const contextSummary = buildContextSummary(qualData, contactName);
+  const contextSummary = buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (contextSummary) sections.push(contextSummary);
 
   const regionKnowledge = generateRegionKnowledge(regions);
@@ -283,7 +283,7 @@ function buildLegacyDirectivePrompt(ctx: AgentContext): string {
   prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
   prompt = prompt.replaceAll('{{CITY}}', tenant.city);
   prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
-  prompt += buildContextSummary(qualData, contactName);
+  prompt += buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (ctx.isReturningLead) prompt += buildReturningLeadContext(ctx.previousQualificationData);
   prompt += generateRegionKnowledge(regions);
   prompt += buildBehaviorInstructionsLocal(ctx);

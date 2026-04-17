@@ -95,6 +95,37 @@ export async function runPreCompletionChecks(
     }
   }
 
+  // 4b. Bug #2 fix: Property mentioned WITHOUT property_search tool call
+  const searchExecutedEarly = ctx.toolsExecuted?.includes('buscar_imoveis');
+  if (!searchExecutedEarly) {
+    // Check if response mentions a specific property (code, price, bedrooms in property context)
+    const mentionsProperty = /(?:apartamento|casa|cobertura|terreno|imóvel|garden|studio)\s+(?:no|na|em|de|do)\s+/i.test(sanitized)
+      && /(?:R\$\s*\d|quartos?|dormitório|suíte|m²|vagas?|código|cód)/i.test(sanitized);
+
+    if (mentionsProperty) {
+      hasCritical = true;
+      issues.push('FABRICATED_PROPERTY: resposta descreve imóvel específico sem ter chamado buscar_imoveis');
+      sanitized = 'Entendi seu interesse! Me conte mais sobre o que você busca — região, tipo de imóvel e faixa de valor — pra eu encontrar as melhores opções pra você.';
+    }
+  }
+
+  // 4c. Bug #6+#7 fix: Template leak and metadata leak
+  const LEAK_PATTERNS = [
+    /\[Template:\s*[^\]]+\]/gi,
+    /\bAÇÃO\b\s*[:=]/gi,
+    /\bQUALIFICAÇÃO\b\s*[:=]/gi,
+    /\bMÓDULO\b\s*[:=]/gi,
+    /\btool_call\b/gi,
+    /\bfunction_call\b/gi,
+  ];
+  for (const pat of LEAK_PATTERNS) {
+    if (pat.test(sanitized)) {
+      issues.push(`METADATA_LEAK: padrão interno vazou: ${pat.source.slice(0, 30)}`);
+      sanitized = sanitized.replace(pat, '').replace(/\n{3,}/g, '\n\n').trim();
+    }
+    pat.lastIndex = 0;
+  }
+
   // 5. Qualified lead without search offer
   const qualScore = ctx.qualificationData?.qualification_score || 0;
   const searchExecuted = ctx.toolsExecuted?.includes('buscar_imoveis');

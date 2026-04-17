@@ -1044,14 +1044,30 @@ export async function loadRemarketingContext(
         crm_source,
         crm_broker_notes,
         crm_status,
-        notes
+        notes,
+        reactivation_attempts,
+        reactivation_last_attempt_at
       `)
       .eq('id', contactId)
       .maybeSingle();
 
+    // Reaquecimento automático: lead arquivado recentemente pelo corretor, disparado pelo cron
+    const isAutoRewarm = contact?.reactivation_attempts >= 1
+      && contact?.reactivation_last_attempt_at
+      && (Date.now() - new Date(contact.reactivation_last_attempt_at).getTime()) < 7 * 24 * 60 * 60 * 1000;
+
     if (contact) {
-      sections.push('📋 CONTEXTO DO LEAD (EX-C2S, CAMPANHA DE REMARKETING):');
-      sections.push('- Este lead já foi atendido antes pelo CRM anterior e está sendo re-engajado agora.');
+      if (isAutoRewarm) {
+        sections.push('🔁 CONTEXTO CRÍTICO — REAQUECIMENTO AUTOMÁTICO DE LEAD ARQUIVADO:');
+        sections.push('- Este lead foi arquivado pelo corretor há poucos dias e você (Aimee) está retomando o contato automaticamente.');
+        sections.push('- Seja DELICADA e sem pressão. O lead pode não estar esperando novo contato.');
+        sections.push('- Começe a conversa reconhecendo SUTILMENTE que houve contato anterior (ex: "vi que você chegou a conversar com a gente"). NÃO revele detalhes específicos do arquivamento.');
+        sections.push('- Se o lead demonstrar que NÃO quer mais ser contatado ou que já resolveu, encerre com educação: agradeça, desejo sucesso, e chame `finalizar_atendimento` com motivo "Arquivado pela Aimee após reaquecimento: <resumo da resposta do lead>".');
+        sections.push('- Se o lead responder interessado, continue o fluxo comercial normal (qualificar, buscar imóveis, encaminhar via `encaminhar_para_corretor` quando qualificado).');
+      } else {
+        sections.push('📋 CONTEXTO DO LEAD (EX-C2S, CAMPANHA DE REMARKETING):');
+        sections.push('- Este lead já foi atendido antes pelo CRM anterior e está sendo re-engajado agora.');
+      }
       if (contact.crm_status) sections.push(`- Status anterior no CRM: ${contact.crm_status}`);
       if (contact.crm_archive_reason) sections.push(`- Motivo do arquivamento: ${contact.crm_archive_reason}`);
       if (contact.crm_natureza) sections.push(`- Natureza do interesse: ${contact.crm_natureza}`);

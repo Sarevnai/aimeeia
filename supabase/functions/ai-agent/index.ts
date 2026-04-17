@@ -402,8 +402,9 @@ serve(async (req: Request) => {
     }
 
     // Load remarketing context if applicable
+    // rewarm_archived: lead foi auto-reengajado pela Aimee após ser arquivado pelo corretor
     let remarketingContext: string | null = null;
-    if (conversationSource === 'remarketing' || effectiveDepartment === 'remarketing') {
+    if (conversationSource === 'remarketing' || conversationSource === 'rewarm_archived' || effectiveDepartment === 'remarketing') {
       remarketingContext = await loadRemarketingContext(supabase, tenant_id, contact_id);
     }
 

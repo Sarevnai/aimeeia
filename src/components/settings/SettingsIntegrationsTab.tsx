@@ -10,7 +10,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { FieldGroup, Section } from './SettingsFormParts';
-import { Loader2, Save, Plus, Pencil, Trash2, Eye, EyeOff, Zap, ZapOff } from 'lucide-react';
+import { Loader2, Save, Plus, Pencil, Trash2, Eye, EyeOff, Zap, ZapOff, Flame, Info } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 import type { Tables, Json } from '@/integrations/supabase/types';
 
 type Region = Tables<'regions'>;
@@ -46,6 +49,18 @@ const SettingsIntegrationsTab: React.FC = () => {
   const [c2sWebhookLastEventAt, setC2sWebhookLastEventAt] = useState<string | null>(null);
   const [subscribingWebhook, setSubscribingWebhook] = useState(false);
 
+  // Reaquecimento automático
+  const [rewarmEnabled, setRewarmEnabled] = useState(false);
+  const [rewarmDailyLimit, setRewarmDailyLimit] = useState(50);
+  const [rewarmCooldownDays, setRewarmCooldownDays] = useState(2);
+  const [rewarmBlocklist, setRewarmBlocklist] = useState('');
+  const [rewarmStats, setRewarmStats] = useState<{ eligible: number; scheduled: number; blocked: number; attempted: number } | null>(null);
+  const [rewarmLog, setRewarmLog] = useState<Array<{ id: number; triggered_at: string; outcome: string; error_message: string | null }>>([]);
+  const [savingRewarm, setSavingRewarm] = useState(false);
+  const [runningRewarm, setRunningRewarm] = useState(false);
+  const [blocklistSettingId, setBlocklistSettingId] = useState<string | null>(null);
+  const [cooldownSettingId, setCooldownSettingId] = useState<string | null>(null);
+
   // Business hours
   const [hours, setHours] = useState<BusinessHours>({ days: ['mon', 'tue', 'wed', 'thu', 'fri'], start: '08:00', end: '18:00', timezone: 'America/Sao_Paulo' });
   const [savingHours, setSavingHours] = useState(false);
@@ -62,11 +77,13 @@ const SettingsIntegrationsTab: React.FC = () => {
     if (!tenantId) return;
     const fetch = async () => {
       setLoading(true);
-      const [tenantRes, hoursRes, regionsRes, c2sRes] = await Promise.all([
-        supabase.from('tenants').select('wa_phone_number_id, wa_access_token, wa_verify_token, waba_id, crm_type, crm_api_key, crm_api_url, c2s_webhook_subscribed_at, c2s_webhook_last_event_at').eq('id', tenantId).single(),
+      const [tenantRes, hoursRes, regionsRes, c2sRes, blockRes, cooldownRes] = await Promise.all([
+        (supabase as any).from('tenants').select('wa_phone_number_id, wa_access_token, wa_verify_token, waba_id, crm_type, crm_api_key, crm_api_url, c2s_webhook_subscribed_at, c2s_webhook_last_event_at, auto_rewarm_enabled, rewarm_daily_limit').eq('id', tenantId).single(),
         supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'business_hours').single(),
         supabase.from('regions').select('*').eq('tenant_id', tenantId).order('region_name'),
         supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'c2s_config').maybeSingle(),
+        supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'rewarm_blocklist_patterns').maybeSingle(),
+        supabase.from('system_settings').select('*').eq('tenant_id', tenantId).eq('setting_key', 'rewarm_cooldown_days').maybeSingle(),
       ]);
 
       if (tenantRes.data) {
@@ -75,6 +92,18 @@ const SettingsIntegrationsTab: React.FC = () => {
         setCrmForm({ crm_type: t.crm_type || 'vista', crm_api_key: t.crm_api_key || '', crm_api_url: t.crm_api_url || '' });
         setC2sWebhookSubscribedAt(t.c2s_webhook_subscribed_at || null);
         setC2sWebhookLastEventAt(t.c2s_webhook_last_event_at || null);
+        setRewarmEnabled(!!t.auto_rewarm_enabled);
+        setRewarmDailyLimit(t.rewarm_daily_limit || 50);
+      }
+      if (blockRes.data) {
+        setBlocklistSettingId(blockRes.data.id);
+        const patterns = (blockRes.data.setting_value as any)?.patterns || [];
+        setRewarmBlocklist(Array.isArray(patterns) ? patterns.join('\n') : '');
+      }
+      if (cooldownRes.data) {
+        setCooldownSettingId(cooldownRes.data.id);
+        const d = (cooldownRes.data.setting_value as any)?.days;
+        if (typeof d === 'number') setRewarmCooldownDays(d);
       }
       if (hoursRes.data) {
         setHoursSettingId(hoursRes.data.id);
@@ -123,6 +152,96 @@ const SettingsIntegrationsTab: React.FC = () => {
     }
     setSavingC2s(false);
     toast({ title: 'C2S salvo' });
+  };
+
+  const loadRewarmStats = async () => {
+    if (!tenantId) return;
+    // Conta direto na tabela contacts
+    const [elig, sched, blocked, attempted, logRes] = await Promise.all([
+      (supabase as any).from('contacts').select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId).eq('crm_status', 'Arquivado'),
+      (supabase as any).from('contacts').select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId).eq('reactivation_attempts', 0)
+        .not('reactivation_scheduled_at', 'is', null),
+      (supabase as any).from('contacts').select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId).not('reactivation_blocked_reason', 'is', null),
+      (supabase as any).from('contacts').select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId).gte('reactivation_attempts', 1),
+      (supabase as any).from('rewarm_log').select('id, triggered_at, outcome, error_message')
+        .eq('tenant_id', tenantId).order('triggered_at', { ascending: false }).limit(20),
+    ]);
+    setRewarmStats({
+      eligible: elig.count || 0,
+      scheduled: sched.count || 0,
+      blocked: blocked.count || 0,
+      attempted: attempted.count || 0,
+    });
+    setRewarmLog(logRes.data || []);
+  };
+
+  useEffect(() => {
+    if (tenantId) loadRewarmStats();
+  }, [tenantId]);
+
+  const saveRewarmConfig = async () => {
+    if (!tenantId) return;
+    setSavingRewarm(true);
+    try {
+      // tenants
+      await (supabase as any).from('tenants').update({
+        auto_rewarm_enabled: rewarmEnabled,
+        rewarm_daily_limit: rewarmDailyLimit,
+      }).eq('id', tenantId);
+
+      // blocklist
+      const patterns = rewarmBlocklist.split('\n').map((s) => s.trim()).filter(Boolean);
+      const blockValue = { patterns } as any;
+      if (blocklistSettingId) {
+        await supabase.from('system_settings').update({ setting_value: blockValue }).eq('id', blocklistSettingId);
+      } else {
+        const { data } = await supabase.from('system_settings').insert({
+          tenant_id: tenantId, setting_key: 'rewarm_blocklist_patterns', setting_value: blockValue,
+        }).select('id').single();
+        if (data) setBlocklistSettingId(data.id);
+      }
+
+      // cooldown
+      const coolValue = { days: rewarmCooldownDays } as any;
+      if (cooldownSettingId) {
+        await supabase.from('system_settings').update({ setting_value: coolValue }).eq('id', cooldownSettingId);
+      } else {
+        const { data } = await supabase.from('system_settings').insert({
+          tenant_id: tenantId, setting_key: 'rewarm_cooldown_days', setting_value: coolValue,
+        }).select('id').single();
+        if (data) setCooldownSettingId(data.id);
+      }
+
+      toast({ title: 'Configuração de reaquecimento salva' });
+      loadRewarmStats();
+    } catch (err: any) {
+      toast({ title: 'Erro ao salvar', description: err.message, variant: 'destructive' });
+    }
+    setSavingRewarm(false);
+  };
+
+  const runRewarmNow = async () => {
+    if (!tenantId) return;
+    setRunningRewarm(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('rewarm-archived-leads', {
+        body: { tenant_id: tenantId },
+      });
+      if (error) throw error;
+      const stats = (data as any)?.results?.[0];
+      toast({
+        title: 'Reaquecimento executado',
+        description: stats ? `${stats.sent || 0} enviados, ${stats.failed || 0} falharam (de ${stats.eligible_fetched || 0} elegíveis)` : 'OK',
+      });
+      loadRewarmStats();
+    } catch (err: any) {
+      toast({ title: 'Erro ao executar', description: err.message, variant: 'destructive' });
+    }
+    setRunningRewarm(false);
   };
 
   const subscribeC2sWebhooks = async (action: 'subscribe' | 'unsubscribe') => {
@@ -363,6 +482,113 @@ const SettingsIntegrationsTab: React.FC = () => {
               ⚠️ O C2S aceita 1 endpoint por token. Ativar aqui substitui qualquer endpoint registrado externamente com o mesmo token.
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Reaquecimento automático de arquivados */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="font-display text-lg flex items-center gap-2">
+              <Flame className="h-5 w-5 text-orange-500" /> Reaquecimento automático
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{rewarmEnabled ? 'Ativo' : 'Desligado'}</span>
+              <Switch checked={rewarmEnabled} onCheckedChange={setRewarmEnabled} />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg bg-muted/40 border border-border p-3 text-[12px] text-muted-foreground flex gap-2">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-accent" />
+            <div>
+              Quando o corretor arquiva um lead no C2S, a Aimee assume após o cooldown e tenta reaquecer uma vez.
+              Leads com motivo na blocklist (imóvel alugado, pediu para não contatar, etc) são ignorados.
+              Modo sombra: o lead fica arquivado no C2S durante todo o fluxo — só cria lead novo lá se converter.
+            </div>
+          </div>
+
+          {rewarmStats && (
+            <div className="grid grid-cols-4 gap-2">
+              <div className="rounded-lg bg-card border border-border p-2 text-center">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Arquivados</p>
+                <p className="text-xl font-bold font-display">{rewarmStats.eligible.toLocaleString('pt-BR')}</p>
+              </div>
+              <div className="rounded-lg bg-card border border-border p-2 text-center">
+                <p className="text-[10px] uppercase tracking-wider text-emerald-700">Agendados</p>
+                <p className="text-xl font-bold font-display text-emerald-700">{rewarmStats.scheduled.toLocaleString('pt-BR')}</p>
+              </div>
+              <div className="rounded-lg bg-card border border-border p-2 text-center">
+                <p className="text-[10px] uppercase tracking-wider text-amber-700">Bloqueados</p>
+                <p className="text-xl font-bold font-display text-amber-700">{rewarmStats.blocked.toLocaleString('pt-BR')}</p>
+              </div>
+              <div className="rounded-lg bg-card border border-border p-2 text-center">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Tentados</p>
+                <p className="text-xl font-bold font-display">{rewarmStats.attempted.toLocaleString('pt-BR')}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <FieldGroup label="Cooldown (dias)" description="Dias entre arquivamento e tentativa de reaquecimento">
+              <Input
+                type="number"
+                min={1}
+                max={90}
+                value={rewarmCooldownDays}
+                onChange={(e) => setRewarmCooldownDays(parseInt(e.target.value, 10) || 2)}
+              />
+            </FieldGroup>
+            <FieldGroup label="Limite diário" description="Máximo de reaquecimentos por dia">
+              <Input
+                type="number"
+                min={1}
+                max={500}
+                value={rewarmDailyLimit}
+                onChange={(e) => setRewarmDailyLimit(parseInt(e.target.value, 10) || 50)}
+              />
+            </FieldGroup>
+          </div>
+
+          <FieldGroup label="Blocklist de motivos (regex, uma por linha)" description="Motivos de arquivamento que bloqueiam reaquecimento. Case-insensitive, usa regex Postgres com unaccent.">
+            <Textarea
+              value={rewarmBlocklist}
+              onChange={(e) => setRewarmBlocklist(e.target.value)}
+              rows={8}
+              className="font-mono text-[11px]"
+              placeholder="i.v.vel.+(alugad|vendid|fechad)&#10;j.+(encontr(ou|ei)|comprou|alugou)&#10;..."
+            />
+          </FieldGroup>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={runRewarmNow} disabled={runningRewarm || !rewarmEnabled}>
+              {runningRewarm ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Flame className="h-4 w-4 mr-1" />}
+              Rodar agora
+            </Button>
+            <Button onClick={saveRewarmConfig} disabled={savingRewarm} size="sm">
+              {savingRewarm ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+              Salvar
+            </Button>
+          </div>
+
+          {rewarmLog.length > 0 && (
+            <div className="pt-3 border-t border-border">
+              <p className="text-xs font-semibold mb-2">Últimas reativações</p>
+              <div className="max-h-40 overflow-auto space-y-1">
+                {rewarmLog.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between text-[11px] py-1 px-2 rounded bg-muted/30">
+                    <span className="text-muted-foreground">{new Date(r.triggered_at).toLocaleString('pt-BR')}</span>
+                    <span className={cn(
+                      'font-medium',
+                      r.outcome === 'template_sent' ? 'text-emerald-700' : r.outcome === 'template_failed' ? 'text-destructive' : 'text-muted-foreground'
+                    )}>
+                      {r.outcome}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

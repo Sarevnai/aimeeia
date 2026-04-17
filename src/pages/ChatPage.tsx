@@ -110,6 +110,7 @@ const ChatPage: React.FC = () => {
   const [senderNames, setSenderNames] = useState<Record<string, string>>({});
   const [sendingToWA, setSendingToWA] = useState(false);
   const [showWADialog, setShowWADialog] = useState(false);
+  const [waEditText, setWaEditText] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -965,7 +966,7 @@ const ChatPage: React.FC = () => {
       )}
 
       {/* WhatsApp Redirect Dialog */}
-      <Dialog open={showWADialog} onOpenChange={setShowWADialog}>
+      <Dialog open={showWADialog} onOpenChange={(open) => { setShowWADialog(open); if (!open) setWaEditText(''); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -973,26 +974,72 @@ const ChatPage: React.FC = () => {
               Continuar no WhatsApp
             </DialogTitle>
             <DialogDescription>
-              Escolha uma mensagem pronta para abrir o WhatsApp com o lead {contact?.name || ''} ({conversation?.phone_number}).
-              A IA será pausada automaticamente.
+              {waEditText
+                ? 'Edite a mensagem abaixo e clique em "Abrir WhatsApp".'
+                : `Escolha um modelo para iniciar a conversa com ${contact?.name || 'o lead'}.`
+              }
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 mt-2 max-h-[400px] overflow-y-auto">
-            {waMessages.map((msg, idx) => (
+
+          {!waEditText ? (
+            <div className="space-y-2 mt-2 max-h-[350px] overflow-y-auto">
+              {waMessages.map((msg, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setWaEditText(msg.text)}
+                  className="flex flex-col gap-1 w-full rounded-lg px-4 py-3 text-left hover:bg-accent/50 transition-colors border border-border"
+                >
+                  <p className="text-sm font-medium text-foreground">{msg.label}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{msg.text}</p>
+                </button>
+              ))}
               <button
-                key={idx}
-                onClick={() => handleOpenWALink(msg.text)}
-                disabled={sendingToWA}
-                className="flex flex-col gap-1 w-full rounded-lg px-4 py-3 text-left hover:bg-accent/50 transition-colors border border-border"
+                onClick={() => setWaEditText('')}
+                className="flex flex-col gap-1 w-full rounded-lg px-4 py-3 text-left hover:bg-accent/50 transition-colors border border-border border-dashed"
               >
-                <p className="text-sm font-medium text-foreground">{msg.label}</p>
-                <p className="text-xs text-muted-foreground line-clamp-2">{msg.text}</p>
+                <p className="text-sm font-medium text-foreground">✏️ Mensagem personalizada</p>
+                <p className="text-xs text-muted-foreground">Escreva sua própria mensagem do zero</p>
               </button>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="space-y-3 mt-2">
+              <textarea
+                value={waEditText}
+                onChange={(e) => setWaEditText(e.target.value)}
+                rows={6}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Digite sua mensagem..."
+                autoFocus
+              />
+              <div className="flex gap-2 justify-between">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setWaEditText('')}
+                  className="text-xs"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Voltar aos modelos
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => handleOpenWALink(waEditText)}
+                  disabled={sendingToWA || !waEditText.trim()}
+                  className="text-xs bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {sendingToWA ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Phone className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Abrir WhatsApp
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="pt-2 border-t">
             <p className="text-[10px] text-muted-foreground text-center">
-              Ao clicar, o WhatsApp abre com a mensagem pronta. A Aimee pausa o atendimento automático.
+              A IA será pausada automaticamente ao abrir o WhatsApp.
             </p>
           </div>
         </DialogContent>

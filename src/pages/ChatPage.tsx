@@ -33,6 +33,7 @@ import {
   ArrowRightLeft,
   Info,
   ExternalLink,
+  Pencil,
 } from 'lucide-react';
 import {
   Dialog,
@@ -45,6 +46,7 @@ import { cn } from '@/lib/utils';
 import type { Tables } from '@/integrations/supabase/types';
 import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
+import BrokerWATemplatesManager from '@/components/chat/BrokerWATemplatesManager';
 
 type Message = Tables<'messages'>;
 type Conversation = Tables<'conversations'>;
@@ -111,6 +113,8 @@ const ChatPage: React.FC = () => {
   const [sendingToWA, setSendingToWA] = useState(false);
   const [showWADialog, setShowWADialog] = useState(false);
   const [waEditText, setWaEditText] = useState('');
+  const [showWATemplatesManager, setShowWATemplatesManager] = useState(false);
+  const [dbWaTemplates, setDbWaTemplates] = useState<{ id: string; label: string; icon: string; text_template: string }[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -443,8 +447,21 @@ const ChatPage: React.FC = () => {
     setShowTransferModal(true);
   };
 
-  // Build pre-made messages for the WhatsApp redirect dialog
-  const waMessages = useMemo(() => {
+  // Load WA templates from database when dialog opens
+  useEffect(() => {
+    if (!showWADialog || !tenantId) return;
+    supabase
+      .from('broker_wa_templates')
+      .select('id, label, icon, text_template')
+      .eq('tenant_id', tenantId)
+      .or(`profile_id.is.null,profile_id.eq.${user?.id}`)
+      .eq('is_active', true)
+      .order('sort_order')
+      .then(({ data }) => setDbWaTemplates(data || []));
+  }, [showWADialog, tenantId, user?.id]);
+
+  // Apply variable substitution to template text
+  const resolveTemplate = (template: string) => {
     const contactName = contact?.name || 'cliente';
     const brokerName = profile?.full_name || 'corretor';
     const qualParts = [
@@ -454,25 +471,19 @@ const ChatPage: React.FC = () => {
       leadQual?.detected_budget_max && `orçamento até R$ ${Number(leadQual.detected_budget_max).toLocaleString('pt-BR')}`,
     ].filter(Boolean).join(', ');
 
-    return [
-      {
-        label: '👋 Apresentação inicial',
-        text: `Olá ${contactName}! Sou ${brokerName}, corretor da Smolka Imóveis. A Aimee me passou seu atendimento pra que eu possa te ajudar pessoalmente. Como posso te ajudar?`,
-      },
-      {
-        label: '🏠 Continuando a busca',
-        text: `Olá ${contactName}! Aqui é ${brokerName} da Smolka Imóveis. Vi que você está buscando ${qualParts || 'imóvel'}. Vou te ajudar a encontrar a melhor opção! Posso te ligar ou prefere continuar por aqui?`,
-      },
-      {
-        label: '📅 Agendar visita',
-        text: `Olá ${contactName}! Sou ${brokerName} da Smolka. A Aimee me informou seu interesse e separei algumas opções pra você. Qual o melhor dia e horário pra visitarmos?`,
-      },
-      {
-        label: '🔄 Retomando contato',
-        text: `Olá ${contactName}! Aqui é ${brokerName} da Smolka Imóveis. Estou retomando seu atendimento pra dar sequência na sua busca. Tudo bem por aí? Podemos conversar agora?`,
-      },
-    ];
-  }, [contact?.name, profile?.full_name, leadQual]);
+    return template
+      .replace(/\{\{lead_nome\}\}/g, contactName)
+      .replace(/\{\{corretor_nome\}\}/g, brokerName)
+      .replace(/\{\{empresa\}\}/g, 'Smolka Imóveis')
+      .replace(/\{\{qualificacao\}\}/g, qualParts || 'imóvel');
+  };
+
+  const waMessages = useMemo(() => {
+    return dbWaTemplates.map((t) => ({
+      label: `${t.icon} ${t.label}`,
+      text: resolveTemplate(t.text_template),
+    }));
+  }, [dbWaTemplates, contact?.name, profile?.full_name, leadQual]);
 
   const handleOpenWALink = async (messageText: string) => {
     if (!conversation || !tenantId || !user) return;
@@ -1037,13 +1048,26 @@ const ChatPage: React.FC = () => {
             </div>
           )}
 
-          <div className="pt-2 border-t">
-            <p className="text-[10px] text-muted-foreground text-center">
-              A IA será pausada automaticamente ao abrir o WhatsApp.
+          <div className="pt-2 border-t flex items-center justify-between">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { setShowWADialog(false); setShowWATemplatesManager(true); }}
+              className="text-xs text-muted-foreground"
+            >
+              <Pencil className="h-3 w-3 mr-1" /> Gerenciar modelos
+            </Button>
+            <p className="text-[10px] text-muted-foreground">
+              A IA pausa ao abrir o WhatsApp.
             </p>
           </div>
         </DialogContent>
       </Dialog>
+
+      <BrokerWATemplatesManager
+        open={showWATemplatesManager}
+        onOpenChange={setShowWATemplatesManager}
+      />
 
       <Dialog open={showTransferModal} onOpenChange={setShowTransferModal}>
         <DialogContent className="sm:max-w-md">

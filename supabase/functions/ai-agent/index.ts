@@ -408,13 +408,37 @@ serve(async (req: Request) => {
       remarketingContext = await loadRemarketingContext(supabase, tenant_id, contact_id);
     }
 
+    // ========== PORTAL LINK RESOLUTION ==========
+
+    // If the lead sends a ZAP/VivaReal/OLX link, extract property data from URL
+    // and match with our Vista base — inject context so LLM can present the property.
+    let portalLinkContext = '';
+    try {
+      const { extractPortalLinks, resolvePortalLink, buildPortalLinkContext } = await import('../_shared/portal-link-resolver.ts');
+      const portalLinks = extractPortalLinks(message_body);
+      if (portalLinks.length > 0) {
+        console.log(`🔗 Portal link detected: ${portalLinks[0].portal} | bairro=${portalLinks[0].bairro} quartos=${portalLinks[0].quartos} area=${portalLinks[0].area}`);
+        const property = await resolvePortalLink(supabase, tenant_id, portalLinks[0]);
+        portalLinkContext = buildPortalLinkContext(portalLinks[0], property);
+        if (property) {
+          console.log(`✅ Portal link resolved → Vista ${property.external_id}: ${property.title} (${property.neighborhood})`);
+        } else {
+          console.log(`⚠️ Portal link: no exact match found, injecting extracted data as context`);
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Portal link resolution failed (non-blocking):', err);
+    }
+
     // ========== ENRICH MESSAGE WITH QUOTED CONTEXT ==========
 
     // If the lead replied to a specific message, prepend the quoted context
     // so the LLM understands which message the lead is responding to.
-    const enrichedMessageBody = quoted_message_body
-      ? `[Em resposta a: "${quoted_message_body}"]\n${message_body}`
-      : message_body;
+    const enrichedMessageBody = [
+      quoted_message_body ? `[Em resposta a: "${quoted_message_body}"]` : null,
+      portalLinkContext || null,
+      message_body,
+    ].filter(Boolean).join('\n');
 
     // ========== LOAD INTELLIGENCE MODULES ==========
 

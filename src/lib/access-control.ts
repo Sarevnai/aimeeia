@@ -16,7 +16,7 @@ export const ROLE_PATHS: Record<string, string[]> = {
   admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao',
     '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia'],
-  operator: ['/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
+  operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
   viewer: ['/', '/relatorios', '/dashboard-c2s', '/guia'],
 };
 
@@ -24,8 +24,8 @@ export const ROLE_PATHS: Record<string, string[]> = {
 // Vendas/locacao limited to Leads, Pipeline, Conversas per product decision.
 export const DEPT_PATHS: Record<string, string[]> = {
   administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/dashboard-c2s', '/financeiro', '/guia'],
-  vendas: ['/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
-  locacao: ['/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
+  vendas: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
+  locacao: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
   remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/campanhas', '/empreendimentos', '/guia'],
 };
 

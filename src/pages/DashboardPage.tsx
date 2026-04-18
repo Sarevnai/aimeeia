@@ -133,6 +133,11 @@ const DashboardPage: React.FC = () => {
     return <OperatorDashboard />;
   }
 
+  // Viewers get redirected to reports (no admin dashboard access)
+  if (!authLoading && profile?.role === 'viewer') {
+    return <Navigate to="/relatorios" replace />;
+  }
+
   // Month filter
   const now = new Date();
   const [selMonth, setSelMonth] = useState(now.getMonth());

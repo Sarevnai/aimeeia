@@ -166,6 +166,23 @@ serve(async (req: Request) => {
     );
 
     if (triageResult.shouldContinue) {
+      // FIX: Extract qualification from triage message BEFORE returning early.
+      // When client says "Quero comprar uma casa no norte da ilha" during triage,
+      // the triage consumes the message but the qualification data (interest, type,
+      // neighborhood) was being lost because we returned before extraction.
+      if (triageResult.department && triageResult.department !== 'administrativo') {
+        try {
+          const triageExtracted = extractQualificationFromText(message_body, qualData || {}, regions);
+          if (Object.keys(triageExtracted).length > 0) {
+            const merged = mergeQualificationData(qualData, triageExtracted);
+            await saveQualificationData(supabase, tenant_id, phone_number, contact_id, merged);
+            console.log(`📋 Triage qualification extracted:`, Object.keys(triageExtracted).filter(k => (triageExtracted as any)[k]).join(', '));
+          }
+        } catch (e) {
+          console.warn('⚠️ Triage qualification extraction failed (non-blocking):', e);
+        }
+      }
+
       for (const msg of triageResult.responseMessages) {
         await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, msg, triageResult.department || null);
         if (aiConfig.message_delay_ms) await sleep(Math.min(aiConfig.message_delay_ms, 3000));

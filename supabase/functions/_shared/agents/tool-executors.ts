@@ -315,6 +315,17 @@ export async function executePropertySearch(
       }
     }
 
+    // C10: Pós-filtro piso de preço — evitar mostrar imóveis muito abaixo do budget
+    // Cliente com R$4M não quer ver imóvel de R$1M. Piso = 40% do budget.
+    if (clientBudget && clientBudget >= 200000) {
+      const priceFloor = Math.round(clientBudget * 0.4);
+      const beforeCount = validProperties.length;
+      validProperties = validProperties.filter((p: any) => p.price >= priceFloor);
+      if (beforeCount !== validProperties.length) {
+        console.log(`🔒 C10: Piso de preço removeu ${beforeCount - validProperties.length} imóvel(is) abaixo de ${priceFloor} (budget=${clientBudget})`);
+      }
+    }
+
     // C9: Pós-filtro finalidade — se cliente quer comprar, remover prováveis aluguéis (preço < 50k)
     // Se cliente quer alugar, remover prováveis vendas (preço > 50k)
     // Se 'ambos', não filtrar por finalidade — mantém venda e locação juntos.

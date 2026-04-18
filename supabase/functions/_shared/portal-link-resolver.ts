@@ -171,13 +171,18 @@ export function buildPortalLinkContext(linkData: PortalLinkData, property: Prope
 
   const price = Number(property.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 
-  return `\n[SISTEMA] O cliente enviou um link de portal (${linkData.portal}). Encontrei o imóvel na nossa base:
-- Código: ${property.external_id}
+  return `\n[SISTEMA — ATENÇÃO MÁXIMA] O cliente enviou um link de portal. Eu já identifiquei o imóvel na nossa base interna:
+- Código Smolka: ${property.external_id}
 - ${property.title}
 - Bairro: ${property.neighborhood}, ${property.city}
 - Preço: ${price}
 - Quartos: ${property.bedrooms}
 - Área: ${property.area}m²
 
-INSTRUÇÃO: Apresente esse imóvel ao cliente com os detalhes acima. Use o código ${property.external_id} se precisar buscar mais informações. NÃO diga que não consegue acessar links — você já tem os dados.\n`;
+⛔ REGRAS OBRIGATÓRIAS:
+1. NUNCA diga "não consigo acessar links" — você TEM os dados acima.
+2. Apresente o imóvel usando os detalhes acima como se fossem da sua base.
+3. Mencione o código ${property.external_id} quando o cliente perguntar.
+4. Se o cliente perguntar detalhes que não estão acima, ofereça buscar mais informações ou agendar visita.
+5. Trate como um imóvel da Smolka — porque É um imóvel da Smolka.\n`;
 }

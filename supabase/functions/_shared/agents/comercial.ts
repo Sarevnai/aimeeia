@@ -3,7 +3,7 @@
 // Focused prompt (~1.2K tokens), property search + CRM handoff tools.
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
-import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
+import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces, executeDepartmentTransfer } from './tool-executors.ts';
 import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
@@ -72,6 +72,7 @@ ${activeModule.prompt_instructions}
     sections.push(buildReturningLeadContext(ctx.previousQualificationData));
   }
 
+  sections.push(buildAdminTransferRule());
   sections.push(buildPostHandoffFollowup());
 
   // Fix J1: Guardrails anti-reasoning-leak — OBRIGATÓRIO no final do prompt
@@ -159,7 +160,7 @@ REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
 REGRAS:
 - Pergunte UMA informação por vez, de forma natural
 - Responda em português BR, max 3 parágrafos
-${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildPostHandoffFollowup()}`;
+${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}`;
 }
 
 function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig): string {
@@ -270,6 +271,7 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
     sections.push(buildReturningLeadContext(ctx.previousQualificationData));
   }
 
+  sections.push(buildAdminTransferRule());
   sections.push(buildPostHandoffFollowup());
 
   return sections.join('\n');
@@ -290,6 +292,7 @@ function buildLegacyDirectivePrompt(ctx: AgentContext): string {
   if (config.custom_instructions) {
     prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
   }
+  prompt += buildAdminTransferRule();
   prompt += buildPostHandoffFollowup();
   return prompt;
 }
@@ -365,6 +368,25 @@ function getComercialTools(ctx: AgentContext): any[] {
         },
       },
     },
+    {
+      type: "function",
+      function: {
+        name: "transferir_administrativo",
+        description: "Encaminha a conversa para o setor administrativo. Use OBRIGATORIAMENTE quando o cliente disser que já é inquilino ou proprietário de imóvel da nossa imobiliária, ou quando trouxer assuntos administrativos: boleto, 2ª via, pagamento, cobrança, contrato, renovação, reajuste, rescisão, manutenção, vazamento, reparo, vistoria, chaves, chaveiro. NÃO tente resolver essas questões no comercial — a partir do próximo turno a conversa será atendida pelo agente administrativo.",
+        parameters: {
+          type: "object",
+          properties: {
+            motivo: { type: "string", description: "O que o cliente trouxe e por que é administrativo. Seja específico (ex: 'cliente é inquilino, pediu 2ª via do boleto do apto 302')." },
+            tipo_relacao: {
+              type: "string",
+              description: "Como o cliente se identificou em relação ao imóvel. Use 'inquilino' se ele aluga de nós, 'proprietario' se ele é dono de imóvel que administramos, 'indefinido' se não ficou claro.",
+              enum: ["inquilino", "proprietario", "indefinido"]
+            },
+          },
+          required: ["motivo"],
+        },
+      },
+    },
   ];
 
   if (!skills || skills.length === 0) return baseTools;
@@ -408,6 +430,29 @@ function buildBehaviorInstructionsLocal(ctx: AgentContext): string {
   return instructions;
 }
 
+function buildAdminTransferRule(): string {
+  return `
+
+# ROTEAMENTO — TRANSFERÊNCIA PARA ADMINISTRATIVO
+A sua missão é comercial: ajudar o cliente a comprar ou alugar um imóvel. Existem demandas que NÃO são suas e devem ir para o setor administrativo IMEDIATAMENTE via a ferramenta transferir_administrativo.
+
+CHAME transferir_administrativo quando o cliente:
+- Se identificar como INQUILINO (aluga um imóvel nosso). Ex: "sou inquilino de vocês", "aluguei com vocês", "vocês administram meu aluguel"
+- Se identificar como PROPRIETÁRIO de imóvel que administramos. Ex: "sou dono de um imóvel que vocês administram", "tenho um apto na gestão de vocês"
+- Pedir BOLETO / 2ª via / segunda via / cobrança / pagamento / financeiro
+- Pedir algo sobre CONTRATO em vigor (renovação, reajuste, cláusula, aditivo, rescisão)
+- Reportar MANUTENÇÃO (vazamento, goteira, reparo, infiltração, quebrou, entupiu, não funciona)
+- Pedir VISTORIA, CHAVES, cópia de chave, acesso
+
+Quando transferir:
+- Preencha \`motivo\` com o que o cliente trouxe (ex: "cliente inquilino pediu 2ª via do boleto").
+- Preencha \`tipo_relacao\` com 'inquilino', 'proprietario' ou 'indefinido' conforme o cliente se identificou.
+- Depois da transferência, apenas acolha com naturalidade — o próximo turno já será atendido pelo administrativo.
+
+NÃO chame transferir_administrativo se o cliente só quer comprar ou alugar um imóvel novo — isso é com você mesma.
+`;
+}
+
 function buildPostHandoffFollowup(): string {
   return `
 
@@ -439,6 +484,7 @@ export const comercialAgent: AgentModule = {
     if (toolName === 'buscar_imoveis') return await executePropertySearch(ctx, args);
     if (toolName === 'enviar_lead_c2s') return await executeLeadHandoff(ctx, args);
     if (toolName === 'buscar_pontos_de_interesse_proximos') return await executeGetNearbyPlaces(ctx, args);
+    if (toolName === 'transferir_administrativo') return await executeDepartmentTransfer(ctx, 'administrativo', args);
     return `Ferramenta desconhecida: ${toolName}`;
   },
 

@@ -3,7 +3,7 @@
 // Focused prompt (~800 tokens), ticket creation + human handoff tools.
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
-import { executeCreateTicket, executeAdminHandoff } from './tool-executors.ts';
+import { executeCreateTicket, executeAdminHandoff, executeDepartmentTransfer } from './tool-executors.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
 import { AiModule } from '../types.ts';
 
@@ -118,6 +118,9 @@ REGRAS:
 - Se o cliente pedir atendimento humano ou a demanda for muito complexa, use encaminhar_humano
 - NUNCA prometa prazos específicos de resolução - diga "nossa equipe vai analisar"
 - Responda em português BR, máximo 3 parágrafos
+
+# ROTEAMENTO — TRANSFERÊNCIA PARA COMERCIAL
+Se durante o atendimento o cliente demonstrar interesse em COMPRAR ou ALUGAR um imóvel novo (não apenas resolver questões do imóvel atual), use a ferramenta transferir_comercial. Exemplos: "queria comprar uma casa", "tô procurando outro apto pra alugar", "meu filho vai morar sozinho, preciso de um apartamento". Antes de transferir, resolva ou registre a questão administrativa em aberto.
 ${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
 
@@ -173,6 +176,20 @@ function getAdminTools(): any[] {
         },
       },
     },
+    {
+      type: "function",
+      function: {
+        name: "transferir_comercial",
+        description: "Encaminha a conversa para o setor comercial. Use quando o cliente demonstrar interesse em comprar ou alugar um imóvel novo (diferente do que ele já tem com a imobiliária). NÃO use para questões administrativas — só quando há intenção comercial real.",
+        parameters: {
+          type: "object",
+          properties: {
+            motivo: { type: "string", description: "O que o cliente mencionou que indica interesse comercial (ex: 'cliente inquilino disse que quer comprar uma casa')." },
+          },
+          required: ["motivo"],
+        },
+      },
+    },
   ];
 }
 
@@ -191,6 +208,7 @@ export const adminAgent: AgentModule = {
     console.log(`🔧 [Admin] Executing tool: ${toolName}`, args);
     if (toolName === 'criar_ticket') return await executeCreateTicket(ctx, args);
     if (toolName === 'encaminhar_humano') return await executeAdminHandoff(ctx, args);
+    if (toolName === 'transferir_comercial') return await executeDepartmentTransfer(ctx, 'vendas', args);
     return `Ferramenta desconhecida: ${toolName}`;
   },
 

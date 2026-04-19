@@ -6,7 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
 import { callLLMWithToolExecution, TraceData, insertTrace } from '../_shared/ai-call.ts';
-import { sendWhatsAppMessage, sendWhatsAppButtons, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../_shared/whatsapp.ts';
+import { sendWhatsAppMessage, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
 import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags } from '../_shared/qualification.ts';
@@ -186,19 +186,6 @@ serve(async (req: Request) => {
       for (const msg of triageResult.responseMessages) {
         await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, msg, triageResult.department || null);
         if (aiConfig.message_delay_ms) await sleep(Math.min(aiConfig.message_delay_ms, 3000));
-      }
-
-      if (!triageResult.department && state?.triage_stage === 'awaiting_triage') {
-        await sendWhatsAppButtons(
-          phone_number,
-          'Como posso te ajudar?',
-          [
-            { id: 'dept_locacao', title: 'Alugar' },
-            { id: 'dept_vendas', title: 'Comprar' },
-            { id: 'dept_admin', title: 'Administrativo' },
-          ],
-          tenant as Tenant
-        );
       }
 
       if (triageResult.department) {

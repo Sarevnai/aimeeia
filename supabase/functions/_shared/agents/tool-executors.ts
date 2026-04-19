@@ -1001,6 +1001,79 @@ export async function executeAdminHandoff(
   }
 }
 
+// ========== DEPARTMENT TRANSFER (mid-conversation routing) ==========
+
+// Reroutes the conversation to another department. The next inbound message
+// will be picked up by the target agent (selectAgent reads conversation.department_code
+// fresh every turn). Optionally updates contacts.contact_type when the lead
+// self-identified as inquilino/proprietario so future sessions auto-route too.
+export async function executeDepartmentTransfer(
+  ctx: AgentContext,
+  targetDept: 'administrativo' | 'vendas' | 'locacao',
+  args: { motivo: string; tipo_relacao?: string }
+): Promise<string> {
+  try {
+    const { data: firstStage } = await ctx.supabase
+      .from('conversation_stages')
+      .select('id')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('department_code', targetDept)
+      .order('order_index', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    const conversationUpdate: any = { department_code: targetDept };
+    if (firstStage) conversationUpdate.stage_id = firstStage.id;
+
+    await ctx.supabase
+      .from('conversations')
+      .update(conversationUpdate)
+      .eq('id', ctx.conversationId);
+
+    const contactUpdate: any = { department_code: targetDept };
+    if (args.tipo_relacao === 'inquilino' || args.tipo_relacao === 'proprietario') {
+      contactUpdate.contact_type = args.tipo_relacao;
+    }
+
+    await ctx.supabase
+      .from('contacts')
+      .update(contactUpdate)
+      .eq('tenant_id', ctx.tenantId)
+      .eq('phone', ctx.phoneNumber);
+
+    await ctx.supabase.from('conversation_events').insert({
+      tenant_id: ctx.tenantId,
+      conversation_id: ctx.conversationId,
+      event_type: 'department_transferred',
+      metadata: {
+        from: ctx.department,
+        to: targetDept,
+        reason: args.motivo,
+        tipo_relacao: args.tipo_relacao || null,
+      },
+    });
+
+    await logActivity(ctx.supabase, ctx.tenantId, 'department_transferred', 'conversations', ctx.conversationId, {
+      from: ctx.department,
+      to: targetDept,
+      reason: args.motivo,
+    });
+
+    console.log(`🔄 Department transferred: ${ctx.department} → ${targetDept} | Reason: ${args.motivo}`);
+
+    const toneByDept: Record<string, string> = {
+      administrativo: 'Reconheça com naturalidade que vai cuidar dessa questão administrativa. Pergunte apenas o dado essencial que falta pra abrir o chamado (ex: qual imóvel, qual boleto, qual problema). NÃO diga "vou te transferir" nem mencione setor — apenas continue acolhendo.',
+      vendas: 'Reconheça com naturalidade que vai te ajudar a encontrar um imóvel pra comprar. Faça a próxima pergunta de qualificação (tipo, região ou orçamento). NÃO diga "vou te transferir".',
+      locacao: 'Reconheça com naturalidade que vai te ajudar a encontrar um imóvel pra alugar. Faça a próxima pergunta de qualificação (tipo, região ou orçamento). NÃO diga "vou te transferir".',
+    };
+
+    return `[SISTEMA] Conversa agora roteada para ${targetDept}. ${toneByDept[targetDept] || 'Continue ajudando o cliente de forma natural.'}`;
+  } catch (error) {
+    console.error('❌ Department transfer error:', error);
+    return 'Não consegui ajustar o atendimento agora, mas vou te ajudar por aqui mesmo.';
+  }
+}
+
 // ========== CONVERSATION HISTORY LOADER ==========
 
 export async function loadConversationHistory(

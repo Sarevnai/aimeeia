@@ -1,67 +1,20 @@
 // ========== AIMEE.iA v2 - TRIAGE ==========
-// Manages the initial conversation flow: greeting → name → department selection.
-// All config from DB (ai_agent_config), no hardcoded tenant references.
+// Manages the initial conversation flow: greeting → name → department resolution.
+// Department is decided by the lead's existing contact_type in the DB:
+//   - proprietario / inquilino → administrativo
+//   - everything else          → vendas (comercialAgent handles vendas+locacao)
+// There are no buttons — the comercial agent detects mid-conversation if
+// the lead self-identifies as inquilino/proprietario and transfers via tool.
 
-import { DepartmentType, Tenant, AIAgentConfig, ConversationState, TriageConfig, RemarketingTriageConfig } from './types.ts';
+import { DepartmentType, Tenant, AIAgentConfig, ConversationState, TriageConfig } from './types.ts';
 
-// ========== TRIAGE BUTTON MAPPING ==========
-
-const TRIAGE_BUTTON_IDS: Record<string, DepartmentType> = {
-  'dept_locacao': 'locacao',
-  'dept_vendas': 'vendas',
-  'dept_admin': 'administrativo',
-};
-
-const TRIAGE_BUTTON_TEXTS: Record<string, DepartmentType> = {
-  'alugar': 'locacao',
-  'locação': 'locacao',
-  'locacao': 'locacao',
-  'comprar': 'vendas',
-  'vendas': 'vendas',
-  'administrativo': 'administrativo',
-  'admin': 'administrativo',
-  'suporte': 'administrativo',
-  'boleto': 'administrativo',
-  'contrato': 'administrativo',
-};
+// ========== DEPARTMENT WELCOME (default copy) ==========
 
 const DEPARTMENT_WELCOME: Record<string, string> = {
-  locacao: 'Vou te ajudar a encontrar o imóvel ideal para alugar.\n\nQual tipo de imóvel você procura? Apartamento, casa...?',
-  vendas: 'Vou te ajudar a encontrar o imóvel perfeito para comprar.\n\nQue tipo de imóvel você tem interesse?',
-  administrativo: 'Estou aqui para te ajudar.\n\nPosso auxiliar com boletos, contratos, manutenção ou outras questões. O que você precisa?',
+  vendas: '\n\nEm que posso te ajudar hoje?',
+  locacao: '\n\nEm que posso te ajudar hoje?',
+  administrativo: '\n\nVi que você já é nosso cliente. Como posso te ajudar?',
 };
-
-// ========== EXTRACT TRIAGE BUTTON ==========
-
-export function extractTriageButtonId(message: any): { buttonId: string; department: DepartmentType } | null {
-  // 1. Interactive button_reply
-  const buttonReply = message.interactive?.button_reply;
-  if (buttonReply?.id && TRIAGE_BUTTON_IDS[buttonReply.id]) {
-    return { buttonId: buttonReply.id, department: TRIAGE_BUTTON_IDS[buttonReply.id] };
-  }
-
-  // 2. Template quick_reply text
-  const buttonText = message.button?.text?.toLowerCase()?.trim();
-  if (buttonText && TRIAGE_BUTTON_TEXTS[buttonText]) {
-    return { buttonId: buttonText, department: TRIAGE_BUTTON_TEXTS[buttonText] };
-  }
-
-  // 3. Template quick_reply payload
-  const buttonPayload = message.button?.payload?.toLowerCase()?.trim();
-  if (buttonPayload && TRIAGE_BUTTON_TEXTS[buttonPayload]) {
-    return { buttonId: buttonPayload, department: TRIAGE_BUTTON_TEXTS[buttonPayload] };
-  }
-
-  // 4. Free text match
-  const body = (message.text?.body || '').toLowerCase().trim();
-  for (const [text, dept] of Object.entries(TRIAGE_BUTTON_TEXTS)) {
-    if (body === text || body.includes(text)) {
-      return { buttonId: text, department: dept };
-    }
-  }
-
-  return null;
-}
 
 // ========== TRIAGE FLOW ==========
 
@@ -77,7 +30,7 @@ export async function handleTriage(
   tenant: Tenant,
   config: AIAgentConfig,
   state: ConversationState | null,
-  message: any,
+  _message: any,
   messageBody: string,
   phoneNumber: string,
   conversationId: string,
@@ -85,7 +38,7 @@ export async function handleTriage(
   contactName?: string | null,
   conversationSource?: string | null
 ): Promise<TriageResult> {
-  let stage = state?.triage_stage || 'greeting';
+  const stage = state?.triage_stage || 'greeting';
 
   // For remarketing conversations, skip ALL triage — the client already engaged by replying
   // to the template. Let the AI agent handle everything contextually from the first message.
@@ -119,7 +72,7 @@ export async function handleTriage(
     };
   }
 
-  // ========== STAGE: AWAITING NAME (+ VIP Intro) ==========
+  // ========== STAGE: AWAITING NAME → auto-route by contact_type ==========
   if (stage === 'awaiting_name') {
     const name = extractName(messageBody);
 
@@ -132,85 +85,46 @@ export async function handleTriage(
         .eq('phone', phoneNumber);
     }
 
-    await updateTriageStage(supabase, tenant.id, phoneNumber, 'awaiting_triage');
+    // Decide department based on the contact's existing classification.
+    // Inquilinos and proprietários go straight to admin; everyone else starts in comercial.
+    const department = await resolveDepartmentFromContact(supabase, tenant.id, phoneNumber);
+    await completeTriage(supabase, tenant.id, phoneNumber, conversationId, department);
 
-    // Build response messages
     const messages: string[] = [];
 
-    // Name confirmation
     const nameConfirmation = triageConfig?.name_confirmation_template
       ? replaceTvars(triageConfig.name_confirmation_template, name || undefined)
       : name ? `Prazer, ${name}!` : `Prazer!`;
-    messages.push(nameConfirmation);
 
-    // VIP intro (if configured — adds ancoragem VIP after name)
+    // VIP intro override (keeps legacy consultora VIP behavior intact)
     if (triageConfig?.vip_intro) {
+      messages.push(nameConfirmation);
       messages.push(replaceTvars(triageConfig.vip_intro, name || undefined));
-    }
-
-    // Department prompt (if no VIP intro, append default)
-    if (!triageConfig?.vip_intro) {
-      messages[0] += `\n\nComo posso te ajudar?`;
+    } else {
+      const welcome = triageConfig?.department_welcome?.[department]
+        ? replaceTvars(triageConfig.department_welcome[department], name || undefined)
+        : DEPARTMENT_WELCOME[department] || '\n\nEm que posso te ajudar?';
+      messages.push(nameConfirmation + welcome);
     }
 
     return {
       shouldContinue: true,
       responseMessages: messages,
       contactName: name || undefined,
+      department,
     };
   }
 
-  // ========== STAGE: AWAITING TRIAGE (Departamento) ==========
+  // ========== LEGACY STAGES (migrate stuck conversations forward) ==========
+  // Any lead still parked on the old `awaiting_triage`, `remarketing_vip_pitch`, or
+  // `remarketing_buyin` stages gets auto-completed so the AI agent picks up from here.
   if (stage === 'awaiting_triage') {
-    // Check if user selected a department via button
-    const buttonResult = extractTriageButtonId(message);
-    if (buttonResult?.department) {
-      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, buttonResult.department);
-
-      const welcomeMsg = triageConfig?.department_welcome?.[buttonResult.department]
-        ? replaceTvars(triageConfig.department_welcome[buttonResult.department], contactName || undefined)
-        : DEPARTMENT_WELCOME[buttonResult.department] || 'Como posso te ajudar?';
-
-      return {
-        shouldContinue: true,
-        responseMessages: [welcomeMsg],
-        department: buttonResult.department,
-      };
-    }
-
-    // Try to infer department from free text
-    const inferredDept = inferDepartmentFromText(messageBody);
-    if (inferredDept) {
-      await completeTriage(supabase, tenant.id, phoneNumber, conversationId, inferredDept);
-
-      const welcomeMsg = triageConfig?.department_welcome?.[inferredDept]
-        ? replaceTvars(triageConfig.department_welcome[inferredDept], contactName || undefined)
-        : DEPARTMENT_WELCOME[inferredDept] || 'Como posso te ajudar?';
-
-      return {
-        shouldContinue: true,
-        responseMessages: [welcomeMsg],
-        department: inferredDept,
-      };
-    }
-
-    // Can't determine department — send buttons
-    return {
-      shouldContinue: true,
-      responseMessages: [],  // Will be sent as interactive buttons by caller
-    };
-  }
-
-  // ========== STAGE: REMARKETING VIP PITCH (legacy — migrate to completed) ==========
-  // Leads that were stuck on this stage before the triage-skip change: complete immediately.
-  if (stage === 'remarketing_vip_pitch') {
-    await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
+    const department = await resolveDepartmentFromContact(supabase, tenant.id, phoneNumber);
+    await completeTriage(supabase, tenant.id, phoneNumber, conversationId, department);
     return { shouldContinue: false };
   }
 
-  // ========== STAGE: REMARKETING BUY-IN (legacy — migrate to completed) ==========
-  // Leads that were stuck on remarketing_buyin: complete immediately and let the AI handle.
-  if (stage === 'remarketing_buyin') {
+  if (stage === 'remarketing_vip_pitch' || stage === 'remarketing_buyin') {
     await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
     return { shouldContinue: false };
   }
@@ -268,19 +182,37 @@ function extractName(text: string): string | null {
   return null;
 }
 
-function inferDepartmentFromText(text: string): DepartmentType {
-  const lower = text.toLowerCase();
+// ========== DEPARTMENT RESOLUTION ==========
 
-  // Locação keywords
-  if (/alug|locar|locação|alugo|para alugar|quero alugar/i.test(lower)) return 'locacao';
+// Reads contacts.contact_type for this phone. Returns the department that should
+// own the conversation. Defaults to 'vendas' when the contact doesn't exist yet
+// or is just a generic lead — the comercial agent handles vendas+locacao and
+// can transfer to admin mid-conversation via the transferir_administrativo tool.
+export async function resolveDepartmentFromContact(
+  supabase: any,
+  tenantId: string,
+  phoneNumber: string
+): Promise<DepartmentType> {
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('contact_type, department_code')
+    .eq('tenant_id', tenantId)
+    .eq('phone', phoneNumber)
+    .maybeSingle();
 
-  // Vendas keywords
-  if (/comprar|compra|venda|adquirir|investir|investimento/i.test(lower)) return 'vendas';
+  if (!contact) return 'vendas';
 
-  // Administrativo keywords
-  if (/boleto|contrato|manuten[cç][aã]o|reparo|chave|vistoria|rescis|2[aª]\s*via|segunda\s*via|suporte|admin/i.test(lower)) return 'administrativo';
+  if (contact.contact_type === 'proprietario' || contact.contact_type === 'inquilino') {
+    return 'administrativo';
+  }
 
-  return null;
+  // Respect an explicit department already set on the contact (e.g. imported with
+  // department_code=locacao from a portal), otherwise default to vendas.
+  if (contact.department_code === 'locacao' || contact.department_code === 'administrativo') {
+    return contact.department_code;
+  }
+
+  return 'vendas';
 }
 
 export async function updateTriageStage(
@@ -336,7 +268,7 @@ async function completeTriage(
     .update(updateData)
     .eq('id', conversationId);
 
-  // Sync department to contact
+  // Sync department to contact (don't overwrite contact_type — the import owns that)
   await supabase
     .from('contacts')
     .update({ department_code: department })

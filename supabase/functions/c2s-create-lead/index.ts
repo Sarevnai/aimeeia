@@ -43,6 +43,35 @@ serve(async (req: Request) => {
       .eq('id', contact_id)
       .maybeSingle();
 
+    // Sprint 6.2 — SETOR ADMINISTRATIVO NÃO SE INTEGRA COM C2S.
+    // Defesa em profundidade: mesmo que alguém chame c2s-create-lead partindo
+    // de um contexto admin (bug, UI legada, script), bloqueia na origem.
+    if (contact?.contact_type === 'inquilino' || contact?.contact_type === 'proprietario') {
+      console.warn(`⛔ c2s-create-lead bloqueado: contact_type=${contact.contact_type} pertence ao setor admin`);
+      await logActivity(supabase, tenant_id, 'c2s_create_blocked_admin', 'contacts', contact_id || null, {
+        reason: 'admin_sector_no_c2s',
+        contact_type: contact?.contact_type,
+      });
+      return jsonResponse({ success: false, blocked: true, reason: 'Setor administrativo não integra com C2S' }, 403);
+    }
+
+    // Também bloqueia se a conversa é do setor administrativo
+    if (conversation_id) {
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('department_code')
+        .eq('id', conversation_id)
+        .maybeSingle();
+      if (conv?.department_code === 'administrativo') {
+        console.warn('⛔ c2s-create-lead bloqueado: conversation.department_code=administrativo');
+        await logActivity(supabase, tenant_id, 'c2s_create_blocked_admin', 'conversations', conversation_id, {
+          reason: 'admin_sector_no_c2s',
+          department: 'administrativo',
+        });
+        return jsonResponse({ success: false, blocked: true, reason: 'Setor administrativo não integra com C2S' }, 403);
+      }
+    }
+
     // Load property details from pending_properties (source of truth)
     let propertyDetails: any = null;
     let finalDevId = development_id || null;

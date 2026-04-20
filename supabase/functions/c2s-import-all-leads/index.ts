@@ -133,11 +133,29 @@ serve(async (req: Request) => {
 
         if (dry_run) continue;
 
+        // Sprint 6.2 — blocklist: admin marcou esse phone/lead pra NÃO importar
+        const variantsForBlock = phoneVariants(phone);
+        const phoneOrBlock = variantsForBlock.map((v) => `phone.eq.${v}`).join(',');
+        const { data: blocked } = await supabase
+          .from('c2s_import_blocklist')
+          .select('id')
+          .eq('tenant_id', tenant_id)
+          .or(`c2s_lead_id.eq.${lead.id},${phoneOrBlock}`)
+          .limit(1)
+          .maybeSingle();
+        if (blocked) {
+          stats.errors++;
+          if (stats.error_samples.length < 3) {
+            stats.error_samples.push({ lead_id: lead.id, error: 'blocklisted' });
+          }
+          continue;
+        }
+
         // Prefer update when phone exists; insert otherwise. Lookup tolerante a
         // variações do nono dígito BR (evita duplicar quando o Meta entrega sem).
         const { data: existing } = await supabase
           .from('contacts')
-          .select('id, name, email, channel_source')
+          .select('id, name, email, channel_source, contact_type')
           .eq('tenant_id', tenant_id)
           .in('phone', phoneVariants(phone))
           .order('created_at', { ascending: true })
@@ -145,6 +163,16 @@ serve(async (req: Request) => {
           .maybeSingle();
 
         if (existing) {
+          // Sprint 6.2 — SETOR ADMINISTRATIVO NÃO SE INTEGRA COM C2S.
+          // Inquilinos e proprietários ficam imunes ao import C2S.
+          if (existing.contact_type === 'inquilino' || existing.contact_type === 'proprietario') {
+            stats.errors++;
+            if (stats.error_samples.length < 3) {
+              stats.error_samples.push({ lead_id: lead.id, error: `protegido: ${existing.contact_type}` });
+            }
+            continue;
+          }
+
           const update: any = { ...contactPayload };
           // preserve locally edited name/email if already present
           if (existing.name) delete update.name;

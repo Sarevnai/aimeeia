@@ -46,6 +46,7 @@ import { cn } from '@/lib/utils';
 import type { Tables } from '@/integrations/supabase/types';
 import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
+import { AdminContactSidebar } from '@/components/chat/AdminContactSidebar';
 import BrokerWATemplatesManager from '@/components/chat/BrokerWATemplatesManager';
 import LeadTags from '@/components/LeadTags';
 
@@ -589,6 +590,8 @@ const ChatPage: React.FC = () => {
   }
 
   const dept = conversation.department_code;
+  // Sprint 6.2 — admin não usa C2S, não tem qualificação de lead, não tem tags de qualificação
+  const isAdminDept = dept === 'administrativo';
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
@@ -657,9 +660,11 @@ const ChatPage: React.FC = () => {
               <Phone className="h-3.5 w-3.5 mr-1" />
               WhatsApp
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setC2sDialogOpen(true)} className="text-xs" title="Encaminhar ao C2S">
-              <ExternalLink className="h-3.5 w-3.5 mr-1" /> C2S
-            </Button>
+            {!isAdminDept && (
+              <Button size="sm" variant="outline" onClick={() => setC2sDialogOpen(true)} className="text-xs" title="Encaminhar ao C2S">
+                <ExternalLink className="h-3.5 w-3.5 mr-1" /> C2S
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -940,8 +945,19 @@ const ChatPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Qualification */}
-          {leadQual && (
+          {/* Admin: info do cliente (não há qualificação de lead — são inquilinos/proprietários) */}
+          {isAdminDept && contact && (
+            <AdminContactSidebar
+              tenantId={tenantId}
+              contactId={contact.id}
+              contactType={contact.contact_type}
+              propertyUnit={contact.property_unit}
+              neighborhood={(contact as any).crm_neighborhood}
+            />
+          )}
+
+          {/* Qualification — apenas vendas/locacao/remarketing. Admin trata clientes, não leads. */}
+          {leadQual && !isAdminDept && (
             <div className="p-4 border-b border-border">
               <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Qualificação</h4>
               <div className="space-y-2.5">
@@ -966,34 +982,43 @@ const ChatPage: React.FC = () => {
             </div>
           )}
 
-          {/* Tags */}
+          {/* Tags — no setor admin, filtra fora tags de qualificação de vendas (Interesse/Tipo/Bairro/Quartos/Orçamento/Prazo) */}
           {contact?.tags && contact.tags.length > 0 && (
-            <div className="p-4">
-              <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tags</h4>
-              <div className="flex flex-wrap gap-1.5">
-                {contact.tags.map((tag) => {
-                  // Color-code auto-generated qualification tags
-                  const tagColors: Record<string, string> = {
-                    'Interesse:': 'bg-blue-100 text-blue-800 border-blue-200',
-                    'Tipo:': 'bg-purple-100 text-purple-800 border-purple-200',
-                    'Bairro:': 'bg-green-100 text-green-800 border-green-200',
-                    'Quartos:': 'bg-orange-100 text-orange-800 border-orange-200',
-                    'Orçamento:': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-                    'Prazo:': 'bg-pink-100 text-pink-800 border-pink-200',
-                  };
-                  const colorClass = Object.entries(tagColors).find(([prefix]) => tag.startsWith(prefix))?.[1];
-                  return (
-                    <Badge
-                      key={tag}
-                      variant={colorClass ? "outline" : "secondary"}
-                      className={`text-[10px] ${colorClass || ''}`}
-                    >
-                      {tag}
-                    </Badge>
-                  );
-                })}
-              </div>
-            </div>
+            (() => {
+              const leadPrefixes = ['Interesse:', 'Tipo:', 'Bairro:', 'Quartos:', 'Orçamento:', 'Prazo:'];
+              const visibleTags = isAdminDept
+                ? contact.tags.filter((tag) => !leadPrefixes.some((p) => tag.startsWith(p)))
+                : contact.tags;
+              if (visibleTags.length === 0) return null;
+              return (
+                <div className="p-4">
+                  <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tags</h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {visibleTags.map((tag) => {
+                      // Color-code auto-generated qualification tags
+                      const tagColors: Record<string, string> = {
+                        'Interesse:': 'bg-blue-100 text-blue-800 border-blue-200',
+                        'Tipo:': 'bg-purple-100 text-purple-800 border-purple-200',
+                        'Bairro:': 'bg-green-100 text-green-800 border-green-200',
+                        'Quartos:': 'bg-orange-100 text-orange-800 border-orange-200',
+                        'Orçamento:': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+                        'Prazo:': 'bg-pink-100 text-pink-800 border-pink-200',
+                      };
+                      const colorClass = Object.entries(tagColors).find(([prefix]) => tag.startsWith(prefix))?.[1];
+                      return (
+                        <Badge
+                          key={tag}
+                          variant={colorClass ? 'outline' : 'secondary'}
+                          className={`text-[10px] ${colorClass || ''}`}
+                        >
+                          {tag}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()
           )}
         </div>
       )}

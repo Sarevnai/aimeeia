@@ -150,12 +150,31 @@ async function syncTenant(supabase: any, tenant_id: string) {
           crm_archive_reason: archiveDetails.archived ? (archiveDetails.archive_notes || 'arquivado') : null,
         };
 
-        // Try by c2s_lead_id first (authoritative), fallback to phone (todas variantes BR)
+        // Sprint 6.2 — checa blocklist antes do upsert. Se phone ou c2s_lead_id
+        // está bloqueado, skip (admin marcou esse lead como não-importável).
         const variants = phoneVariants(phone);
+        const phoneOrBlock = variants.map((v) => `phone.eq.${v}`).join(',');
+        const { data: blocked } = await supabase
+          .from('c2s_import_blocklist')
+          .select('id')
+          .eq('tenant_id', tenant_id)
+          .or(`c2s_lead_id.eq.${lead.id},${phoneOrBlock}`)
+          .limit(1)
+          .maybeSingle();
+
+        if (blocked) {
+          stats.errors++;
+          if (stats.error_samples.length < 5) {
+            stats.error_samples.push({ lead_id: lead.id, error: 'blocklisted — phone/lead marcado como não-importável' });
+          }
+          continue;
+        }
+
+        // Try by c2s_lead_id first (authoritative), fallback to phone (todas variantes BR)
         const phoneOr = variants.map((v) => `phone.eq.${v}`).join(',');
         const { data: existing } = await supabase
           .from('contacts')
-          .select('id, name, email, channel_source')
+          .select('id, name, email, channel_source, contact_type')
           .eq('tenant_id', tenant_id)
           .or(`c2s_lead_id.eq.${lead.id},${phoneOr}`)
           .order('created_at', { ascending: true })
@@ -163,6 +182,20 @@ async function syncTenant(supabase: any, tenant_id: string) {
           .maybeSingle();
 
         if (existing) {
+          // Sprint 6.2 — SETOR ADMINISTRATIVO NÃO SE INTEGRA COM C2S.
+          // Se o contato existente é inquilino ou proprietário, NÃO sobrescreve.
+          // C2S só pode tocar contatos que são leads de vendas.
+          if (existing.contact_type === 'inquilino' || existing.contact_type === 'proprietario') {
+            stats.errors++;
+            if (stats.error_samples.length < 5) {
+              stats.error_samples.push({
+                lead_id: lead.id,
+                error: `protegido: contato existente é ${existing.contact_type} (setor admin)`,
+              });
+            }
+            continue;
+          }
+
           const update: any = { ...contactPayload };
           if (existing.name) delete update.name;
           if (existing.email) delete update.email;

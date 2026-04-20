@@ -6,7 +6,6 @@ import { AgentModule, AgentContext } from './agent-interface.ts';
 import {
   executeCreateTicket,
   executeAdminHandoff,
-  executeDepartmentTransfer,
   executeGetTicketContext,
 } from './tool-executors.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
@@ -245,7 +244,12 @@ FLUXO:
 </prioridades>
 
 <roteamento>
-Se o cliente demonstrar interesse em COMPRAR ou ALUGAR um imóvel NOVO (não resolver pendência do atual), use transferir_comercial. Antes de transferir, registre a demanda administrativa em aberto, se houver.
+Se o cliente demonstrar interesse em COMPRAR ou ALUGAR um imóvel NOVO (não resolver pendência do atual):
+1. Registre qualquer demanda administrativa em aberto (criar_ticket, se houver).
+2. Use encaminhar_humano com motivo='interesse_comercial' — NUNCA transfira sozinha para o setor comercial.
+3. O humano decide se abre o atendimento comercial do zero (com as qualificações próprias de vendas/locação).
+
+NUNCA acione o CRM comercial (C2S) a partir do setor administrativo. Inquilinos e proprietários NÃO são leads de vendas — são clientes sob administração.
 </roteamento>
 
 ${config.custom_instructions ? `<custom_instructions>\n${config.custom_instructions}\n</custom_instructions>` : ''}
@@ -298,25 +302,11 @@ function getAdminTools(): any[] {
       type: "function",
       function: {
         name: "encaminhar_humano",
-        description: "Transfere para operador humano. Use quando: (1) cliente pede expressamente, (2) categoria é alto risco (rescisão, jurídico), (3) demanda é muito complexa, (4) negociação de valores.",
+        description: "Transfere para operador humano. Use quando: (1) cliente pede expressamente, (2) categoria é alto risco (rescisão, jurídico), (3) demanda é muito complexa, (4) negociação de valores, (5) cliente demonstra interesse comercial (comprar/alugar novo imóvel) — nesse caso use motivo='interesse_comercial' e o humano decide se abre atendimento no setor de vendas.",
         parameters: {
           type: "object",
           properties: {
-            motivo: { type: "string", description: "Motivo da transferência. Use 'categoria_alto_risco' para rescisão/jurídico." },
-          },
-          required: ["motivo"],
-        },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "transferir_comercial",
-        description: "Encaminha para setor comercial quando cliente quer COMPRAR ou ALUGAR imóvel novo. NÃO use para questões administrativas.",
-        parameters: {
-          type: "object",
-          properties: {
-            motivo: { type: "string", description: "O que o cliente disse que indica intenção comercial" },
+            motivo: { type: "string", description: "Motivo da transferência. Códigos reservados: 'categoria_alto_risco' (rescisão/jurídico), 'interesse_comercial' (cliente quer novo imóvel)." },
           },
           required: ["motivo"],
         },
@@ -338,10 +328,16 @@ export const adminAgent: AgentModule = {
 
   async executeToolCall(ctx: AgentContext, toolName: string, args: any): Promise<string> {
     console.log(`🔧 [Admin] Executing tool: ${toolName}`, args);
+    // Sprint 6.2 — admin NUNCA transfere pra vendas sozinha; se tool antiga aparecer, converte em handoff humano
+    if (toolName === 'transferir_comercial') {
+      console.warn('⚠️ [Admin] transferir_comercial foi chamada mas não está mais disponível — redirecionando pra encaminhar_humano');
+      return await executeAdminHandoff(ctx, {
+        motivo: `interesse_comercial: ${args?.motivo || 'cliente mencionou novo imóvel'}`,
+      });
+    }
     if (toolName === 'criar_ticket') return await executeCreateTicket(ctx, args);
     if (toolName === 'consultar_contexto_ticket') return await executeGetTicketContext(ctx, args);
     if (toolName === 'encaminhar_humano') return await executeAdminHandoff(ctx, args);
-    if (toolName === 'transferir_comercial') return await executeDepartmentTransfer(ctx, 'vendas', args);
     return `Ferramenta desconhecida: ${toolName}`;
   },
 

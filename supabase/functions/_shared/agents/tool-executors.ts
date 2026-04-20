@@ -769,6 +769,19 @@ export async function executeLeadHandoff(
   ctx: AgentContext,
   args: any
 ): Promise<string> {
+  // Sprint 6.2 — blindagem admin: setor administrativo NÃO usa C2S, nem envia leads pra vendas.
+  // Se por algum motivo essa função foi chamada num contexto admin, converte pra handoff humano local.
+  if (ctx.department === 'administrativo' || ctx.contactType === 'inquilino' || ctx.contactType === 'proprietario') {
+    console.warn(`⛔ executeLeadHandoff bloqueado — dept=${ctx.department} contactType=${ctx.contactType}. Admin não usa C2S.`);
+    await logActivity(ctx.supabase, ctx.tenantId, 'lead_handoff_blocked_admin', 'conversations', ctx.conversationId, {
+      reason: 'admin_sector_no_c2s',
+      department: ctx.department,
+      contact_type: ctx.contactType,
+    });
+    // Faz handoff humano local (sem C2S)
+    return await executeAdminHandoff(ctx, { motivo: args?.motivo || 'handoff_humano_admin' });
+  }
+
   try {
     let developmentId = args.codigo_imovel || null;
     let developmentTitle = args.titulo_imovel || null;

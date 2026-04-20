@@ -755,6 +755,12 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       const elevenLabsKey = Deno.env.get('ELEVENLABS_API_KEY');
       if (!elevenLabsKey) {
         console.warn('⚠️ ELEVENLABS_API_KEY not set, falling back to text');
+        await logActivity(supabase, tenant_id, 'tts_skipped', 'conversations', conversation_id, {
+          reason: 'ELEVENLABS_API_KEY not configured in Supabase secrets',
+          message_type_inbound: message_type,
+          audio_mode: audioConfig.audio_mode,
+          channel_mirroring: audioConfig.audio_channel_mirroring,
+        });
         await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
       } else {
         try {
@@ -767,13 +773,26 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
             await sleep(500);
             // Send audio via WhatsApp but do NOT save duplicate row in messages table
             // The text row above already has the content; audio is just a companion format
-            await sendWhatsAppAudio(phone_number, audioUrl, tenant as Tenant);
+            const audioResult = await sendWhatsAppAudio(phone_number, audioUrl, tenant as Tenant);
+            if (!audioResult.success) {
+              await logActivity(supabase, tenant_id, 'tts_send_failed', 'conversations', conversation_id, {
+                step: 'sendWhatsAppAudio',
+                audio_url: audioUrl,
+                audio_mode: audioConfig.audio_mode,
+              });
+            }
           } else {
             // audio_only mode: send only audio and save with audio metadata
             await sendAndSaveAudio(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, audioUrl, effectiveDepartment);
           }
         } catch (ttsError) {
           console.error('❌ TTS error, falling back to text:', ttsError);
+          await logActivity(supabase, tenant_id, 'tts_error', 'conversations', conversation_id, {
+            error: (ttsError as Error).message,
+            stack: ((ttsError as Error).stack || '').slice(0, 500),
+            voice_id: audioConfig.audio_voice_id,
+            audio_mode: audioConfig.audio_mode,
+          });
           await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
         }
       }

@@ -313,8 +313,19 @@ export const ConversationChatPanel: React.FC<Props> = ({
                         </div>
                       ) : msg.media_type === 'video' && msg.media_url ? (
                         <video controls src={msg.media_url} className="rounded-lg max-w-full max-h-60" />
-                      ) : (msg.media_type === 'audio' || msg.media_type === 'voice') && msg.media_url ? (
-                        <audio controls src={msg.media_url} className="w-full h-10 min-w-[220px]" />
+                      ) : (msg.media_type === 'audio' || msg.media_type === 'voice') ? (
+                        <div className="space-y-1 min-w-[240px]">
+                          {msg.media_url ? (
+                            <audio controls src={msg.media_url} className="w-full h-10" />
+                          ) : (
+                            <p className="text-[11px] italic text-muted-foreground">[Áudio indisponível]</p>
+                          )}
+                          {msg.body && msg.body.startsWith('[Transcrição de áudio]:') && (
+                            <p className="text-[11px] italic text-muted-foreground">
+                              💬 {msg.body.replace('[Transcrição de áudio]:', '').trim()}
+                            </p>
+                          )}
+                        </div>
                       ) : msg.media_type === 'document' && msg.media_url ? (
                         <a
                           href={msg.media_url}

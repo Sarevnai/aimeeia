@@ -27,7 +27,18 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { getAllowedPaths } from '@/lib/access-control';
+import { getAllowedPaths, shouldUseAdminNav, ADMIN_NAV_GROUPS } from '@/lib/access-control';
+
+// Mapa dos nomes usados no ADMIN_NAV_GROUPS pra componentes de ícone reais
+const ICON_MAP: Record<string, React.ElementType> = {
+  LayoutDashboard,
+  MessageSquare,
+  Ticket,
+  Users,
+  Brain,
+  Settings,
+  BookOpen,
+};
 
 interface NavItem {
   label: string;
@@ -73,54 +84,69 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
       .then(({ count }) => setActiveTicketCount(count ?? 0));
   }, [tenantId]);
 
-  const navGroups: NavGroup[] = [
-    {
-      items: [
-        { label: 'Início', icon: LayoutDashboard, path: '/' },
-        { label: 'Conversas', icon: MessageSquare, path: '/inbox', badge: activeConvCount },
-      ],
-    },
-    {
-      label: 'Atendimento',
-      items: [
-        { label: 'Leads', icon: Users, path: '/leads' },
-        { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
-        { label: 'Dashboard C2S', icon: BarChart3, path: '/dashboard-c2s' },
-        { label: 'Captação', icon: Radar, path: '/captacao' },
-        { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
-        { label: 'Chamados', icon: Ticket, path: '/chamados', badge: activeTicketCount },
-        { label: 'DNC', icon: BanIcon, path: '/dnc' },
-      ],
-    },
-    {
-      label: 'Gestão',
-      items: [
-        { label: 'Empreendimentos', icon: Building2, path: '/empreendimentos' },
-        { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
-        { label: 'Atualização', icon: RefreshCw, path: '/atualizacao' },
-      ],
-    },
-    {
-      label: 'Inteligência',
-      items: [
-        { label: 'Módulos', icon: Brain, path: '/modulos' },
-      ],
-    },
-    {
-      label: 'Configurações',
-      items: [
-        { label: 'Financeiro', icon: Wallet, path: '/financeiro' },
-        { label: 'Minha Aimee', icon: Settings, path: '/minha-aimee' },
-        { label: 'Acessos', icon: Shield, path: '/acessos' },
-      ],
-    },
-    {
-      label: 'Ajuda',
-      items: [
-        { label: 'Guia da Aimee', icon: BookOpen, path: '/guia' },
-      ],
-    },
-  ];
+  // Sprint 6.2 — operadores do setor administrativo usam nav dedicado (sem vendas).
+  const useAdminNav = shouldUseAdminNav(profile);
+
+  const badgeFor = (key?: string): number | undefined => {
+    if (key === 'activeTickets') return activeTicketCount;
+    if (key === 'activeConvs') return activeConvCount;
+    return undefined;
+  };
+
+  const navGroups: NavGroup[] = useAdminNav
+    ? ADMIN_NAV_GROUPS.map((g) => ({
+        label: g.label,
+        items: g.items.map((it) => ({
+          label: it.label,
+          icon: ICON_MAP[it.iconName] || LayoutDashboard,
+          path: it.path,
+          badge: badgeFor(it.badgeKey),
+        })),
+      }))
+    : [
+        {
+          items: [
+            { label: 'Início', icon: LayoutDashboard, path: '/' },
+            { label: 'Conversas', icon: MessageSquare, path: '/inbox', badge: activeConvCount },
+          ],
+        },
+        {
+          label: 'Atendimento',
+          items: [
+            { label: 'Leads', icon: Users, path: '/leads' },
+            { label: 'Pipeline', icon: Kanban, path: '/pipeline' },
+            { label: 'Dashboard C2S', icon: BarChart3, path: '/dashboard-c2s' },
+            { label: 'Captação', icon: Radar, path: '/captacao' },
+            { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
+            { label: 'Chamados', icon: Ticket, path: '/chamados', badge: activeTicketCount },
+            { label: 'DNC', icon: BanIcon, path: '/dnc' },
+          ],
+        },
+        {
+          label: 'Gestão',
+          items: [
+            { label: 'Empreendimentos', icon: Building2, path: '/empreendimentos' },
+            { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
+            { label: 'Atualização', icon: RefreshCw, path: '/atualizacao' },
+          ],
+        },
+        {
+          label: 'Inteligência',
+          items: [{ label: 'Módulos', icon: Brain, path: '/modulos' }],
+        },
+        {
+          label: 'Configurações',
+          items: [
+            { label: 'Financeiro', icon: Wallet, path: '/financeiro' },
+            { label: 'Minha Aimee', icon: Settings, path: '/minha-aimee' },
+            { label: 'Acessos', icon: Shield, path: '/acessos' },
+          ],
+        },
+        {
+          label: 'Ajuda',
+          items: [{ label: 'Guia da Aimee', icon: BookOpen, path: '/guia' }],
+        },
+      ];
 
   return (
     <aside

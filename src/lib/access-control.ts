@@ -12,18 +12,22 @@ export interface AccessProfile {
 export const ROLE_PATHS: Record<string, string[]> = {
   super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao', '/dnc',
-    '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia', '/admin'],
+    '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia', '/admin',
+    '/dashboard-admin', '/contatos-admin'],
   admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao', '/dnc',
-    '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia'],
+    '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia',
+    '/dashboard-admin', '/contatos-admin'],
   operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
   viewer: ['/', '/relatorios', '/dashboard-c2s', '/dnc', '/guia'],
 };
 
 // Department-specific paths for operators (overrides ROLE_PATHS.operator when set).
-// Vendas/locacao limited to Leads, Pipeline, Conversas per product decision.
+// Sprint 6.2 — administrativo: escopo limpo, só itens do setor (sem dashboard-c2s,
+// financeiro, leads, relatórios de vendas). Página inicial é /dashboard-admin com
+// métricas do setor (TTFR, chamados abertos, órfãs, NPS médio).
 export const DEPT_PATHS: Record<string, string[]> = {
-  administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/dashboard-c2s', '/financeiro', '/dnc', '/guia'],
+  administrativo: ['/dashboard-admin', '/chamados', '/inbox', '/chat', '/contatos-admin', '/modulos', '/minha-aimee', '/guia'],
   vendas: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
   locacao: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
   remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/campanhas', '/empreendimentos', '/dnc', '/guia'],
@@ -48,4 +52,69 @@ export function getAllowedPaths(profile: AccessProfile | null | undefined): stri
 export function isPathAllowed(pathname: string, profile: AccessProfile | null | undefined): boolean {
   const allowed = getAllowedPaths(profile);
   return allowed.some((p) => pathname === p || (p !== '/' && pathname.startsWith(p)));
+}
+
+// ═══════════════════════════════════════════════════════
+// Sprint 6.2 — estrutura de nav dedicada ao setor administrativo
+// ═══════════════════════════════════════════════════════
+// Usado pelo AppSidebar quando user é operator + dept=administrativo.
+// Labels e grupos refletem o setor (Operação/Clientes/Configurações), não vendas.
+
+export interface AdminNavItem {
+  label: string;
+  iconName: string; // mapeado no sidebar pra evitar dep de ícone no access-control
+  path: string;
+  badgeKey?: 'activeTickets' | 'activeConvs';
+}
+
+export interface AdminNavGroup {
+  label?: string;
+  items: AdminNavItem[];
+}
+
+export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
+  {
+    items: [
+      { label: 'Início', iconName: 'LayoutDashboard', path: '/dashboard-admin' },
+    ],
+  },
+  {
+    label: 'Operação',
+    items: [
+      { label: 'Chamados', iconName: 'Ticket', path: '/chamados', badgeKey: 'activeTickets' },
+      { label: 'Conversas', iconName: 'MessageSquare', path: '/inbox', badgeKey: 'activeConvs' },
+    ],
+  },
+  {
+    label: 'Clientes',
+    items: [
+      { label: 'Contatos', iconName: 'Users', path: '/contatos-admin' },
+    ],
+  },
+  {
+    label: 'Inteligência',
+    items: [
+      { label: 'Módulos', iconName: 'Brain', path: '/modulos' },
+    ],
+  },
+  {
+    label: 'Configurações',
+    items: [
+      { label: 'Minha Aimee', iconName: 'Settings', path: '/minha-aimee' },
+    ],
+  },
+  {
+    label: 'Ajuda',
+    items: [
+      { label: 'Guia da Aimee', iconName: 'BookOpen', path: '/guia' },
+    ],
+  },
+];
+
+// Helper pra decidir se o user deve ver o nav admin-dedicado.
+// Operator + dept=administrativo → admin nav. Admin/super_admin veem o nav padrão
+// com acesso completo (ainda que trabalhem em contexto admin) porque precisam das
+// páginas de gestão (Acessos, Financeiro da empresa, etc).
+export function shouldUseAdminNav(profile: AccessProfile | null | undefined): boolean {
+  return profile?.role === 'operator' && profile?.department_code === 'administrativo';
 }

@@ -32,6 +32,8 @@ import AtualizacaoPage from "@/pages/AtualizacaoPage";
 import FinancePage from "@/pages/FinancePage";
 import TicketsPage from "@/pages/TicketsPage";
 import TicketDetailPage from "@/pages/TicketDetailPage";
+import DashboardAdminPage from "@/pages/DashboardAdminPage";
+import ContatosAdminPage from "@/pages/ContatosAdminPage";
 import DNCPage from "@/pages/DNCPage";
 import NotFound from "./pages/NotFound";
 
@@ -95,6 +97,8 @@ const App = () => (
                   <Route path="/financeiro" element={<FinancePage />} />
                   <Route path="/chamados" element={<TicketsPage />} />
                   <Route path="/chamados/:id" element={<TicketDetailPage />} />
+                  <Route path="/dashboard-admin" element={<DashboardAdminPage />} />
+                  <Route path="/contatos-admin" element={<ContatosAdminPage />} />
                   <Route path="/dnc" element={<DNCPage />} />
                   <Route path="/modulos" element={<ModulosPage />} />
 

@@ -6,12 +6,13 @@ import {
   Users,
   Kanban,
   Settings,
+  Ticket,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllowedPaths } from '@/lib/access-control';
+import { getAllowedPaths, shouldUseAdminNav } from '@/lib/access-control';
 
-const mobileNavItems = [
+const defaultNav = [
   { label: 'Início', icon: LayoutDashboard, path: '/' },
   { label: 'Conversas', icon: MessageSquare, path: '/inbox' },
   { label: 'Leads', icon: Users, path: '/leads' },
@@ -19,10 +20,20 @@ const mobileNavItems = [
   { label: 'Aimee', icon: Settings, path: '/minha-aimee' },
 ];
 
+// Sprint 6.2 — nav mobile dedicado pro setor admin (chamados é o workflow central)
+const adminNav = [
+  { label: 'Início', icon: LayoutDashboard, path: '/dashboard-admin' },
+  { label: 'Chamados', icon: Ticket, path: '/chamados' },
+  { label: 'Conversas', icon: MessageSquare, path: '/inbox' },
+  { label: 'Contatos', icon: Users, path: '/contatos-admin' },
+  { label: 'Aimee', icon: Settings, path: '/minha-aimee' },
+];
+
 const MobileBottomNav: React.FC = () => {
   const location = useLocation();
   const { profile } = useAuth();
   const allowedPaths = getAllowedPaths(profile);
+  const mobileNavItems = shouldUseAdminNav(profile) ? adminNav : defaultNav;
   const visibleItems = mobileNavItems.filter((item) =>
     allowedPaths.some((p) => item.path === p || (p !== '/' && item.path.startsWith(p)))
   );

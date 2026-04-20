@@ -10,6 +10,7 @@ import { resolveTenant, sendWhatsAppMessage } from '../_shared/whatsapp.ts';
 import { isDuplicateMessage, logError, logActivity } from '../_shared/utils.ts';
 import { transcribeWhatsAppAudio } from '../_shared/audio-transcription.ts';
 import { downloadAndHostWhatsAppMedia } from '../_shared/whatsapp-media.ts';
+import { classifyInbound, replyForReason } from '../_shared/inbound-filters.ts';
 import { Tenant, WhatsAppWebhookEntry, MakeWebhookRequest } from '../_shared/types.ts';
 
 serve(async (req: Request) => {
@@ -454,6 +455,86 @@ async function processInboundMessage(
     .update({ follow_up_sent_at: null, updated_at: new Date().toISOString() })
     .eq('tenant_id', tenant.id)
     .eq('phone_number', phoneNumber);
+
+  // 4.6 Inbound filter: opt-out / auto-reply / wrong-audience detection.
+  // If matched, we reply once (except auto-reply), mark the contact DNC,
+  // close the conversation, and skip ai-agent entirely.
+  const { data: contactRow } = await supabase
+    .from('contacts')
+    .select('id, name, dnc')
+    .eq('id', contact.id)
+    .maybeSingle();
+
+  // Already flagged as DNC from a previous turn: silently drop and close.
+  if (contactRow?.dnc) {
+    console.log(`🚫 DNC contact ${phoneNumber}, silently ignoring.`);
+    await supabase.from('conversations').update({ status: 'closed' }).eq('id', conversation.id);
+    await supabase.from('conversation_states')
+      .update({ is_ai_active: false, updated_at: new Date().toISOString() })
+      .eq('tenant_id', tenant.id).eq('phone_number', phoneNumber);
+    return { action: 'dnc_silent_drop' };
+  }
+
+  const filterHit = classifyInbound(messageBody);
+  if (filterHit.reason) {
+    console.log(`🚦 Inbound filter hit: ${filterHit.reason} ("${filterHit.matched}") for ${phoneNumber}`);
+
+    // Mark contact as DNC and close conversation so ai-agent never sees it.
+    await supabase.from('contacts').update({
+      dnc: true,
+      dnc_at: new Date().toISOString(),
+      dnc_reason: filterHit.reason,
+    }).eq('id', contact.id);
+
+    await supabase.from('conversations').update({ status: 'closed' }).eq('id', conversation.id);
+
+    await supabase.from('conversation_states')
+      .upsert({
+        tenant_id: tenant.id,
+        phone_number: phoneNumber,
+        is_ai_active: false,
+        triage_stage: 'dnc',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,phone_number' });
+
+    // Polite one-shot reply (opt_out / wrong_audience). Auto-reply: stay silent.
+    if (filterHit.reason !== 'auto_reply') {
+      const replyText = replyForReason(filterHit.reason, contactRow?.name || null);
+      try {
+        const sent = await sendWhatsAppMessage(phoneNumber, replyText, tenant, waMessageId);
+        await supabase.from('messages').insert({
+          tenant_id: tenant.id,
+          conversation_id: conversation.id,
+          wa_message_id: sent.messageId || `dnc_${Date.now()}`,
+          wa_from: tenant.wa_phone_number_id,
+          wa_to: phoneNumber,
+          direction: 'outbound',
+          body: replyText,
+          department_code: conversation.department_code,
+          sender_type: 'ai',
+          created_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.error('❌ Failed to send DNC reply:', (err as Error).message);
+      }
+    }
+
+    await supabase.from('activity_logs').insert({
+      tenant_id: tenant.id,
+      action_type: 'inbound_filter_hit',
+      target_table: 'contacts',
+      target_id: contact.id,
+      metadata: {
+        reason: filterHit.reason,
+        matched: filterHit.matched,
+        phone: phoneNumber,
+        conversation_id: conversation.id,
+        message_body: messageBody.slice(0, 200),
+      },
+    });
+
+    return { action: `filtered_${filterHit.reason}` };
+  }
 
   // 5. Update conversation last_message_at
   await supabase

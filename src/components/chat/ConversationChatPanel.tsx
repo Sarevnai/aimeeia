@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { ChatMediaUpload } from '@/components/chat/ChatMediaUpload';
+import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 
 interface ChatMessage {
   id: number | string;

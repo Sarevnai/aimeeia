@@ -11,6 +11,7 @@ import { isDuplicateMessage, logError, logActivity } from '../_shared/utils.ts';
 import { transcribeWhatsAppAudio } from '../_shared/audio-transcription.ts';
 import { downloadAndHostWhatsAppMedia } from '../_shared/whatsapp-media.ts';
 import { classifyInbound, replyForReason } from '../_shared/inbound-filters.ts';
+import { normalizePhone, phoneVariants } from '../_shared/phone.ts';
 import { Tenant, WhatsAppWebhookEntry, MakeWebhookRequest } from '../_shared/types.ts';
 
 serve(async (req: Request) => {
@@ -274,9 +275,12 @@ async function processInboundMessage(
   tenant: Tenant,
   params: InboundMessageParams
 ): Promise<ProcessResult> {
-  const { phoneNumber, messageBody, waMessageId } = params;
+  // Normaliza o número para forma canônica BR (sem 9 prefixo) — evita
+  // criar entidades duplicadas quando Meta entrega sem o 9.
+  const phoneNumber = normalizePhone(params.phoneNumber) || params.phoneNumber;
+  const { messageBody, waMessageId } = params;
 
-  console.log(`📨 Inbound from ${phoneNumber}: "${messageBody?.slice(0, 100)}"`);
+  console.log(`📨 Inbound from ${phoneNumber}${phoneNumber !== params.phoneNumber ? ` (raw: ${params.phoneNumber})` : ''}: "${messageBody?.slice(0, 100)}"`);
 
   // 1. Deduplicate
   if (await isDuplicateMessage(supabase, tenant.id, waMessageId)) {
@@ -691,15 +695,21 @@ async function findOrCreateContact(
   phone: string,
   name: string | null
 ): Promise<{ id: string; name: string | null }> {
+  // Meta às vezes entrega sem o 9 prefixo do celular BR. Busca tolerante por
+  // todas as variantes antes de criar — evita duplicar o contato C2S.
+  const variants = phoneVariants(phone);
+  const canonical = variants[0] || phone;
+
   const { data: existing } = await supabase
     .from('contacts')
-    .select('id, name')
+    .select('id, name, phone')
     .eq('tenant_id', tenantId)
-    .eq('phone', phone)
+    .in('phone', variants)
+    .order('created_at', { ascending: true })
+    .limit(1)
     .maybeSingle();
 
   if (existing) {
-    // Update name if we have one and contact doesn't
     if (name && !existing.name) {
       await supabase.from('contacts').update({ name }).eq('id', existing.id);
     }
@@ -710,7 +720,7 @@ async function findOrCreateContact(
     .from('contacts')
     .insert({
       tenant_id: tenantId,
-      phone,
+      phone: canonical,
       name,
       status: 'ativo',
     })
@@ -726,12 +736,14 @@ async function findOrCreateConversation(
   phoneNumber: string,
   contactId: string
 ): Promise<{ id: string; department_code: string | null }> {
-  // Find active conversation
+  const variants = phoneVariants(phoneNumber);
+  const canonical = variants[0] || phoneNumber;
+
   const { data: existing } = await supabase
     .from('conversations')
     .select('id, department_code')
     .eq('tenant_id', tenantId)
-    .eq('phone_number', phoneNumber)
+    .in('phone_number', variants)
     .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -739,12 +751,11 @@ async function findOrCreateConversation(
 
   if (existing) return existing;
 
-  // Create new conversation
   const { data: newConv } = await supabase
     .from('conversations')
     .insert({
       tenant_id: tenantId,
-      phone_number: phoneNumber,
+      phone_number: canonical,
       contact_id: contactId,
       status: 'active',
       last_message_at: new Date().toISOString(),
@@ -752,12 +763,11 @@ async function findOrCreateConversation(
     .select('id, department_code')
     .single();
 
-  // Initialize conversation state
   await supabase
     .from('conversation_states')
     .upsert({
       tenant_id: tenantId,
-      phone_number: phoneNumber,
+      phone_number: canonical,
       triage_stage: 'greeting',
       is_ai_active: true,
       updated_at: new Date().toISOString(),

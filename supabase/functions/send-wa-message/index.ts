@@ -13,7 +13,7 @@ serve(async (req: Request) => {
   const supabase = getSupabaseClient();
 
   try {
-    const { tenant_id, phone_number, message, conversation_id, department_code, sender_type, sender_id, event_type } = await req.json();
+    const { tenant_id, phone_number, message, conversation_id, department_code, sender_type, sender_id, event_type, reply_to_id, reply_to_wa_id } = await req.json();
 
     if (!tenant_id || !phone_number || !message) {
       return errorResponse('Missing required fields', 400);
@@ -27,6 +27,17 @@ serve(async (req: Request) => {
       .single();
 
     if (!tenant) return errorResponse('Tenant not found', 404);
+
+    // Resolve reply_to_wa_id from reply_to_id se o cliente só passou o ID local
+    let resolvedReplyWaId: string | null = reply_to_wa_id || null;
+    if (reply_to_id && !resolvedReplyWaId) {
+      const { data: repliedMsg } = await supabase
+        .from('messages')
+        .select('wa_message_id')
+        .eq('id', reply_to_id)
+        .maybeSingle();
+      resolvedReplyWaId = repliedMsg?.wa_message_id || null;
+    }
 
     // Issue 4: Formatar mensagem com identidade do operador
     let formattedMessage = message;
@@ -68,7 +79,7 @@ serve(async (req: Request) => {
     }
 
     // Send message (with formatted content for WhatsApp)
-    const { success, messageId } = await sendWhatsAppMessage(phone_number, formattedMessage, tenant as Tenant);
+    const { success, messageId } = await sendWhatsAppMessage(phone_number, formattedMessage, tenant as Tenant, resolvedReplyWaId);
 
     if (!success) return errorResponse('Failed to send message', 502);
 
@@ -78,7 +89,8 @@ serve(async (req: Request) => {
       phone_number, message, messageId, department_code,
       undefined, undefined,
       sender_type || 'operator', sender_id || null,
-      event_type || null
+      event_type || null,
+      reply_to_id ? Number(reply_to_id) : null,
     );
 
     // Update conversation last_message_at

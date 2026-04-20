@@ -32,7 +32,8 @@ export async function resolveTenant(
 export async function sendWhatsAppMessage(
   phoneNumber: string,
   message: string,
-  tenant: Tenant
+  tenant: Tenant,
+  replyToWaId?: string | null,
 ): Promise<{ success: boolean; messageId?: string }> {
   if (!tenant.wa_phone_number_id || !tenant.wa_access_token) {
     console.error('❌ Tenant missing WhatsApp credentials');
@@ -41,6 +42,17 @@ export async function sendWhatsAppMessage(
 
   const url = `${META_API_BASE}/${META_API_VERSION}/${tenant.wa_phone_number_id}/messages`;
 
+  const payload: any = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: phoneNumber,
+    type: 'text',
+    text: { body: formatWhatsAppMarkdown(message) },
+  };
+  if (replyToWaId) {
+    payload.context = { message_id: replyToWaId };
+  }
+
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -48,13 +60,7 @@ export async function sendWhatsAppMessage(
         'Authorization': `Bearer ${tenant.wa_access_token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: phoneNumber,
-        type: 'text',
-        text: { body: formatWhatsAppMarkdown(message) },
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -261,7 +267,8 @@ export async function saveOutboundMessage(
   mediaUrl?: string,
   senderType?: string,
   senderId?: string,
-  eventType?: string
+  eventType?: string,
+  replyToLocalId?: number | null,
 ) {
   await supabase.from('messages').insert({
     tenant_id: tenantId,
@@ -277,6 +284,7 @@ export async function saveOutboundMessage(
     sender_type: senderType || 'ai',
     sender_id: senderId || null,
     event_type: eventType || null,
+    reply_to: replyToLocalId || null,
     created_at: new Date().toISOString(),
   });
 }

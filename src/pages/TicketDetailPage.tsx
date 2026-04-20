@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { TicketContextPanel } from '@/components/tickets/TicketContextPanel';
 
 interface TicketStage {
   id: string;
@@ -455,6 +456,14 @@ const TicketDetailPage: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
+
+            <Separator />
+
+            {/* Context Panel — Vista Office (Sprint 6.1) */}
+            <TicketContextPanel
+              ticketId={ticket.id}
+              categoryId={ticket.category_ref?.id || null}
+            />
 
             <Separator />
 

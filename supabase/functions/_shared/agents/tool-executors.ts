@@ -916,6 +916,7 @@ export async function executeCreateTicket(
     const slaHours = categoryRow?.sla_hours || 48;
     const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
 
+    const nowIso = new Date().toISOString();
     const { data: ticket, error } = await ctx.supabase
       .from('tickets')
       .insert({
@@ -933,6 +934,7 @@ export async function executeCreateTicket(
         conversation_id: ctx.conversationId || null,
         department_code: 'administrativo',
         sla_deadline: slaDeadline,
+        first_response_at: nowIso, // Sprint 6.1 métrica TTFR — ticket criado já é a primeira resposta substantiva
       })
       .select('id')
       .single();

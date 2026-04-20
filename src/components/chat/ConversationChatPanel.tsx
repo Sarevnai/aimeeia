@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
+import { AudioRecordButton } from '@/components/chat/AudioRecordButton';
 
 interface ChatMessage {
   id: number | string;
@@ -393,6 +394,13 @@ export const ConversationChatPanel: React.FC<Props> = ({
       {/* Compose */}
       <div className="flex items-end gap-2 px-4 py-3 border-t bg-card shrink-0">
         <ChatMediaUpload
+          tenantId={tenantId}
+          conversationId={conversationId}
+          phoneNumber={phoneNumber}
+          departmentCode={departmentCode || null}
+          onSending={setSending}
+        />
+        <AudioRecordButton
           tenantId={tenantId}
           conversationId={conversationId}
           phoneNumber={phoneNumber}

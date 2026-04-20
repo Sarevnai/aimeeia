@@ -47,6 +47,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
 import { AdminContactSidebar } from '@/components/chat/AdminContactSidebar';
+import { AudioRecordButton } from '@/components/chat/AudioRecordButton';
 import BrokerWATemplatesManager from '@/components/chat/BrokerWATemplatesManager';
 import LeadTags from '@/components/LeadTags';
 
@@ -789,6 +790,13 @@ const ChatPage: React.FC = () => {
         {/* Input area */}
         <div className="flex items-center gap-2 px-4 py-3 border-t border-border bg-card shrink-0">
           <ChatMediaUpload
+            tenantId={tenantId!}
+            conversationId={id!}
+            phoneNumber={conversation.phone_number}
+            departmentCode={conversation.department_code}
+            onSending={setSending}
+          />
+          <AudioRecordButton
             tenantId={tenantId!}
             conversationId={id!}
             phoneNumber={conversation.phone_number}

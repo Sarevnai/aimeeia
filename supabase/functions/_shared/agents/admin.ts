@@ -11,6 +11,7 @@ import {
 } from './tool-executors.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
 import { AiModule } from '../types.ts';
+import { buildFirstTurnContext } from '../prompts.ts';
 
 // ========== MODULE-BASED PROMPT ==========
 
@@ -24,6 +25,16 @@ Você é ${config.agent_name || 'Aimee'}, head do setor administrativo de locaç
 Tom: profissional, empático, calmo sob pressão, resolutivo.
 ${contactName ? `Chame o cliente de ${contactName}.` : 'Seja cordial.'}
 </identity>`);
+
+  const firstTurnCtx = buildFirstTurnContext({
+    isFirstTurn: !!ctx.isFirstTurn,
+    contactName: contactName || null,
+    userMessage: ctx.userMessage || '',
+    agentName: config.agent_name || 'Aimee',
+    companyName: tenant.company_name,
+    conversationSource: ctx.conversationSource,
+  });
+  if (firstTurnCtx) sections.push(firstTurnCtx);
 
   sections.push(buildAudienceSection(ctx));
   sections.push(buildTicketStateSection(ctx));

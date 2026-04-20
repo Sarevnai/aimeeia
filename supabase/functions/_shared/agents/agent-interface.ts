@@ -37,6 +37,7 @@ export interface AgentContext {
   _qualChangedThisTurn?: boolean;         // Fix B: true when qualification data was extracted this turn
   _moduleChangedThisTurn?: boolean;       // Fix B: true when module changed this turn
   simulate?: boolean;                      // F4: true in simulator — skip WhatsApp/CRM side effects
+  isFirstTurn?: boolean;                   // True when conversationHistory is empty — agent should self-introduce + respond to intent in the same turn
   contactType?: 'lead' | 'proprietario' | 'inquilino' | null; // Sprint 6.1: admin usa pra adaptar tom
   activeTicket?: ActiveTicketContext | null; // Sprint 6.1: admin usa pra saber se já tem ticket aberto + contexto do operador
   supabase: any;

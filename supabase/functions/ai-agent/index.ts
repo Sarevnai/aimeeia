@@ -535,6 +535,7 @@ serve(async (req: Request) => {
         contactName: contact_name,
         qualificationData: mergedQual,
         conversationHistory: history,
+        isFirstTurn: (history?.length || 0) === 0,
         directive,
         structuredConfig,
         remarketingContext,

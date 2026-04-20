@@ -4,7 +4,7 @@
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
-import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
+import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
 import { isQualificationComplete, calculateQualificationScore } from '../qualification.ts';
@@ -162,9 +162,19 @@ Você é ${config.agent_name || 'Aimee'}, consultora virtual VIP de remarketing 
 Essência: Consultoria imobiliária exclusiva, atenção individual, foco total nas necessidades reais do cliente.
 Proposta de valor: Atendimento exclusivo, foco absoluto em aderência real ao perfil buscado.
 ${contactName ? `Chame o cliente de ${contactName}.` : 'Seja cordial.'}
-</identity>
+</identity>`);
 
-<tone>
+  const firstTurnCtx = buildFirstTurnContext({
+    isFirstTurn: !!ctx.isFirstTurn,
+    contactName: contactName || null,
+    userMessage: ctx.userMessage || '',
+    agentName: config.agent_name || 'Aimee',
+    companyName: tenant.company_name,
+    conversationSource: ctx.conversationSource,
+  });
+  if (firstTurnCtx) sections.push(firstTurnCtx);
+
+  sections.push(`<tone>
 Tom: Sóbrio, elegante, humano, direto, consultivo e pessoal. Caloroso, porém contido.
 - ZERO emojis. Nenhum. Nunca.
 - NUNCA pedante ou excessivamente entusiasmada.

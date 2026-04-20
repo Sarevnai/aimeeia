@@ -7,6 +7,51 @@ import { generateRegionKnowledge } from './regions.ts';
 import { Region } from './types.ts';
 import { formatCurrency } from './utils.ts';
 
+// ========== FIRST TURN CONTEXT ==========
+// Injected into the system prompt when conversationHistory is empty so the agent
+// knows it must open the dialogue. No more hardcoded greeting — the agent
+// greets, gets the name (or uses the WhatsApp profile name), and responds to
+// intent in the same turn when the client already brought a demand.
+
+export function buildFirstTurnContext(params: {
+  isFirstTurn: boolean;
+  contactName: string | null;
+  userMessage: string;
+  agentName: string;
+  companyName: string;
+  conversationSource?: string;
+}): string {
+  if (!params.isFirstTurn) return '';
+
+  const hasName = !!params.contactName && params.contactName.trim().length > 0;
+  const nameLine = hasName
+    ? `O WhatsApp já trouxe o nome do cliente: "${params.contactName}". Use-o naturalmente.`
+    : `O nome do cliente ainda não é conhecido. Se a mensagem dele não o revelar, pergunte com leveza ("posso saber seu nome?") sem bloquear o atendimento.`;
+
+  const sourceNote = params.conversationSource === 'remarketing'
+    ? 'Esta é uma resposta a uma campanha de remarketing — o cliente já teve contato conosco antes. Não se apresente como se fosse a primeira vez; assuma familiaridade.'
+    : params.conversationSource === 'rewarm_archived'
+    ? 'Este lead veio de uma base arquivada sendo reaquecida. Reconheça o contato anterior com sutileza.'
+    : 'Esta é a primeira mensagem desta conversa.';
+
+  return `
+<primeiro-turno>
+${sourceNote}
+
+${nameLine}
+
+Você é ${params.agentName}, da ${params.companyName}.
+
+REGRAS PARA ESTE TURNO:
+1. Se a mensagem do cliente for apenas um cumprimento curto ("Oi", "Bom dia", "Olá"), apresente-se de forma breve e calorosa e pergunte como pode ajudar. Não despeje perguntas de qualificação — deixe o cliente guiar.
+2. Se o cliente já trouxe uma demanda clara (tipo de imóvel, região, orçamento, áudio detalhado, pergunta objetiva), responda à demanda diretamente. Inclua sua apresentação de forma natural, em uma linha — não atrapalhe o fluxo dele.
+3. Nunca use respostas robóticas tipo "Como posso te chamar?" isoladas. Misture apresentação + próxima pergunta ou resposta num mesmo fôlego.
+4. Se o cliente mandou áudio, a transcrição está no histórico. Trate o conteúdo como se tivesse ouvido, não peça pra ele repetir.
+5. Se a mensagem mencionar algo que sugira conversa anterior ("já te falei", "como combinamos", "aquele do X"), reconheça com naturalidade mesmo sem ter contexto — diga que pode ter havido troca de atendente e pergunte o essencial pra continuar.
+</primeiro-turno>
+`.trim();
+}
+
 // ========== CONTEXT SUMMARY (anti-loop) ==========
 
 export function buildContextSummary(qualificationData: QualificationData | null, contactName?: string | null, phoneNumber?: string | null, qualChangedThisTurn?: boolean): string {

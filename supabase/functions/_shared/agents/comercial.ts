@@ -4,7 +4,7 @@
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces, executeDepartmentTransfer } from './tool-executors.ts';
-import { buildContextSummary, buildReturningLeadContext } from '../prompts.ts';
+import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
 import { isQualificationComplete } from '../qualification.ts';
@@ -26,6 +26,17 @@ ${config.emoji_intensity === 'none' ? 'NÃO use emojis em hipótese alguma.' : c
 Responda de forma concisa e objetiva. Máximo 3 parágrafos curtos.
 ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}.` : 'Seja cordial.'}
 </identity>`);
+
+  // First-turn context — instruct the agent to open the dialogue instead of relying on hardcoded triage
+  const firstTurnCtx = buildFirstTurnContext({
+    isFirstTurn: !!ctx.isFirstTurn,
+    contactName: contactName || null,
+    userMessage: ctx.userMessage || '',
+    agentName: config.agent_name || 'Aimee',
+    companyName: tenant.company_name,
+    conversationSource: ctx.conversationSource,
+  });
+  if (firstTurnCtx) sections.push(firstTurnCtx);
 
   // Module menu — tells the LLM which modules are available
   const moduleList = modules.map(mod => {

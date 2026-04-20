@@ -11,12 +11,14 @@ export const DEPARTMENT_BY_NEGOTIATION: Record<string, string> = {
   'Temporada': 'locacao',
 };
 
+import { normalizePhone as canonicalBR } from './phone.ts';
+
 export function normalizePhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
   let p = String(raw).replace(/\D/g, '');
   if (!p) return null;
   if (!p.startsWith('55') && p.length <= 11) p = '55' + p;
-  return p;
+  return canonicalBR(p) || p;
 }
 
 /** Recebe o objeto lead do C2S (com attributes aninhado OU já flat) e retorna o payload normalizado para contacts. */

@@ -20,12 +20,14 @@ const PERPAGE = 50;
 const MAX_PAGES = 20; // hard cap per run = 1000 leads max — protects against runaway
 const OVERLAP_SECONDS = 60; // re-fetch last minute to handle clock skew
 
+import { normalizePhone as canonicalBR, phoneVariants } from '../_shared/phone.ts';
+
 function normalizePhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
   let p = String(raw).replace(/\D/g, '');
   if (!p) return null;
   if (!p.startsWith('55') && p.length <= 11) p = '55' + p;
-  return p;
+  return canonicalBR(p) || p;
 }
 
 async function syncTenant(supabase: any, tenant_id: string) {
@@ -148,12 +150,16 @@ async function syncTenant(supabase: any, tenant_id: string) {
           crm_archive_reason: archiveDetails.archived ? (archiveDetails.archive_notes || 'arquivado') : null,
         };
 
-        // Try by c2s_lead_id first (authoritative), fallback to phone
+        // Try by c2s_lead_id first (authoritative), fallback to phone (todas variantes BR)
+        const variants = phoneVariants(phone);
+        const phoneOr = variants.map((v) => `phone.eq.${v}`).join(',');
         const { data: existing } = await supabase
           .from('contacts')
           .select('id, name, email, channel_source')
           .eq('tenant_id', tenant_id)
-          .or(`c2s_lead_id.eq.${lead.id},phone.eq.${phone}`)
+          .or(`c2s_lead_id.eq.${lead.id},${phoneOr}`)
+          .order('created_at', { ascending: true })
+          .limit(1)
           .maybeSingle();
 
         if (existing) {

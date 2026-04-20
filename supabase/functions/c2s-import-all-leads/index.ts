@@ -15,12 +15,14 @@ const DEPARTMENT_BY_NEGOTIATION: Record<string, string> = {
   'Temporada': 'locacao',
 };
 
+import { normalizePhone as canonicalBR, phoneVariants } from '../_shared/phone.ts';
+
 function normalizePhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
   let p = String(raw).replace(/\D/g, '');
   if (!p) return null;
   if (!p.startsWith('55') && p.length <= 11) p = '55' + p;
-  return p;
+  return canonicalBR(p) || p;
 }
 
 serve(async (req: Request) => {
@@ -131,12 +133,15 @@ serve(async (req: Request) => {
 
         if (dry_run) continue;
 
-        // Prefer update when phone exists; insert otherwise. Do NOT overwrite user-edited name/email when already set.
+        // Prefer update when phone exists; insert otherwise. Lookup tolerante a
+        // variações do nono dígito BR (evita duplicar quando o Meta entrega sem).
         const { data: existing } = await supabase
           .from('contacts')
           .select('id, name, email, channel_source')
           .eq('tenant_id', tenant_id)
-          .eq('phone', phone)
+          .in('phone', phoneVariants(phone))
+          .order('created_at', { ascending: true })
+          .limit(1)
           .maybeSingle();
 
         if (existing) {

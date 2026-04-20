@@ -1,6 +1,10 @@
 // Sprint 6.2 — Gravação de áudio ao vivo estilo WhatsApp Web.
 // Fluxo: click mic → grava → stop → preview → enviar / descartar.
 // Integrado no ChatPage (vendas/locacao) e ConversationChatPanel (cockpit admin).
+//
+// NOTA: Meta Cloud API aceita audio/mpeg (MP3), audio/ogg (só opus), audio/aac,
+// audio/mp4, audio/amr. O MediaRecorder do Chrome só grava webm, que Meta rejeita.
+// Por isso usamos mic-recorder-to-mp3 — encoda MP3 direto no browser via WASM.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Mic, Square, Trash2, Send, Loader2 } from 'lucide-react';
@@ -8,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+// @ts-expect-error — lib sem tipos oficiais
+import MicRecorder from 'mic-recorder-to-mp3';
 
 interface Props {
   tenantId: string;
@@ -18,20 +24,6 @@ interface Props {
 }
 
 type State = 'idle' | 'recording' | 'preview' | 'uploading';
-
-// Prefere codecs compatíveis com WhatsApp/Meta Cloud API.
-// Meta aceita OGG/Opus oficialmente; navegadores modernos gravam nesse formato
-// quando possível. Se não, cai em webm/opus (Meta costuma aceitar também).
-function pickMime(): string {
-  const candidates = [
-    'audio/ogg;codecs=opus',
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/mp4',
-  ];
-  if (typeof MediaRecorder === 'undefined') return '';
-  return candidates.find((m) => MediaRecorder.isTypeSupported(m)) || '';
-}
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -51,9 +43,7 @@ export const AudioRecordButton: React.FC<Props> = ({
   const [blob, setBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  const recorderRef = useRef<any>(null);
   const startedAtRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
 
@@ -61,45 +51,15 @@ export const AudioRecordButton: React.FC<Props> = ({
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       if (timerRef.current) clearInterval(timerRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, [previewUrl]);
 
   const startRecording = async () => {
-    if (typeof MediaRecorder === 'undefined') {
-      toast({
-        variant: 'destructive',
-        title: 'Navegador incompatível',
-        description: 'Seu navegador não suporta gravação de áudio. Use Chrome ou Firefox.',
-      });
-      return;
-    }
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const mime = pickMime();
-      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const recorder = new MicRecorder({ bitRate: 128 });
+      await recorder.start();
       recorderRef.current = recorder;
-      chunksRef.current = [];
 
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        const type = recorder.mimeType || 'audio/ogg';
-        const b = new Blob(chunksRef.current, { type });
-        setBlob(b);
-        const url = URL.createObjectURL(b);
-        setPreviewUrl(url);
-        setState('preview');
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      };
-
-      recorder.start();
       startedAtRef.current = Date.now();
       setDuration(0);
       setState('recording');
@@ -115,18 +75,32 @@ export const AudioRecordButton: React.FC<Props> = ({
         description:
           (err as any)?.name === 'NotAllowedError'
             ? 'Permita o acesso ao microfone nas configurações do navegador.'
-            : 'Não foi possível iniciar a gravação.',
+            : 'Não foi possível iniciar a gravação. Tente recarregar a página.',
       });
     }
   };
 
-  const stopRecording = () => {
-    if (recorderRef.current && recorderRef.current.state === 'recording') {
-      recorderRef.current.stop();
-    }
+  const stopRecording = async () => {
+    if (!recorderRef.current) return;
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+    try {
+      const [buffer, rawBlob] = await recorderRef.current.stop().getMp3();
+      const b = new Blob(buffer, { type: 'audio/mpeg' });
+      setBlob(b);
+      setPreviewUrl(URL.createObjectURL(b));
+      setState('preview');
+      recorderRef.current = null;
+    } catch (err) {
+      console.error('Audio stop error:', err);
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao processar áudio',
+        description: (err as Error).message,
+      });
+      setState('idle');
     }
   };
 
@@ -144,27 +118,19 @@ export const AudioRecordButton: React.FC<Props> = ({
     onSending?.(true);
 
     try {
-      const mime = blob.type.split(';')[0].trim() || 'audio/ogg';
-      const ext = mime.includes('ogg')
-        ? 'ogg'
-        : mime.includes('webm')
-          ? 'webm'
-          : mime.includes('mp4')
-            ? 'mp4'
-            : 'ogg';
       const ts = Date.now();
-      const fileName = `voice_${ts}.${ext}`;
+      const fileName = `voice_${ts}.mp3`;
       const path = `${tenantId}/${conversationId}/${ts}_${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('chat-media')
-        .upload(path, blob, { contentType: mime });
+        .upload(path, blob, { contentType: 'audio/mpeg' });
 
       if (uploadError) throw new Error(`Upload: ${uploadError.message}`);
 
       const { data: urlData } = supabase.storage.from('chat-media').getPublicUrl(path);
 
-      const { error: sendError } = await supabase.functions.invoke('send-wa-media', {
+      const { data: sendData, error: sendError } = await supabase.functions.invoke('send-wa-media', {
         body: {
           tenant_id: tenantId,
           phone_number: phoneNumber,
@@ -177,6 +143,9 @@ export const AudioRecordButton: React.FC<Props> = ({
       });
 
       if (sendError) throw new Error(`Envio: ${sendError.message}`);
+      if (sendData && sendData.success === false) {
+        throw new Error(sendData.error || 'Meta Cloud API rejeitou o áudio');
+      }
 
       toast({ title: 'Áudio enviado' });
       discard();

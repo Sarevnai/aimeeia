@@ -35,6 +35,7 @@ serve(async (req: Request) => {
     // Send based on media type
     let success = false;
     let messageId: string | undefined;
+    let metaError: string | null = null;
 
     if (media_type === 'image' || media_url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
       const result = await sendWhatsAppImage(phone_number, media_url, caption || '', t);
@@ -67,9 +68,15 @@ serve(async (req: Request) => {
       const data = await response.json();
       success = response.ok;
       messageId = data.messages?.[0]?.id;
+      if (!success) {
+        metaError = data?.error?.message || data?.error?.error_data?.details || JSON.stringify(data).slice(0, 400);
+        console.error('❌ Meta Cloud API rejected media:', metaError);
+      }
     }
 
-    if (!success) return errorResponse('Failed to send media', 502);
+    if (!success) {
+      return jsonResponse({ success: false, error: metaError || 'Falha no envio da mídia pela Meta', media_type, media_url }, 502);
+    }
 
     // Save outbound
     await saveOutboundMessage(

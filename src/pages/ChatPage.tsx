@@ -720,14 +720,30 @@ const ChatPage: React.FC = () => {
                     </div>
                   )}
                   {isAudioMessage(msg) ? (
-                    <div className="flex items-center gap-2 min-w-[180px]">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
-                        <Play className="h-4 w-4" />
-                      </Button>
-                      <div className="flex-1 h-1 bg-border rounded-full">
-                        <div className="h-full w-1/3 bg-accent rounded-full" />
+                    msg.media_url ? (
+                      <div className="space-y-1 min-w-[220px]">
+                        <audio controls src={msg.media_url} className="w-full h-10" />
+                        {msg.body && msg.body.startsWith('[Transcrição de áudio]:') && (
+                          <p className="text-[11px] italic text-muted-foreground">
+                            {msg.body.replace('[Transcrição de áudio]:', '').trim()}
+                          </p>
+                        )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground shrink-0">0:00</span>
+                    ) : (
+                      <p className="text-xs italic text-muted-foreground">
+                        [Áudio indisponível]{msg.body && msg.body.startsWith('[Transcrição de áudio]:') ? ` — ${msg.body.replace('[Transcrição de áudio]:', '').trim()}` : ''}
+                      </p>
+                    )
+                  ) : msg.media_type === 'video' && msg.media_url ? (
+                    <div className="space-y-1">
+                      <video
+                        controls
+                        src={msg.media_url}
+                        className="rounded-lg max-w-full max-h-60"
+                      />
+                      {msg.media_caption && (
+                        <p className="text-xs text-muted-foreground">{msg.media_caption}</p>
+                      )}
                     </div>
                   ) : msg.media_type === 'image' && msg.media_url ? (
                     <div className="space-y-1">

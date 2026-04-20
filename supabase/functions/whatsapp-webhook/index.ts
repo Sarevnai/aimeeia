@@ -9,6 +9,7 @@ import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorRespon
 import { resolveTenant } from '../_shared/whatsapp.ts';
 import { isDuplicateMessage, logError, logActivity } from '../_shared/utils.ts';
 import { transcribeWhatsAppAudio } from '../_shared/audio-transcription.ts';
+import { downloadAndHostWhatsAppMedia } from '../_shared/whatsapp-media.ts';
 import { Tenant, WhatsAppWebhookEntry, MakeWebhookRequest } from '../_shared/types.ts';
 
 serve(async (req: Request) => {
@@ -376,6 +377,57 @@ async function processInboundMessage(
       .is('department_code', null);
   }
 
+  // 3.9 Download and host inbound media (image/audio/video/document/sticker)
+  // so the chat UI can render it. Meta download URLs expire in ~5 minutes and
+  // require a bearer token, so we re-host to the public `chat-media` bucket.
+  let mediaUrl: string | null = null;
+  let mediaCaption: string | null = null;
+  let mediaFilename: string | null = null;
+  let mediaMimeType: string | null = null;
+
+  const rawMsg = params.rawMessage || {};
+  const mediaKinds = ['image', 'audio', 'video', 'document', 'sticker'];
+  if (
+    mediaKinds.includes(params.messageType) &&
+    tenant.wa_access_token
+  ) {
+    const mediaBlock = rawMsg[params.messageType];
+    const mediaId = mediaBlock?.id;
+    if (mediaId) {
+      try {
+        const hosted = await downloadAndHostWhatsAppMedia(
+          mediaId,
+          params.messageType as any,
+          tenant.wa_access_token,
+          {
+            supabase,
+            tenantId: tenant.id,
+            conversationId: conversation.id,
+            originalFilename: rawMsg.document?.filename || null,
+          }
+        );
+        mediaUrl = hosted.publicUrl;
+        mediaFilename = rawMsg.document?.filename || hosted.filename;
+        mediaMimeType = hosted.mimeType;
+        mediaCaption = rawMsg.image?.caption || rawMsg.video?.caption || rawMsg.document?.caption || null;
+        console.log(`📎 Hosted ${params.messageType} media: ${hosted.publicUrl}`);
+      } catch (err) {
+        const errorMsg = (err as Error).message;
+        console.error(`❌ Media hosting failed (${params.messageType}): ${errorMsg}`);
+        await supabase.from('activity_logs').insert({
+          tenant_id: tenant.id,
+          action_type: 'media_hosting_error',
+          target_table: 'messages',
+          metadata: {
+            error: errorMsg,
+            mediaId,
+            messageType: params.messageType,
+          },
+        });
+      }
+    }
+  }
+
   // 4. Save inbound message
   await supabase.from('messages').insert({
     tenant_id: tenant.id,
@@ -386,6 +438,10 @@ async function processInboundMessage(
     direction: 'inbound',
     body: messageBody,
     media_type: params.messageType !== 'text' ? params.messageType : null,
+    media_url: mediaUrl,
+    media_caption: mediaCaption,
+    media_filename: mediaFilename,
+    media_mime_type: mediaMimeType,
     department_code: conversation.department_code,
     raw: params.rawMessage,
     sender_type: 'customer',

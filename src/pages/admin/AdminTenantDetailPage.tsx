@@ -28,6 +28,7 @@ import {
     Eye,
     EyeOff,
     Save,
+    BanIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -43,6 +44,7 @@ import AdminNewCampaignSheet from '@/components/admin/AdminNewCampaignSheet';
 import AdminTemplatesTab from '@/components/admin/AdminTemplatesTab';
 import AdminContactsTab from '@/components/admin/AdminContactsTab';
 import AdminConversationsTab from '@/components/admin/AdminConversationsTab';
+import AdminDNCTab from '@/components/admin/AdminDNCTab';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -762,6 +764,7 @@ const AdminTenantDetailPage: React.FC = () => {
                             { value: 'integrations', label: 'Integrações', icon: Plug },
                             { value: 'conversations', label: 'Conversas', icon: MessageSquare },
                             { value: 'contacts', label: 'Contatos', icon: BookUser },
+                            { value: 'dnc', label: 'DNC', icon: BanIcon },
                             { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
                             { value: 'templates', label: 'Templates', icon: FileText },
                         ].map((tab) => (
@@ -1272,6 +1275,11 @@ const AdminTenantDetailPage: React.FC = () => {
                     <div className="max-w-5xl mx-auto animate-fade-in">
                         <AdminContactsTab tenantId={tenant.id} />
                     </div>
+                )}
+
+                {/* ═══ DNC TAB ═══ */}
+                {activeTab === 'dnc' && (
+                    <AdminDNCTab tenantId={tenant.id} />
                 )}
 
                 {/* ═══ CAMPAIGNS TAB ═══ */}

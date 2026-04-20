@@ -787,6 +787,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "campaign_results_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "v_dnc_contacts"
+            referencedColumns: ["contact_id"]
+          },
+          {
             foreignKeyName: "campaign_results_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
@@ -872,6 +879,9 @@ export type Database = {
           crm_source: string | null
           crm_status: string | null
           department_code: Database["public"]["Enums"]["department_type"] | null
+          dnc: boolean
+          dnc_at: string | null
+          dnc_reason: string | null
           email: string | null
           id: string
           lease_contract_id: string | null
@@ -916,6 +926,9 @@ export type Database = {
           department_code?:
             | Database["public"]["Enums"]["department_type"]
             | null
+          dnc?: boolean
+          dnc_at?: string | null
+          dnc_reason?: string | null
           email?: string | null
           id?: string
           lease_contract_id?: string | null
@@ -960,6 +973,9 @@ export type Database = {
           department_code?:
             | Database["public"]["Enums"]["department_type"]
             | null
+          dnc?: boolean
+          dnc_at?: string | null
+          dnc_reason?: string | null
           email?: string | null
           id?: string
           lease_contract_id?: string | null
@@ -1306,6 +1322,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contacts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "v_dnc_contacts"
+            referencedColumns: ["contact_id"]
           },
           {
             foreignKeyName: "conversations_stage_id_fkey"
@@ -2728,6 +2751,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "tickets_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "v_dnc_contacts"
+            referencedColumns: ["contact_id"]
+          },
+          {
             foreignKeyName: "tickets_conversation_id_fkey"
             columns: ["conversation_id"]
             isOneToOne: false
@@ -2793,7 +2823,85 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      v_dnc_contacts: {
+        Row: {
+          assigned_broker_id: string | null
+          broker_name: string | null
+          c2s_lead_id: string | null
+          contact_id: string | null
+          crm_archive_reason: string | null
+          crm_natureza: string | null
+          crm_source: string | null
+          dnc_at: string | null
+          dnc_reason: string | null
+          last_conversation_campaign: string | null
+          last_conversation_dept: string | null
+          last_conversation_source: string | null
+          last_inbound: string | null
+          last_inbound_at: string | null
+          name: string | null
+          phone: string | null
+          tenant_id: string | null
+          total_inbound_msgs: number | null
+          total_outbound_msgs: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contacts_assigned_broker_id_fkey"
+            columns: ["assigned_broker_id"]
+            isOneToOne: false
+            referencedRelation: "brokers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contacts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_dnc_metrics: {
+        Row: {
+          day: string | null
+          dnc_reason: string | null
+          n_contacts: number | null
+          origin_source: string | null
+          tenant_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contacts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_dnc_rate_by_source: {
+        Row: {
+          auto_reply_contacts: number | null
+          dnc_contacts: number | null
+          dnc_rate_pct: number | null
+          opt_out_contacts: number | null
+          opt_out_rate_pct: number | null
+          source: string | null
+          tenant_id: string | null
+          total_contacts: number | null
+          wrong_audience_contacts: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       daily_vista_crm_cleanup: { Args: never; Returns: number }
@@ -2883,6 +2991,7 @@ export type Database = {
         | "completed"
         | "remarketing_vip_pitch"
         | "remarketing_buyin"
+        | "dnc"
       user_role: "admin" | "operator" | "viewer" | "super_admin"
     }
     CompositeTypes: {
@@ -3021,6 +3130,7 @@ export const Constants = {
         "completed",
         "remarketing_vip_pitch",
         "remarketing_buyin",
+        "dnc",
       ],
       user_role: ["admin", "operator", "viewer", "super_admin"],
     },

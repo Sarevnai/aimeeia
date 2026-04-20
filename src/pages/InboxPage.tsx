@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Search, Loader2, MessageSquare, Globe, Phone, Facebook, Home, Tag, ExternalLink } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import LeadTags from '@/components/LeadTags';
 import type { Tables } from '@/integrations/supabase/types';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
 
@@ -307,12 +308,22 @@ const InboxPage: React.FC = () => {
                           {deptLabel}
                         </span>
                       )}
-                      {/* Status label */}
-                      {statusLabel && (
-                        <span className="text-[10px] font-medium text-muted-foreground bg-muted rounded-full px-1.5 py-0.5 shrink-0">
-                          {statusLabel}
-                        </span>
-                      )}
+                    </div>
+                    <div className="mt-1.5">
+                      <LeadTags
+                        size="sm"
+                        input={{
+                          conversationSource: conv.source,
+                          conversationStatus: conv.status,
+                          contactChannelSource: (conv.contacts as any)?.channel_source,
+                          contactC2SLeadId: (conv.contacts as any)?.c2s_lead_id,
+                          dnc: (conv.contacts as any)?.dnc,
+                          dncReason: (conv.contacts as any)?.dnc_reason,
+                          isAiActive: states[conv.phone_number]?.is_ai_active,
+                          operatorTakeoverAt: states[conv.phone_number]?.operator_takeover_at,
+                          triageStage: states[conv.phone_number]?.triage_stage,
+                        }}
+                      />
                     </div>
                   </div>
 

@@ -47,6 +47,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
 import BrokerWATemplatesManager from '@/components/chat/BrokerWATemplatesManager';
+import LeadTags from '@/components/LeadTags';
 
 type Message = Tables<'messages'>;
 type Conversation = Tables<'conversations'>;
@@ -817,11 +818,29 @@ const ChatPage: React.FC = () => {
                   {(contact?.name?.[0] || conversation.phone_number?.[0] || '?').toUpperCase()}
                 </span>
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold text-foreground">{contact?.name || 'Sem nome'}</p>
                 <p className="text-xs text-muted-foreground">{conversation.phone_number}</p>
               </div>
             </div>
+
+            <LeadTags
+              className="mb-4"
+              input={{
+                conversationSource: conversation.source,
+                conversationStatus: conversation.status,
+                contactChannelSource: (contact as any)?.channel_source,
+                contactC2SLeadId: (contact as any)?.c2s_lead_id,
+                dnc: (contact as any)?.dnc,
+                dncReason: (contact as any)?.dnc_reason,
+                isAiActive: convState?.is_ai_active,
+                operatorTakeoverAt: convState?.operator_takeover_at,
+                triageStage: convState?.triage_stage,
+                qualificationScore: leadQual?.qualification_score ?? null,
+                lastDirection: messages.length ? (messages[messages.length - 1].direction as any) : null,
+              }}
+            />
+
             <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Perfil</h4>
             <div className="space-y-2.5">
               <InfoRow icon={<Phone className="h-3.5 w-3.5" />} label="Telefone" value={conversation.phone_number} />

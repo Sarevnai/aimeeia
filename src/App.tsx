@@ -32,6 +32,7 @@ import AtualizacaoPage from "@/pages/AtualizacaoPage";
 import FinancePage from "@/pages/FinancePage";
 import TicketsPage from "@/pages/TicketsPage";
 import TicketDetailPage from "@/pages/TicketDetailPage";
+import DNCPage from "@/pages/DNCPage";
 import NotFound from "./pages/NotFound";
 
 // Painel de Controle
@@ -94,6 +95,7 @@ const App = () => (
                   <Route path="/financeiro" element={<FinancePage />} />
                   <Route path="/chamados" element={<TicketsPage />} />
                   <Route path="/chamados/:id" element={<TicketDetailPage />} />
+                  <Route path="/dnc" element={<DNCPage />} />
                   <Route path="/modulos" element={<ModulosPage />} />
 
                   <Route path="/guia" element={<GuiaPage />} />

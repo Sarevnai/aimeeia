@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Ticket,
   Brain,
+  BanIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/contexts/TenantContext';
@@ -88,6 +89,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
         { label: 'Captação', icon: Radar, path: '/captacao' },
         { label: 'Relatórios', icon: BarChart3, path: '/relatorios' },
         { label: 'Chamados', icon: Ticket, path: '/chamados', badge: activeTicketCount },
+        { label: 'DNC', icon: BanIcon, path: '/dnc' },
       ],
     },
     {

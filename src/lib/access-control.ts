@@ -11,22 +11,22 @@ export interface AccessProfile {
 
 export const ROLE_PATHS: Record<string, string[]> = {
   super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
-    '/empreendimentos', '/campanhas', '/atualizacao',
+    '/empreendimentos', '/campanhas', '/atualizacao', '/dnc',
     '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia', '/admin'],
   admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
-    '/empreendimentos', '/campanhas', '/atualizacao',
+    '/empreendimentos', '/campanhas', '/atualizacao', '/dnc',
     '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia'],
-  operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
-  viewer: ['/', '/relatorios', '/dashboard-c2s', '/guia'],
+  operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
+  viewer: ['/', '/relatorios', '/dashboard-c2s', '/dnc', '/guia'],
 };
 
 // Department-specific paths for operators (overrides ROLE_PATHS.operator when set).
 // Vendas/locacao limited to Leads, Pipeline, Conversas per product decision.
 export const DEPT_PATHS: Record<string, string[]> = {
-  administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/dashboard-c2s', '/financeiro', '/guia'],
-  vendas: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
-  locacao: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s'],
-  remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/campanhas', '/empreendimentos', '/guia'],
+  administrativo: ['/', '/inbox', '/chat', '/chamados', '/relatorios', '/dashboard-c2s', '/financeiro', '/dnc', '/guia'],
+  vendas: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
+  locacao: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
+  remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/campanhas', '/empreendimentos', '/dnc', '/guia'],
 };
 
 export function getAllowedPaths(profile: AccessProfile | null | undefined): string[] {

@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
 import { useSessionState } from '@/hooks/useSessionState';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -201,6 +202,7 @@ function StageColumn({ stage, tickets, onTicketClick }: { stage: TicketStage; ti
 const TicketsPage: React.FC = () => {
   const { tenantId } = useTenant();
   const { profile } = useAuth();
+  const { department: deptFilter, isLocked: deptLocked } = useDepartmentFilter();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -231,16 +233,24 @@ const TicketsPage: React.FC = () => {
     if (!tenantId) return;
     setLoading(true);
 
+    // Sprint 6.2 — isolamento: operator com dept fixo filtra tickets pelo setor.
+    // Admin/super_admin respeitam o DepartmentFilter (que pode ser 'all').
+    let ticketsQuery = supabase
+      .from('tickets')
+      .select(`
+        *,
+        contact:contacts(id, name, phone, contact_type),
+        assigned:profiles!tickets_assigned_to_fkey(id, full_name)
+      `)
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false });
+
+    if (deptLocked || (deptFilter && deptFilter !== 'all')) {
+      ticketsQuery = ticketsQuery.eq('department_code', deptFilter);
+    }
+
     const [ticketRes, stageRes, catRes] = await Promise.all([
-      supabase
-        .from('tickets')
-        .select(`
-          *,
-          contact:contacts(id, name, phone, contact_type),
-          assigned:profiles!tickets_assigned_to_fkey(id, full_name)
-        `)
-        .eq('tenant_id', tenantId)
-        .order('created_at', { ascending: false }),
+      ticketsQuery,
       supabase
         .from('ticket_stages')
         .select('*')
@@ -258,7 +268,7 @@ const TicketsPage: React.FC = () => {
     if (stageRes.data) setStages(stageRes.data as unknown as TicketStage[]);
     if (catRes.data) setCategories(catRes.data as unknown as TicketCategory[]);
     setLoading(false);
-  }, [tenantId]);
+  }, [tenantId, deptFilter, deptLocked]);
 
   useEffect(() => {
     fetchData();

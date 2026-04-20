@@ -24,6 +24,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -62,27 +63,34 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
   const { tenantId, tenantInfo } = useTenant();
   const { profile } = useAuth();
+  const { department: deptFilter, isLocked: deptLocked } = useDepartmentFilter();
   const [activeConvCount, setActiveConvCount] = useState(0);
   const [activeTicketCount, setActiveTicketCount] = useState(0);
   const allowedPaths = getAllowedPaths(profile);
 
   useEffect(() => {
     if (!tenantId) return;
-    supabase
+    // Sprint 6.2 — counts respeitam o setor quando dept está lockado (operator)
+    // ou quando admin escolheu um filtro específico no DepartmentFilter.
+    const shouldScope = deptLocked || (deptFilter && deptFilter !== 'all');
+
+    let convQuery = supabase
       .from('conversations')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
-      .eq('status', 'active')
-      .then(({ count }) => setActiveConvCount(count ?? 0));
+      .eq('status', 'active');
+    if (shouldScope) convQuery = convQuery.eq('department_code', deptFilter);
+    convQuery.then(({ count }) => setActiveConvCount(count ?? 0));
 
-    supabase
+    let ticketQuery = supabase
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
       .neq('stage', 'Resolvido')
-      .neq('stage', 'Fechado')
-      .then(({ count }) => setActiveTicketCount(count ?? 0));
-  }, [tenantId]);
+      .neq('stage', 'Fechado');
+    if (shouldScope) ticketQuery = ticketQuery.eq('department_code', deptFilter);
+    ticketQuery.then(({ count }) => setActiveTicketCount(count ?? 0));
+  }, [tenantId, deptFilter, deptLocked]);
 
   // Sprint 6.2 — operadores do setor administrativo usam nav dedicado (sem vendas).
   const useAdminNav = shouldUseAdminNav(profile);

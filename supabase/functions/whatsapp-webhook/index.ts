@@ -553,29 +553,30 @@ async function processInboundMessage(
     return { action: 'nps_captured' };
   }
 
-  // 5.5 Check for open tickets to append comments
+  // 5.5 Sprint 6.2 — registra mensagem no histórico do ticket (se houver),
+  // mas NÃO curto-circuita o fluxo da IA. A Aimee Admin precisa continuar
+  // conduzindo a conversa enquanto o operador alimenta contexto.
+  // (Antes desse fix, uma mensagem chegando com ticket aberto virava só
+  //  comentário interno, a IA nunca respondia — inclusive em áudio.)
   const { data: openTicket } = await supabase
     .from('tickets')
     .select('id, stage')
     .eq('tenant_id', tenant.id)
     .eq('phone', phoneNumber)
-    .neq('stage', 'Resolvido')
-    .neq('stage', 'Fechado')
+    .is('resolved_at', null)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (openTicket) {
-    console.log(`🎫 Open ticket found (${openTicket.id}). Appending message as comment.`);
+    console.log(`🎫 Ticket aberto ${openTicket.id} — msg logada como comentário E segue pra IA.`);
     await supabase.from('ticket_comments').insert({
       tenant_id: tenant.id,
       ticket_id: openTicket.id,
-      body: messageBody,
-      is_internal: false
+      body: `[cliente no WhatsApp] ${messageBody}`,
+      is_internal: true,
     });
-
-    // Optionally notify the user or just silently add the comment and let human operators see it
-    return { action: 'ticket_comment_added' };
+    // NÃO retorna — continua pra IA responder.
   }
 
   // 6. Check if AI is active

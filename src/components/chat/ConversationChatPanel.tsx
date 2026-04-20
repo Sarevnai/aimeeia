@@ -131,9 +131,14 @@ export const ConversationChatPanel: React.FC<Props> = ({
           table: 'messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        () => fetchMessages(),
+        (payload) => {
+          console.log('[Cockpit realtime] evento recebido:', payload.eventType, payload.new);
+          fetchMessages();
+        },
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log(`[Cockpit realtime] conv ${conversationId.slice(0, 8)} status:`, status, err || '');
+      });
     return () => {
       supabase.removeChannel(channel);
     };

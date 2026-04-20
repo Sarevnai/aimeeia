@@ -236,6 +236,7 @@ const ChatPage: React.FC = () => {
           filter: `conversation_id=eq.${id}`,
         },
         (payload) => {
+          console.log('[ChatPage realtime] nova msg:', payload.new);
           setMessages((prev) => {
             // Remove a mensagem otimista correspondente antes de inserir a definitiva
             // para evitar duplicação (mesmo body + direction outbound + id temporário)
@@ -251,7 +252,9 @@ const ChatPage: React.FC = () => {
           });
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log(`[ChatPage realtime] chat ${id?.slice(0, 8)} status:`, status, err || '');
+      });
 
     return () => {
       supabase.removeChannel(channel);

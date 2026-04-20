@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import AppSidebar from '@/components/AppSidebar';
 import AppHeader from '@/components/AppHeader';
 import MobileBottomNav from '@/components/MobileBottomNav';
+import RealtimeStatusIndicator from '@/components/RealtimeStatusIndicator';
 import { Loader2 } from 'lucide-react';
 import { isPathAllowed, getAllowedPaths } from '@/lib/access-control';
 
@@ -121,6 +122,7 @@ const AppLayout: React.FC = () => {
         </main>
       </div>
       <MobileBottomNav />
+      <RealtimeStatusIndicator />
     </div>
   );
 };

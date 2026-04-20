@@ -6,7 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
-import { resolveTenant } from '../_shared/whatsapp.ts';
+import { resolveTenant, sendWhatsAppMessage } from '../_shared/whatsapp.ts';
 import { isDuplicateMessage, logError, logActivity } from '../_shared/utils.ts';
 import { transcribeWhatsAppAudio } from '../_shared/audio-transcription.ts';
 import { downloadAndHostWhatsAppMedia } from '../_shared/whatsapp-media.ts';
@@ -461,6 +461,13 @@ async function processInboundMessage(
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', conversation.id);
 
+  // 5.1 Sprint 6.4 — Captura NPS pós-resolução (admin setor locação)
+  // Se Aimee pediu avaliação nas últimas 24h e msg é 1-5, grava e responde.
+  const npsCaptured = await tryCaptureNps(supabase, tenant, phoneNumber, messageBody, conversation.id);
+  if (npsCaptured) {
+    return { action: 'nps_captured' };
+  }
+
   // 5.5 Check for open tickets to append comments
   const { data: openTicket } = await supabase
     .from('tickets')
@@ -822,3 +829,89 @@ async function processTemplateStatusUpdate(supabase: any, wabaId: string, value:
     console.log(`✅ Template "${templateName}" status updated to ${newStatus}`);
   }
 }
+
+// ========== NPS CAPTURE (Sprint 6.4) ==========
+// Se Aimee enviou pedido de avaliação nas últimas 24h e cliente responde com 1-5,
+// grava score + manda agradecimento, pulando o roteamento IA normal.
+
+async function tryCaptureNps(
+  supabase: any,
+  tenant: Tenant,
+  phoneNumber: string,
+  messageBody: string,
+  conversationId: string,
+): Promise<boolean> {
+  const trimmed = (messageBody || '').trim();
+  // Só reconhece 1-5 puro ou com emoji número (1️⃣ etc). Aceita pontuação leve.
+  const scoreMatch = trimmed.match(/^\s*([1-5])\s*(?:[.!]|️?⃣)?\s*$/);
+  if (!scoreMatch) return false;
+  const score = parseInt(scoreMatch[1], 10);
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: ticket } = await supabase
+    .from('tickets')
+    .select('id, title, contact_id')
+    .eq('tenant_id', tenant.id)
+    .eq('phone', phoneNumber)
+    .not('nps_requested_at', 'is', null)
+    .is('nps_score', null)
+    .gte('nps_requested_at', since)
+    .order('nps_requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!ticket) return false;
+
+  await supabase
+    .from('tickets')
+    .update({
+      nps_score: score,
+      nps_collected_at: new Date().toISOString(),
+    })
+    .eq('id', ticket.id);
+
+  console.log(`📊 NPS captured: ticket ${ticket.id.slice(0, 8)} → score ${score}`);
+
+  // Agradecimento adaptado ao score (tone guide: close with next step)
+  const thanks =
+    score >= 4
+      ? `Obrigada pela avaliação! Fico feliz em ter ajudado. Qualquer coisa, tô por aqui. 🙌`
+      : score === 3
+        ? `Obrigada pelo retorno. Vou repassar seu feedback pra equipe pra melhorar. Se tiver algo específico que eu possa fazer, me conta.`
+        : `Obrigada pelo retorno, sinto muito que o atendimento não atendeu sua expectativa. Vou pedir pro nosso gerente entrar em contato pra entender o que aconteceu e resolver.`;
+
+  const sendResult = await sendWhatsAppMessage(phoneNumber, thanks, tenant);
+
+  await supabase.from('messages').insert({
+    tenant_id: tenant.id,
+    conversation_id: conversationId,
+    wa_from: tenant.wa_phone_number_id,
+    wa_to: phoneNumber,
+    wa_message_id: sendResult.messageId || null,
+    direction: 'outbound',
+    body: thanks,
+    sender_type: 'ai',
+    event_type: score <= 2 ? 'nps_alert' : 'nps_thanks',
+    created_at: new Date().toISOString(),
+  });
+
+  // Score baixo (1-2) dispara alerta: pausa Aimee + aguarda gerente humano
+  if (score <= 2) {
+    await supabase
+      .from('conversation_states')
+      .upsert(
+        {
+          tenant_id: tenant.id,
+          phone_number: phoneNumber,
+          is_ai_active: false,
+          operator_takeover_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'tenant_id,phone_number' },
+      );
+    console.log(`🚨 NPS alert (score ${score}) — Aimee pausada, gerente precisa assumir`);
+  }
+
+  return true;
+}
+

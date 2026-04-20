@@ -2616,6 +2616,7 @@ export type Database = {
           id: string
           last_contact: string
           nps_collected_at: string | null
+          nps_requested_at: string | null
           nps_score: number | null
           phone: string
           priority: string
@@ -2650,6 +2651,7 @@ export type Database = {
           id?: string
           last_contact?: string
           nps_collected_at?: string | null
+          nps_requested_at?: string | null
           nps_score?: number | null
           phone: string
           priority?: string
@@ -2684,6 +2686,7 @@ export type Database = {
           id?: string
           last_contact?: string
           nps_collected_at?: string | null
+          nps_requested_at?: string | null
           nps_score?: number | null
           phone?: string
           priority?: string

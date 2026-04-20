@@ -13,6 +13,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { sendWhatsAppMessage } from "../_shared/whatsapp.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -276,12 +277,77 @@ async function updateTicket(admin: any, tenantId: string, userId: string, body: 
     .update(safeUpdates)
     .eq('id', ticket_id)
     .eq('tenant_id', tenantId)
-    .select()
+    .select('*, contact:contacts(name)')
     .single();
 
   if (error) return errorResponse(error.message);
 
+  // Sprint 6.4 — dispara NPS quando ticket acabou de ser resolvido e ainda não foi pedido
+  if (safeUpdates.resolved_at && !ticket.nps_requested_at && ticket.phone) {
+    await triggerNpsRequest(admin, tenantId, ticket).catch((err) =>
+      console.error('⚠️ NPS dispatch failed (non-blocking):', err),
+    );
+  }
+
   return jsonResponse({ ticket });
+}
+
+// ═══════════════════════════════════════════════
+// NPS REQUEST (Sprint 6.4)
+// ═══════════════════════════════════════════════
+// Envia mensagem WhatsApp pedindo avaliação 1-5 pós-resolução.
+// Cliente responde com o número → whatsapp-webhook captura e grava em tickets.nps_score.
+
+async function triggerNpsRequest(admin: any, tenantId: string, ticket: any): Promise<void> {
+  const { data: tenant } = await admin
+    .from('tenants')
+    .select('id, wa_phone_number_id, wa_access_token, company_name')
+    .eq('id', tenantId)
+    .maybeSingle();
+
+  if (!tenant?.wa_phone_number_id || !tenant?.wa_access_token) {
+    console.warn('⚠️ Tenant without WA credentials — NPS skipped');
+    return;
+  }
+
+  const firstName = (ticket.contact?.name || '').split(' ')[0] || '';
+  const ticketShort = ticket.id.slice(0, 8);
+  const greeting = firstName ? `${firstName}, só` : 'Só';
+
+  const body = `${greeting} pra fechar: como foi o atendimento do seu chamado #${ticketShort}?
+
+1️⃣ Muito ruim   2️⃣ Ruim   3️⃣ Ok   4️⃣ Bom   5️⃣ Excelente
+
+Responde só com o número, por favor. Obrigada! 🙌`;
+
+  const result = await sendWhatsAppMessage(ticket.phone, body, tenant as any);
+  if (!result.success) {
+    console.warn('⚠️ NPS WhatsApp send failed');
+    return;
+  }
+
+  await admin
+    .from('tickets')
+    .update({ nps_requested_at: new Date().toISOString() })
+    .eq('id', ticket.id);
+
+  // loga msg na conversa pra ficar no histórico
+  if (ticket.conversation_id) {
+    await admin.from('messages').insert({
+      tenant_id: tenantId,
+      conversation_id: ticket.conversation_id,
+      wa_from: tenant.wa_phone_number_id,
+      wa_to: ticket.phone,
+      wa_message_id: result.messageId || null,
+      direction: 'outbound',
+      body,
+      sender_type: 'ai',
+      event_type: 'nps_requested',
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  console.log(`✅ NPS requested for ticket ${ticketShort}`);
 }
 
 // ═══════════════════════════════════════════════

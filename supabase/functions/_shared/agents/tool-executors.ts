@@ -890,19 +890,27 @@ export async function executeCreateTicket(
   try {
     const { titulo, categoria, descricao, prioridade } = args;
 
+    // Sprint 6.1: puxa risk_level + aimee_can_resolve + context_template
     const { data: categoryRow } = await ctx.supabase
       .from('ticket_categories')
-      .select('id, sla_hours')
+      .select('id, sla_hours, risk_level, aimee_can_resolve, context_template')
       .eq('tenant_id', ctx.tenantId)
       .eq('name', categoria)
       .eq('is_active', true)
       .maybeSingle();
 
-    const { data: defaultStage } = await ctx.supabase
+    const canResolve = categoryRow?.aimee_can_resolve !== false;
+    const riskLevel = categoryRow?.risk_level || 'baixo';
+    const contextTemplate = Array.isArray(categoryRow?.context_template) ? categoryRow.context_template : [];
+
+    // Se tem template → começa em "Aguardando Contexto" pra operador alimentar Vista
+    // Se não tem template → vai direto pra "Novo"
+    const targetStageName = contextTemplate.length > 0 ? 'Aguardando Contexto' : 'Novo';
+    const { data: targetStage } = await ctx.supabase
       .from('ticket_stages')
       .select('id')
       .eq('tenant_id', ctx.tenantId)
-      .eq('order_index', 0)
+      .eq('name', targetStageName)
       .maybeSingle();
 
     const slaHours = categoryRow?.sla_hours || 48;
@@ -917,8 +925,8 @@ export async function executeCreateTicket(
         category_id: categoryRow?.id || null,
         description: descricao,
         priority: prioridade || 'media',
-        stage: 'Novo',
-        stage_id: defaultStage?.id || null,
+        stage: targetStageName,
+        stage_id: targetStage?.id || null,
         phone: ctx.phoneNumber,
         source: 'whatsapp_ai',
         contact_id: ctx.contactId || null,
@@ -934,20 +942,83 @@ export async function executeCreateTicket(
       return 'Houve um problema ao criar o chamado. Vou transferir para um atendente humano.';
     }
 
+    // Sprint 6.1: sementeia context_fields pedidos pela Aimee
+    if (contextTemplate.length > 0) {
+      const rows = contextTemplate.map((t: any) => ({
+        tenant_id: ctx.tenantId,
+        ticket_id: ticket.id,
+        field_key: t.key,
+        field_value: null,
+        filled_by: null,
+        requested_by_aimee: true,
+      }));
+      const { error: ctxErr } = await ctx.supabase.from('ticket_context_fields').insert(rows);
+      if (ctxErr) console.error('⚠️ context_fields seed error:', ctxErr);
+    }
+
     await logActivity(ctx.supabase, ctx.tenantId, 'ticket_created', 'tickets', ticket.id, {
       category: categoria,
       priority: prioridade,
+      risk_level: riskLevel,
+      aimee_can_resolve: canResolve,
       source: 'ai_agent',
       conversation_id: ctx.conversationId,
     });
 
-    console.log(`✅ Ticket created: ${ticket.id} | Category: ${categoria} | Priority: ${prioridade}`);
+    console.log(`✅ Ticket created: ${ticket.id} | Categoria: ${categoria} | Risco: ${riskLevel} | Aimee resolve: ${canResolve}`);
 
-    return `Chamado #${ticket.id.slice(0, 8)} criado com sucesso. Categoria: ${categoria}. Prioridade: ${prioridade}. A equipe administrativa será notificada.`;
+    // Sprint 6.1: instrução contextual pro LLM conforme risco
+    if (!canResolve || riskLevel === 'alto') {
+      return `Chamado #${ticket.id.slice(0, 8)} registrado como CATEGORIA DE ALTO RISCO (${categoria}). Você NÃO deve tentar resolver sozinha. Chame a ferramenta encaminhar_humano agora com motivo='categoria_alto_risco' para que um gerente assuma. Antes do handoff, comunique ao cliente de forma calma e resolutiva que um especialista da equipe vai cuidar pessoalmente dessa questão.`;
+    }
+
+    if (contextTemplate.length > 0) {
+      const fieldsLabels = contextTemplate.map((t: any) => t.label || t.key).join(', ');
+      return `Chamado #${ticket.id.slice(0, 8)} aberto (${categoria}). Estou aguardando a equipe me passar: ${fieldsLabels}. Comunique ao cliente com segurança que a solicitação já está sendo tratada e que você volta com os detalhes em instantes — NÃO prometa prazo específico, apenas demonstre cuidado e controle da situação.`;
+    }
+
+    return `Chamado #${ticket.id.slice(0, 8)} criado (${categoria}, prioridade ${prioridade}). Comunique ao cliente de forma breve e calorosa que a solicitação foi registrada e a equipe vai acompanhar.`;
 
   } catch (error) {
     console.error('❌ Ticket creation execution error:', error);
     return 'Não consegui registrar o chamado automaticamente. Vou transferir para atendimento humano.';
+  }
+}
+
+// ========== ADMIN: CONSULTAR CONTEXTO DO TICKET ==========
+// Sprint 6.1 — Aimee chama essa tool mid-turn pra checar se operador alimentou dados do Vista
+
+export async function executeGetTicketContext(
+  ctx: AgentContext,
+  _args: any
+): Promise<string> {
+  try {
+    const activeTicketId = ctx.activeTicket?.id;
+    if (!activeTicketId) {
+      return 'Nenhum ticket ativo para esta conversa. Se o cliente ainda não teve a demanda registrada, use criar_ticket.';
+    }
+
+    const { data: fields } = await ctx.supabase
+      .from('ticket_context_fields')
+      .select('field_key, field_value, filled_by, filled_at, requested_by_aimee')
+      .eq('ticket_id', activeTicketId);
+
+    const { data: ticket } = await ctx.supabase
+      .from('tickets')
+      .select('id, stage, category, category_id')
+      .eq('id', activeTicketId)
+      .maybeSingle();
+
+    const filled = (fields || []).filter((f: any) => f.field_value !== null && f.field_value !== '');
+    const pending = (fields || []).filter((f: any) => !f.field_value);
+
+    const filledLines = filled.map((f: any) => `- ${f.field_key}: ${f.field_value}`).join('\n') || '(nenhum ainda)';
+    const pendingLines = pending.map((f: any) => `- ${f.field_key}`).join('\n') || '(nenhum)';
+
+    return `Ticket #${activeTicketId.slice(0, 8)} | Estágio: ${ticket?.stage || '?'} | Categoria: ${ticket?.category || '?'}\n\nCAMPOS PREENCHIDOS PELA EQUIPE:\n${filledLines}\n\nAINDA PENDENTES:\n${pendingLines}\n\nUse APENAS os valores preenchidos acima ao responder o cliente. NÃO invente dados que não estão aqui.`;
+  } catch (error) {
+    console.error('❌ getTicketContext error:', error);
+    return 'Não consegui consultar o contexto agora. Mantenha o cliente tranquilo e informe que a equipe está trabalhando na solicitação.';
   }
 }
 

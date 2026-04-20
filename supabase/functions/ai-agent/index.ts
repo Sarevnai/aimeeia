@@ -468,6 +468,58 @@ serve(async (req: Request) => {
       const { agentType, agent } = selectAgent(effectiveDepartment, conversationSource);
       console.log(`🤖 Agent: ${agentType} | dept: ${effectiveDepartment} | source: ${conversationSource}`);
 
+      // Sprint 6.1 — Admin-specific context: contact_type + active ticket
+      let contactType: 'lead' | 'proprietario' | 'inquilino' | null = null;
+      let activeTicket: any = null;
+
+      if (agentType === 'admin' && contact_id) {
+        const { data: contactRow } = await supabase
+          .from('contacts')
+          .select('contact_type')
+          .eq('id', contact_id)
+          .maybeSingle();
+        contactType = (contactRow?.contact_type as any) || null;
+
+        // busca ticket aberto mais recente pra conversa
+        const { data: ticketRow } = await supabase
+          .from('tickets')
+          .select('id, category, category_id, stage, stage_id, created_at')
+          .eq('tenant_id', tenant_id)
+          .eq('conversation_id', conversation_id)
+          .is('resolved_at', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (ticketRow) {
+          const [{ data: catRow }, { data: fields }] = await Promise.all([
+            supabase
+              .from('ticket_categories')
+              .select('risk_level, aimee_can_resolve, context_template')
+              .eq('id', ticketRow.category_id)
+              .maybeSingle(),
+            supabase
+              .from('ticket_context_fields')
+              .select('field_key, field_value, filled_by, requested_by_aimee')
+              .eq('ticket_id', ticketRow.id),
+          ]);
+
+          activeTicket = {
+            id: ticketRow.id,
+            category: ticketRow.category,
+            category_id: ticketRow.category_id,
+            risk_level: catRow?.risk_level || null,
+            aimee_can_resolve: catRow?.aimee_can_resolve !== false,
+            stage: ticketRow.stage,
+            stage_id: ticketRow.stage_id,
+            created_at: ticketRow.created_at,
+            context_fields: fields || [],
+            context_template: Array.isArray(catRow?.context_template) ? catRow.context_template : [],
+          };
+          console.log(`🎫 Active ticket loaded: #${ticketRow.id.slice(0, 8)} | ${ticketRow.stage} | ${ticketRow.category}`);
+        }
+      }
+
       const ctx: AgentContext = {
         tenantId: tenant_id,
         phoneNumber: phone_number,
@@ -498,6 +550,9 @@ serve(async (req: Request) => {
         // Fix B: context flags for anti-loop
         _qualChangedThisTurn: Object.keys(extracted).length > 0,
         _moduleChangedThisTurn: false,
+        // Sprint 6.1 — Admin setor locação
+        contactType,
+        activeTicket,
       };
 
       let systemPrompt = agent.buildSystemPrompt(ctx);

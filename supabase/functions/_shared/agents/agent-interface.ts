@@ -37,7 +37,32 @@ export interface AgentContext {
   _qualChangedThisTurn?: boolean;         // Fix B: true when qualification data was extracted this turn
   _moduleChangedThisTurn?: boolean;       // Fix B: true when module changed this turn
   simulate?: boolean;                      // F4: true in simulator — skip WhatsApp/CRM side effects
+  contactType?: 'lead' | 'proprietario' | 'inquilino' | null; // Sprint 6.1: admin usa pra adaptar tom
+  activeTicket?: ActiveTicketContext | null; // Sprint 6.1: admin usa pra saber se já tem ticket aberto + contexto do operador
   supabase: any;
+}
+
+// Sprint 6.1 — estado do ticket ativo pra conversa (setor administrativo)
+export interface ActiveTicketContext {
+  id: string;
+  category: string;
+  category_id: string | null;
+  risk_level: 'baixo' | 'medio' | 'alto' | null;
+  aimee_can_resolve: boolean;
+  stage: string;
+  stage_id: string | null;
+  created_at: string;
+  context_fields: Array<{
+    field_key: string;
+    field_value: string | null;
+    filled_by: string | null;
+    requested_by_aimee: boolean;
+  }>;
+  context_template: Array<{
+    key: string;
+    label: string;
+    required?: boolean;
+  }>;
 }
 
 // Contract that every agent module must implement

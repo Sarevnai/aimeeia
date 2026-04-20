@@ -563,6 +563,171 @@ export type Database = {
           },
         ]
       }
+      broker_wa_templates: {
+        Row: {
+          created_at: string | null
+          icon: string | null
+          id: string
+          is_active: boolean | null
+          label: string
+          profile_id: string | null
+          sort_order: number | null
+          tenant_id: string
+          text_template: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          label: string
+          profile_id?: string | null
+          sort_order?: number | null
+          tenant_id: string
+          text_template: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          label?: string
+          profile_id?: string | null
+          sort_order?: number | null
+          tenant_id?: string
+          text_template?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broker_wa_templates_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broker_wa_templates_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      brokers: {
+        Row: {
+          active: boolean
+          c2s_external_id: string | null
+          c2s_is_master: boolean | null
+          c2s_payload: Json | null
+          c2s_seller_id: string | null
+          created_at: string
+          email: string | null
+          full_name: string
+          id: string
+          last_synced_c2s: string | null
+          last_synced_vista: string | null
+          phone: string | null
+          profile_id: string | null
+          team: string | null
+          tenant_id: string
+          updated_at: string
+          vista_codigo: string | null
+          vista_nome: string | null
+        }
+        Insert: {
+          active?: boolean
+          c2s_external_id?: string | null
+          c2s_is_master?: boolean | null
+          c2s_payload?: Json | null
+          c2s_seller_id?: string | null
+          created_at?: string
+          email?: string | null
+          full_name: string
+          id?: string
+          last_synced_c2s?: string | null
+          last_synced_vista?: string | null
+          phone?: string | null
+          profile_id?: string | null
+          team?: string | null
+          tenant_id: string
+          updated_at?: string
+          vista_codigo?: string | null
+          vista_nome?: string | null
+        }
+        Update: {
+          active?: boolean
+          c2s_external_id?: string | null
+          c2s_is_master?: boolean | null
+          c2s_payload?: Json | null
+          c2s_seller_id?: string | null
+          created_at?: string
+          email?: string | null
+          full_name?: string
+          id?: string
+          last_synced_c2s?: string | null
+          last_synced_vista?: string | null
+          phone?: string | null
+          profile_id?: string | null
+          team?: string | null
+          tenant_id?: string
+          updated_at?: string
+          vista_codigo?: string | null
+          vista_nome?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brokers_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brokers_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      c2s_webhook_events: {
+        Row: {
+          action: string | null
+          error_message: string | null
+          event_type: string | null
+          id: number
+          lead_id: string | null
+          raw_payload: Json | null
+          received_at: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          action?: string | null
+          error_message?: string | null
+          event_type?: string | null
+          id?: number
+          lead_id?: string | null
+          raw_payload?: Json | null
+          received_at?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          action?: string | null
+          error_message?: string | null
+          event_type?: string | null
+          id?: number
+          lead_id?: string | null
+          raw_payload?: Json | null
+          received_at?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: []
+      }
       campaign_results: {
         Row: {
           campaign_id: string | null
@@ -686,6 +851,10 @@ export type Database = {
       }
       contacts: {
         Row: {
+          assigned_broker_id: string | null
+          c2s_lead_id: string | null
+          c2s_lead_internal_id: number | null
+          c2s_lead_synced_at: string | null
           channel_source: string | null
           city: string | null
           communication_preference: string | null
@@ -694,6 +863,7 @@ export type Database = {
           created_at: string | null
           crm_archive_reason: string | null
           crm_broker_notes: string | null
+          crm_funnel_status: string | null
           crm_id: string | null
           crm_natureza: string | null
           crm_neighborhood: string | null
@@ -710,13 +880,23 @@ export type Database = {
           notes: string | null
           onboarding_status: string | null
           phone: string
+          phone_valid: boolean | null
           property_unit: string | null
+          quality_issues: Json | null
+          reactivation_attempts: number
+          reactivation_blocked_reason: string | null
+          reactivation_last_attempt_at: string | null
+          reactivation_scheduled_at: string | null
           status: string | null
           tags: string[] | null
           tenant_id: string
           updated_at: string | null
         }
         Insert: {
+          assigned_broker_id?: string | null
+          c2s_lead_id?: string | null
+          c2s_lead_internal_id?: number | null
+          c2s_lead_synced_at?: string | null
           channel_source?: string | null
           city?: string | null
           communication_preference?: string | null
@@ -725,6 +905,7 @@ export type Database = {
           created_at?: string | null
           crm_archive_reason?: string | null
           crm_broker_notes?: string | null
+          crm_funnel_status?: string | null
           crm_id?: string | null
           crm_natureza?: string | null
           crm_neighborhood?: string | null
@@ -743,13 +924,23 @@ export type Database = {
           notes?: string | null
           onboarding_status?: string | null
           phone: string
+          phone_valid?: boolean | null
           property_unit?: string | null
+          quality_issues?: Json | null
+          reactivation_attempts?: number
+          reactivation_blocked_reason?: string | null
+          reactivation_last_attempt_at?: string | null
+          reactivation_scheduled_at?: string | null
           status?: string | null
           tags?: string[] | null
           tenant_id: string
           updated_at?: string | null
         }
         Update: {
+          assigned_broker_id?: string | null
+          c2s_lead_id?: string | null
+          c2s_lead_internal_id?: number | null
+          c2s_lead_synced_at?: string | null
           channel_source?: string | null
           city?: string | null
           communication_preference?: string | null
@@ -758,6 +949,7 @@ export type Database = {
           created_at?: string | null
           crm_archive_reason?: string | null
           crm_broker_notes?: string | null
+          crm_funnel_status?: string | null
           crm_id?: string | null
           crm_natureza?: string | null
           crm_neighborhood?: string | null
@@ -776,13 +968,26 @@ export type Database = {
           notes?: string | null
           onboarding_status?: string | null
           phone?: string
+          phone_valid?: boolean | null
           property_unit?: string | null
+          quality_issues?: Json | null
+          reactivation_attempts?: number
+          reactivation_blocked_reason?: string | null
+          reactivation_last_attempt_at?: string | null
+          reactivation_scheduled_at?: string | null
           status?: string | null
           tags?: string[] | null
           tenant_id?: string
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "contacts_assigned_broker_id_fkey"
+            columns: ["assigned_broker_id"]
+            isOneToOne: false
+            referencedRelation: "brokers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "contacts_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -1032,6 +1237,8 @@ export type Database = {
       }
       conversations: {
         Row: {
+          assigned_broker_id: string | null
+          c2s_lead_id: string | null
           campaign_id: string | null
           contact_id: string | null
           created_at: string | null
@@ -1045,6 +1252,8 @@ export type Database = {
           tenant_id: string
         }
         Insert: {
+          assigned_broker_id?: string | null
+          c2s_lead_id?: string | null
           campaign_id?: string | null
           contact_id?: string | null
           created_at?: string | null
@@ -1060,6 +1269,8 @@ export type Database = {
           tenant_id: string
         }
         Update: {
+          assigned_broker_id?: string | null
+          c2s_lead_id?: string | null
           campaign_id?: string | null
           contact_id?: string | null
           created_at?: string | null
@@ -1075,6 +1286,13 @@ export type Database = {
           tenant_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "conversations_assigned_broker_id_fkey"
+            columns: ["assigned_broker_id"]
+            isOneToOne: false
+            referencedRelation: "brokers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "conversations_campaign_id_fkey"
             columns: ["campaign_id"]
@@ -1310,6 +1528,7 @@ export type Database = {
           media_type: string | null
           media_url: string | null
           raw: Json | null
+          reply_to: number | null
           sender_id: string | null
           sender_type: string | null
           tenant_id: string
@@ -1333,6 +1552,7 @@ export type Database = {
           media_type?: string | null
           media_url?: string | null
           raw?: Json | null
+          reply_to?: number | null
           sender_id?: string | null
           sender_type?: string | null
           tenant_id: string
@@ -1356,6 +1576,7 @@ export type Database = {
           media_type?: string | null
           media_url?: string | null
           raw?: Json | null
+          reply_to?: number | null
           sender_id?: string | null
           sender_type?: string | null
           tenant_id?: string
@@ -1369,6 +1590,13 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_reply_to_fkey"
+            columns: ["reply_to"]
+            isOneToOne: false
+            referencedRelation: "messages"
             referencedColumns: ["id"]
           },
           {
@@ -1601,11 +1829,14 @@ export type Database = {
           id: string
           lead_source_type: string | null
           lead_temperature: string | null
+          lead_type: string | null
           message: string | null
+          origin_lead_id: string | null
           origin_listing_id: string | null
           portal_origin: string | null
           processed_at: string | null
           status: string | null
+          temperature: string | null
           tenant_id: string
           transaction_type: string | null
         }
@@ -1624,11 +1855,14 @@ export type Database = {
           id?: string
           lead_source_type?: string | null
           lead_temperature?: string | null
+          lead_type?: string | null
           message?: string | null
+          origin_lead_id?: string | null
           origin_listing_id?: string | null
           portal_origin?: string | null
           processed_at?: string | null
           status?: string | null
+          temperature?: string | null
           tenant_id: string
           transaction_type?: string | null
         }
@@ -1647,11 +1881,14 @@ export type Database = {
           id?: string
           lead_source_type?: string | null
           lead_temperature?: string | null
+          lead_type?: string | null
           message?: string | null
+          origin_lead_id?: string | null
           origin_listing_id?: string | null
           portal_origin?: string | null
           processed_at?: string | null
           status?: string | null
+          temperature?: string | null
           tenant_id?: string
           transaction_type?: string | null
         }
@@ -1892,6 +2129,39 @@ export type Database = {
           },
         ]
       }
+      rewarm_log: {
+        Row: {
+          contact_id: string
+          conversation_id: string | null
+          error_message: string | null
+          id: number
+          outcome: string
+          template_name: string | null
+          tenant_id: string
+          triggered_at: string
+        }
+        Insert: {
+          contact_id: string
+          conversation_id?: string | null
+          error_message?: string | null
+          id?: number
+          outcome: string
+          template_name?: string | null
+          tenant_id: string
+          triggered_at?: string
+        }
+        Update: {
+          contact_id?: string
+          conversation_id?: string | null
+          error_message?: string | null
+          id?: number
+          outcome?: string
+          template_name?: string | null
+          tenant_id?: string
+          triggered_at?: string
+        }
+        Relationships: []
+      }
       simulation_analyses: {
         Row: {
           action: string | null
@@ -2005,6 +2275,33 @@ export type Database = {
           },
         ]
       }
+      sync_cursors: {
+        Row: {
+          cursor_at: string
+          last_run_at: string | null
+          last_stats: Json | null
+          last_status: string | null
+          source: string
+          tenant_id: string
+        }
+        Insert: {
+          cursor_at?: string
+          last_run_at?: string | null
+          last_stats?: Json | null
+          last_status?: string | null
+          source: string
+          tenant_id: string
+        }
+        Update: {
+          cursor_at?: string
+          last_run_at?: string | null
+          last_stats?: Json | null
+          last_status?: string | null
+          source?: string
+          tenant_id?: string
+        }
+        Relationships: []
+      }
       system_settings: {
         Row: {
           id: string
@@ -2037,6 +2334,11 @@ export type Database = {
       tenants: {
         Row: {
           access_code: string
+          ai_active_admin: boolean | null
+          auto_rewarm_enabled: boolean
+          c2s_webhook_last_event_at: string | null
+          c2s_webhook_secret: string | null
+          c2s_webhook_subscribed_at: string | null
           city: string
           company_name: string
           created_at: string | null
@@ -2046,6 +2348,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           phone_redirect: string | null
+          rewarm_daily_limit: number
           state: string
           theme_config: Json | null
           updated_at: string | null
@@ -2056,6 +2359,11 @@ export type Database = {
         }
         Insert: {
           access_code?: string
+          ai_active_admin?: boolean | null
+          auto_rewarm_enabled?: boolean
+          c2s_webhook_last_event_at?: string | null
+          c2s_webhook_secret?: string | null
+          c2s_webhook_subscribed_at?: string | null
           city?: string
           company_name: string
           created_at?: string | null
@@ -2065,6 +2373,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           phone_redirect?: string | null
+          rewarm_daily_limit?: number
           state?: string
           theme_config?: Json | null
           updated_at?: string | null
@@ -2075,6 +2384,11 @@ export type Database = {
         }
         Update: {
           access_code?: string
+          ai_active_admin?: boolean | null
+          auto_rewarm_enabled?: boolean
+          c2s_webhook_last_event_at?: string | null
+          c2s_webhook_secret?: string | null
+          c2s_webhook_subscribed_at?: string | null
           city?: string
           company_name?: string
           created_at?: string | null
@@ -2084,6 +2398,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           phone_redirect?: string | null
+          rewarm_daily_limit?: number
           state?: string
           theme_config?: Json | null
           updated_at?: string | null
@@ -2096,29 +2411,38 @@ export type Database = {
       }
       ticket_categories: {
         Row: {
+          aimee_can_resolve: boolean | null
+          context_template: Json | null
           created_at: string | null
           description: string | null
           id: string
           is_active: boolean | null
           name: string
+          risk_level: string | null
           sla_hours: number | null
           tenant_id: string
         }
         Insert: {
+          aimee_can_resolve?: boolean | null
+          context_template?: Json | null
           created_at?: string | null
           description?: string | null
           id?: string
           is_active?: boolean | null
           name: string
+          risk_level?: string | null
           sla_hours?: number | null
           tenant_id: string
         }
         Update: {
+          aimee_can_resolve?: boolean | null
+          context_template?: Json | null
           created_at?: string | null
           description?: string | null
           id?: string
           is_active?: boolean | null
           name?: string
+          risk_level?: string | null
           sla_hours?: number | null
           tenant_id?: string
         }
@@ -2184,6 +2508,61 @@ export type Database = {
           },
         ]
       }
+      ticket_context_fields: {
+        Row: {
+          field_key: string
+          field_value: string | null
+          filled_at: string | null
+          filled_by: string | null
+          id: string
+          requested_by_aimee: boolean | null
+          tenant_id: string
+          ticket_id: string
+        }
+        Insert: {
+          field_key: string
+          field_value?: string | null
+          filled_at?: string | null
+          filled_by?: string | null
+          id?: string
+          requested_by_aimee?: boolean | null
+          tenant_id: string
+          ticket_id: string
+        }
+        Update: {
+          field_key?: string
+          field_value?: string | null
+          filled_at?: string | null
+          filled_by?: string | null
+          id?: string
+          requested_by_aimee?: boolean | null
+          tenant_id?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_context_fields_filled_by_fkey"
+            columns: ["filled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_context_fields_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_context_fields_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ticket_stages: {
         Row: {
           color: string | null
@@ -2233,8 +2612,11 @@ export type Database = {
           department_code: Database["public"]["Enums"]["department_type"] | null
           description: string | null
           email: string | null
+          first_response_at: string | null
           id: string
           last_contact: string
+          nps_collected_at: string | null
+          nps_score: number | null
           phone: string
           priority: string
           property_address: string | null
@@ -2264,8 +2646,11 @@ export type Database = {
             | null
           description?: string | null
           email?: string | null
+          first_response_at?: string | null
           id?: string
           last_contact?: string
+          nps_collected_at?: string | null
+          nps_score?: number | null
           phone: string
           priority?: string
           property_address?: string | null
@@ -2295,8 +2680,11 @@ export type Database = {
             | null
           description?: string | null
           email?: string | null
+          first_response_at?: string | null
           id?: string
           last_contact?: string
+          nps_collected_at?: string | null
+          nps_score?: number | null
           phone?: string
           priority?: string
           property_address?: string | null
@@ -2449,6 +2837,10 @@ export type Database = {
           url: string
         }[]
       }
+      reason_matches_rewarm_blocklist: {
+        Args: { p_reason: string; p_tenant_id: string }
+        Returns: boolean
+      }
       search_properties_semantic: {
         Args: {
           bedrooms_min?: number
@@ -2474,6 +2866,7 @@ export type Database = {
         }[]
       }
       trigger_property_followups: { Args: never; Returns: undefined }
+      unaccent: { Args: { "": string }; Returns: string }
       weekly_vista_crm_full_sync: { Args: never; Returns: number }
     }
     Enums: {

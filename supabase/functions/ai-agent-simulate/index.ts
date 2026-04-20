@@ -263,6 +263,7 @@ serve(async (req: Request) => {
       triageConfig,
       contactName,
       conversationSource,
+      null, // simulate has no message_type; simulator always passes text
     );
 
     if (triageResult.shouldContinue) {

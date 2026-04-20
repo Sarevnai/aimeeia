@@ -162,7 +162,8 @@ serve(async (req: Request) => {
       message_body, phone_number, conversation_id,
       triageConfig,
       contact_name || null,
-      conversation?.source || null
+      conversation?.source || null,
+      message_type || null
     );
 
     if (triageResult.shouldContinue) {

@@ -36,7 +36,8 @@ export async function handleTriage(
   conversationId: string,
   triageConfig?: TriageConfig | null,
   contactName?: string | null,
-  conversationSource?: string | null
+  conversationSource?: string | null,
+  messageType?: string | null
 ): Promise<TriageResult> {
   const stage = state?.triage_stage || 'greeting';
 
@@ -46,6 +47,16 @@ export async function handleTriage(
     await completeTriage(supabase, tenant.id, phoneNumber, conversationId, 'remarketing');
     return { shouldContinue: false };
   }
+
+  // If the very first inbound already carries intent (audio, long text, or
+  // real-estate keywords), skip greeting and hand over to the AI agent so it
+  // can respond contextually using the WhatsApp profile name.
+  if (stage === 'greeting' && hasImmediateIntent(messageBody, messageType)) {
+    const department = await resolveDepartmentFromContact(supabase, tenant.id, phoneNumber);
+    await completeTriage(supabase, tenant.id, phoneNumber, conversationId, department);
+    return { shouldContinue: false };
+  }
+
   const agentName = config.agent_name || 'Aimee';
 
   // Helper to replace triage template variables
@@ -134,6 +145,39 @@ export async function handleTriage(
 }
 
 // ========== HELPER FUNCTIONS ==========
+
+// Detects whether the first inbound already carries enough intent to skip the
+// greeting step. Audio always qualifies (the client took effort to record),
+// and text qualifies when it's long or mentions real-estate keywords.
+const INTENT_KEYWORDS = [
+  'apartamento', 'apto', 'apê', 'casa', 'imóvel', 'imovel', 'imoveis', 'imóveis',
+  'sala', 'loja', 'terreno', 'kitnet', 'studio', 'cobertura',
+  'quero', 'busco', 'procuro', 'preciso', 'interessad', 'olhar', 'olhando',
+  'alug', 'comprar', 'compra', 'venda', 'vender', 'locação', 'locacao',
+  'quartos', 'dormitorios', 'dormitórios', 'banheiros', 'vagas',
+  'bairro', 'centro', 'trindade', 'ingleses', 'canasvieiras', 'jurerê',
+  'orçamento', 'orcamento', 'até r$', 'mil reais', 'até 500', 'mil/mês',
+];
+
+function hasImmediateIntent(body: string, messageType?: string | null): boolean {
+  if (!body) return false;
+
+  // Audio: always skip greeting — cost of transcription already paid, content has intent.
+  if (messageType === 'audio' || body.startsWith('[Transcrição de áudio]:')) return true;
+
+  const text = body.trim();
+  const norm = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Short casual openers: "Oi", "Olá", "Bom dia" → keep greeting flow.
+  const wordCount = text.split(/\s+/).length;
+  if (wordCount <= 3) return false;
+
+  // Long message: assume intent.
+  if (wordCount >= 10) return true;
+
+  // Medium-length: require a real-estate keyword.
+  return INTENT_KEYWORDS.some((kw) => norm.includes(kw));
+}
 
 // Common greetings and filler words that should NOT be treated as names
 const NOT_A_NAME = new Set([

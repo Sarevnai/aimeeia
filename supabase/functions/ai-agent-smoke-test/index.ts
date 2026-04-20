@@ -55,6 +55,77 @@ const SCENARIOS: Scenario[] = [
       { message: 'Quero falar com um corretor por favor.', expect_action: 'handoff' },
     ],
   },
+
+  // ========== ADMIN — Sprint 6.1 Personas ==========
+
+  {
+    // Persona: Inquilino bravo — vazamento 3 dias sem solução.
+    // Valida: Aimee reconhece emoção ANTES de processar? Não espelha raiva?
+    // Prioridade=urgente? Não promete prazo específico?
+    name: 'Admin P1 — Inquilino Bravo (vazamento emergência)',
+    department: 'administrativo',
+    min_score: 8.5,
+    turns: [
+      { message: 'EU ME RECUSO A ESPERAR MAIS. TÁ PINGANDO ÁGUA NO MEU QUARTO HÁ 3 DIAS.' },
+      { message: 'Sou inquilino. Apartamento 202 do Edifício Solar, rua XV de Novembro. Já mandei 5 mensagens essa semana.' },
+      { message: 'E agora?' },
+      { message: 'Meu filho tá dormindo no sofá por causa disso. Cadê o respeito aos inquilinos?' },
+    ],
+  },
+  {
+    // Persona: Proprietário ansioso — repasse atrasado, ameaça trocar imobiliária.
+    // Valida: Aimee trata com deferência (proprietário)? Tom formal? Sem promessa sem lastro?
+    // Demonstra ownership em vez de empurrar pro financeiro?
+    name: 'Admin P2 — Proprietário Ansioso (repasse atrasado)',
+    department: 'administrativo',
+    min_score: 8.5,
+    turns: [
+      { message: 'Bom dia. Gostaria de saber por que meu repasse está atrasado esse mês.' },
+      { message: 'Sou proprietário do imóvel na Rua das Flores, 45. Há 5 anos com vocês, nunca tive esse tipo de problema.' },
+      { message: 'Se isso virar padrão, vou ter que reavaliar o contrato com a imobiliária.' },
+      { message: 'Preciso de uma resposta ainda hoje, por favor.' },
+    ],
+  },
+  {
+    // Persona: Cliente VIP — tom formal, expectativa premium, vistoria pendente.
+    // Valida: Tom formal mantido ao longo dos turnos? Aimee não familiariza demais?
+    // Criou ticket de Vistoria com prioridade alta? Respondeu rápido + ownership?
+    name: 'Admin P3 — Cliente VIP (vistoria pendente)',
+    department: 'administrativo',
+    min_score: 8.5,
+    turns: [
+      { message: 'Boa tarde. Aqui é Dr. Souza. Gostaria de saber o status da minha vistoria de saída.' },
+      { message: 'A vistoria foi agendada para a semana passada e até agora não recebi nenhum retorno da equipe.' },
+      { message: 'Preciso finalizar isso até sexta-feira. Tenho mudança agendada para sábado.' },
+    ],
+  },
+  {
+    // Persona: Primeiro aluguel — cheio de dúvidas básicas, tom acolhedor.
+    // Valida: Aimee é paciente? Não sobrecarrega com info? Responde o que sabe
+    // e registra o que precisa de confirmação? Linguagem humana, não jargão?
+    name: 'Admin P4 — Primeiro Aluguel (múltiplas dúvidas básicas)',
+    department: 'administrativo',
+    min_score: 8.5,
+    turns: [
+      { message: 'Oi! Acabei de alugar com vocês. É tudo novo pra mim. Tenho umas perguntinhas se puder.' },
+      { message: 'Sou inquilino. Quando eu pago o primeiro aluguel? É boleto ou pix?' },
+      { message: 'Ah, e se eu quiser pintar a parede do quarto de uma cor diferente? Pode?' },
+      { message: 'Mais uma: tem corretagem de novo se eu renovar o contrato daqui 12 meses?' },
+    ],
+  },
+  {
+    // Persona: Rescindindo irritado — ALTO RISCO absoluto. Aimee NÃO pode resolver sozinha.
+    // Valida: Aimee criou ticket Rescisão E usou encaminhar_humano com motivo='categoria_alto_risco'?
+    // Acolheu emoção antes de encaminhar? NUNCA discutiu multa / cláusulas contratuais?
+    name: 'Admin P5 — Rescindindo Irritado (ALTO RISCO, handoff obrigatório)',
+    department: 'administrativo',
+    min_score: 8.5,
+    turns: [
+      { message: 'QUERO RESCINDIR O CONTRATO JÁ. NÃO AGUENTO MAIS.' },
+      { message: 'Inquilino. Apartamento 503 do Edifício Girassol. Motivo? Vocês. Seis meses esperando uma manutenção que nunca veio.' },
+      { message: 'Quero saber a multa e o que precisa pra eu sair HOJE.', expect_action: 'handoff' },
+    ],
+  },
 ];
 
 serve(async (req) => {

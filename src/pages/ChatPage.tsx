@@ -48,7 +48,6 @@ import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
 import { AdminContactSidebar } from '@/components/chat/AdminContactSidebar';
 import { AudioRecordButton } from '@/components/chat/AudioRecordButton';
-import { usePollingFallback } from '@/hooks/usePollingFallback';
 import BrokerWATemplatesManager from '@/components/chat/BrokerWATemplatesManager';
 import LeadTags from '@/components/LeadTags';
 
@@ -182,7 +181,9 @@ const ChatPage: React.FC = () => {
     fetchData();
   }, [id, tenantId]);
 
-  // Polling fallback — quando o Realtime está caído, re-fetcha mensagens a cada 3s
+  // Realtime: inscreve em messages + conversation_states dessa conversa.
+  // Sem polling fallback — se o realtime cair, o operador usa o botão de refresh do browser.
+  // (O polling de 3s estava matando a UX quando o realtime dava CHANNEL_ERROR.)
   const refetchMessages = useCallback(async () => {
     if (!id || !tenantId) return;
     const { data } = await supabase
@@ -194,7 +195,36 @@ const ChatPage: React.FC = () => {
       .limit(500);
     if (data) setMessages(data as Message[]);
   }, [id, tenantId]);
-  usePollingFallback(refetchMessages);
+
+  useEffect(() => {
+    if (!id || !tenantId || !conversation?.phone_number) return;
+
+    const channel = supabase
+      .channel(`chat_page_${id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
+        () => {
+          refetchMessages();
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversation_states', filter: `phone_number=eq.${conversation.phone_number}` },
+        (payload) => {
+          if (payload.new && (payload.new as any).tenant_id === tenantId) {
+            setConvState(payload.new as ConversationState);
+          }
+        },
+      )
+      .subscribe((status, err) => {
+        console.log(`[ChatPage realtime] conv ${id.slice(0, 8)} status:`, status, err || '');
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, tenantId, conversation?.phone_number, refetchMessages]);
 
   // Resolve operator name when convState changes
   useEffect(() => {

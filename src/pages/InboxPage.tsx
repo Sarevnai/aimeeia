@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils';
 import LeadTags from '@/components/LeadTags';
 import type { Tables } from '@/integrations/supabase/types';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
-import { usePollingFallback } from '@/hooks/usePollingFallback';
 
 type Conversation = Tables<'conversations'>;
 type Contact = Tables<'contacts'>;
@@ -106,9 +105,7 @@ const InboxPage: React.FC = () => {
     fetchConversations();
   }, [tenantId, department]);
 
-  // Polling fallback quando o Realtime do Supabase está caído
-  usePollingFallback(fetchConversations);
-
+  // Realtime-only — polling de 3s removido por prejudicar UX. Se o realtime cair, o operador usa refresh manual.
   // Realtime subscription
   useEffect(() => {
     if (!tenantId) return;

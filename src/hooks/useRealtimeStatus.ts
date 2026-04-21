@@ -11,13 +11,31 @@ export function useRealtimeStatus(): RealtimeStatus {
   const [status, setStatus] = useState<RealtimeStatus>('CONNECTING');
 
   useEffect(() => {
+    // Expõe auth token atual pro debug
+    supabase.auth.getSession().then(({ data }) => {
+      console.log('[Realtime] sessão:', {
+        hasSession: !!data.session,
+        expiresAt: data.session?.expires_at,
+        userId: data.session?.user?.id,
+        tokenStart: data.session?.access_token?.slice(0, 20) + '...',
+      });
+    });
+
     const channel = supabase
       .channel('realtime-heartbeat')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
-        // noop — usamos só pra garantir que o canal está vivo
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload) => {
+        console.log('[Realtime] heartbeat msg evento:', payload);
       })
-      .subscribe((s) => {
-        console.log('[Realtime] heartbeat status:', s);
+      .subscribe((s, err) => {
+        console.log('[Realtime] heartbeat status:', s, 'err:', err || '(nenhum)');
+        if (err) {
+          console.log('[Realtime] err detalhes:', {
+            message: (err as any)?.message,
+            name: (err as any)?.name,
+            stack: (err as any)?.stack?.slice(0, 400),
+            full: JSON.stringify(err, Object.getOwnPropertyNames(err as any)),
+          });
+        }
         setStatus(s as RealtimeStatus);
       });
 

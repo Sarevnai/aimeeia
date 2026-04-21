@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import LeadTags from '@/components/LeadTags';
 import type { Tables } from '@/integrations/supabase/types';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
+import { usePollingFallback } from '@/hooks/usePollingFallback';
 
 type Conversation = Tables<'conversations'>;
 type Contact = Tables<'contacts'>;
@@ -104,6 +105,9 @@ const InboxPage: React.FC = () => {
   useEffect(() => {
     fetchConversations();
   }, [tenantId, department]);
+
+  // Polling fallback quando o Realtime do Supabase está caído
+  usePollingFallback(fetchConversations);
 
   // Realtime subscription
   useEffect(() => {

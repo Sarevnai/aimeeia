@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useSessionState } from '@/hooks/useSessionState';
@@ -48,6 +48,7 @@ import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 import SendToC2SDialog from '@/components/SendToC2SDialog';
 import { AdminContactSidebar } from '@/components/chat/AdminContactSidebar';
 import { AudioRecordButton } from '@/components/chat/AudioRecordButton';
+import { usePollingFallback } from '@/hooks/usePollingFallback';
 import BrokerWATemplatesManager from '@/components/chat/BrokerWATemplatesManager';
 import LeadTags from '@/components/LeadTags';
 
@@ -180,6 +181,20 @@ const ChatPage: React.FC = () => {
 
     fetchData();
   }, [id, tenantId]);
+
+  // Polling fallback — quando o Realtime está caído, re-fetcha mensagens a cada 3s
+  const refetchMessages = useCallback(async () => {
+    if (!id || !tenantId) return;
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', id)
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: true })
+      .limit(500);
+    if (data) setMessages(data as Message[]);
+  }, [id, tenantId]);
+  usePollingFallback(refetchMessages);
 
   // Resolve operator name when convState changes
   useEffect(() => {

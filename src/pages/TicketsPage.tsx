@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
 import { useSessionState } from '@/hooks/useSessionState';
+import { usePollingFallback } from '@/hooks/usePollingFallback';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -291,6 +292,9 @@ const TicketsPage: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [fetchData, tenantId]);
+
+  // Polling fallback enquanto Realtime está caído
+  usePollingFallback(fetchData);
 
   const filteredTickets = tickets.filter((t) => {
     if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase()) && !t.phone?.includes(searchQuery)) return false;

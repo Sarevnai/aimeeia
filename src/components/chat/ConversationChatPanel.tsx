@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import ChatMediaUpload from '@/components/chat/ChatMediaUpload';
 import { AudioRecordButton } from '@/components/chat/AudioRecordButton';
+import { usePollingFallback } from '@/hooks/usePollingFallback';
 
 interface ChatMessage {
   id: number | string;
@@ -148,6 +149,9 @@ export const ConversationChatPanel: React.FC<Props> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
+
+  // Polling fallback: se o Realtime estiver caído, faz re-fetch a cada 3s
+  usePollingFallback(fetchMessages);
 
   const handleSend = async () => {
     const text = inputValue.trim();

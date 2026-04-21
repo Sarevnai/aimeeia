@@ -16,29 +16,21 @@ export const RealtimeStatusIndicator: React.FC = () => {
       ? 'bg-emerald-500'
       : status === 'CONNECTING'
         ? 'bg-amber-400'
-        : 'bg-red-500';
+        : 'bg-amber-500'; // polling ativo — não é erro crítico, só fallback
 
   const label =
     status === 'SUBSCRIBED'
       ? 'Ao vivo'
       : status === 'CONNECTING'
         ? 'Conectando…'
-        : status === 'CHANNEL_ERROR'
-          ? 'Erro no canal'
-          : status === 'TIMED_OUT'
-            ? 'Sem resposta'
-            : 'Desconectado';
+        : 'Atualização 3s';
 
   const hint =
     status === 'SUBSCRIBED'
       ? 'Mensagens aparecem em tempo real.'
-      : status === 'CHANNEL_ERROR'
-        ? 'O Realtime não pôde subscrever. Verifique sua sessão (faça logout/login) ou a rede.'
-        : status === 'TIMED_OUT'
-          ? 'O servidor não respondeu a tempo. Verifique a rede.'
-          : status === 'CLOSED'
-            ? 'Canal fechado. Atualize a página.'
-            : 'Estabelecendo conexão…';
+      : status === 'CONNECTING'
+        ? 'Estabelecendo conexão…'
+        : 'Realtime do Supabase temporariamente indisponível. O app recarrega automaticamente a cada 3 segundos enquanto a conexão ao vivo não volta.';
 
   return (
     <div

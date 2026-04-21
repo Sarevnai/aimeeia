@@ -1327,3 +1327,409 @@ export async function sendAndSaveAudio(
     'audio', audioUrl
   );
 }
+
+// ========== ATUALIZAÇÃO SECTOR — VISTA MUTATIONS ==========
+// Sprint 6.2 — helpers pro setor de atualização de imóveis ADM.
+// Integrado às tabelas owner_update_results + owner_update_campaigns (UI /atualizacao).
+
+async function callVistaUpdate(
+  ctx: AgentContext,
+  propertyCode: string,
+  fields: Record<string, any>
+): Promise<{ ok: boolean; response: any; error?: string }> {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+
+    const resp = await fetch(`${supabaseUrl}/functions/v1/vista-update-property`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        tenant_id: ctx.tenantId,
+        property_code: propertyCode,
+        fields,
+      }),
+    });
+
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      return { ok: false, response: data, error: data.error || `HTTP ${resp.status}` };
+    }
+    return { ok: true, response: data.vista_response };
+  } catch (e) {
+    return { ok: false, response: null, error: (e as Error).message };
+  }
+}
+
+async function writeAuditLog(
+  ctx: AgentContext,
+  action: string,
+  oldValue: any,
+  newValue: any,
+  reason: string,
+  executed: boolean,
+  vistaResponse: any,
+  errorMessage: string | null
+): Promise<void> {
+  const entry = ctx.activeUpdateEntry;
+  if (!entry) return;
+  await ctx.supabase.from('vista_audit_log').insert({
+    tenant_id: ctx.tenantId,
+    property_code: entry.propertyCode,
+    property_id: entry.propertyIdLocal,
+    action,
+    old_value: oldValue,
+    new_value: newValue,
+    reason,
+    conversation_id: ctx.conversationId,
+    executed,
+    vista_response: vistaResponse,
+    error_message: errorMessage,
+  });
+}
+
+// Fecha o owner_update_result + incrementa contadores na campanha.
+async function closeOwnerUpdateResult(
+  ctx: AgentContext,
+  propertyStatus: 'available' | 'rented' | 'sold' | 'unavailable' | 'price_changed' | null,
+  aiSummary: string,
+  resultStatus: 'completed' | 'failed' = 'completed'
+): Promise<void> {
+  const entry = ctx.activeUpdateEntry;
+  if (!entry) return;
+  await ctx.supabase
+    .from('owner_update_results')
+    .update({
+      status: resultStatus,
+      property_status: propertyStatus,
+      ai_summary: aiSummary,
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', entry.resultId);
+
+  // Incrementa updated_count da campanha (contador agregado)
+  if (resultStatus === 'completed') {
+    const { data: camp } = await ctx.supabase
+      .from('owner_update_campaigns')
+      .select('updated_count, responded_count')
+      .eq('id', entry.campaignId)
+      .maybeSingle();
+    if (camp) {
+      await ctx.supabase
+        .from('owner_update_campaigns')
+        .update({
+          updated_count: (camp.updated_count || 0) + 1,
+          responded_count: (camp.responded_count || 0) + (propertyStatus ? 1 : 0),
+        })
+        .eq('id', entry.campaignId);
+    }
+  }
+
+  // Reflete no properties local, se tiver
+  if (entry.propertyIdLocal) {
+    const propPatch: any = { last_availability_check_at: new Date().toISOString() };
+    if (propertyStatus === 'unavailable' || propertyStatus === 'sold' || propertyStatus === 'rented') {
+      propPatch.is_active = false;
+    }
+    await ctx.supabase
+      .from('properties')
+      .update(propPatch)
+      .eq('id', entry.propertyIdLocal);
+  }
+}
+
+export async function executeConfirmAvailability(
+  ctx: AgentContext,
+  args: any
+): Promise<string> {
+  try {
+    const entry = ctx.activeUpdateEntry;
+    if (!entry) {
+      console.error('❌ confirmar_disponibilidade called without activeUpdateEntry');
+      return 'Não encontrei a referência do imóvel nesta conversa. Despeça-se do proprietário com naturalidade e avise que a equipe vai retomar o contato.';
+    }
+
+    await writeAuditLog(
+      ctx,
+      'confirm_available',
+      { status: entry.currentStatus },
+      { status: entry.currentStatus }, // sem mudança
+      args.observacao || 'Proprietário confirmou disponibilidade sem alterações.',
+      true, // confirmação não requer Vista call
+      null,
+      null
+    );
+
+    await closeOwnerUpdateResult(ctx, 'available', args.observacao || 'Proprietário confirmou disponibilidade sem alterações.');
+
+    await logActivity(ctx.supabase, ctx.tenantId, 'atualizacao_confirmed_available', 'owner_update_results', entry.resultId, {
+      property_code: entry.propertyCode,
+      campaign_id: entry.campaignId,
+      conversation_id: ctx.conversationId,
+    });
+
+    console.log(`✅ Availability confirmed: ${entry.propertyCode}`);
+
+    return 'Disponibilidade confirmada com sucesso. Agora se despeça do proprietário com uma linha breve e respeitosa, agradecendo o retorno. Não adicione assunto novo.';
+  } catch (error) {
+    console.error('❌ executeConfirmAvailability error:', error);
+    return 'Registrei sua confirmação. Despeça-se com naturalidade.';
+  }
+}
+
+export async function executeUpdatePropertyValue(
+  ctx: AgentContext,
+  args: { tipo_valor: 'venda' | 'locacao'; novo_valor: number; motivo: string }
+): Promise<string> {
+  try {
+    const entry = ctx.activeUpdateEntry;
+    if (!entry) {
+      console.error('❌ atualizar_valor called without activeUpdateEntry');
+      return 'Não encontrei a referência do imóvel nesta conversa. Despeça-se com naturalidade e avise que a equipe retoma o contato.';
+    }
+
+    const autoExecute = (ctx.tenant as any).atualizacao_auto_execute === true;
+    const field = args.tipo_valor === 'venda' ? 'ValorVenda' : 'ValorLocacao';
+    const oldValue = args.tipo_valor === 'venda' ? entry.currentValorVenda : entry.currentValorLocacao;
+
+    let vistaResponse: any = null;
+    let executed = false;
+    let errorMessage: string | null = null;
+
+    if (autoExecute) {
+      const result = await callVistaUpdate(ctx, entry.propertyCode, { [field]: args.novo_valor });
+      vistaResponse = result.response;
+      executed = result.ok;
+      errorMessage = result.error || null;
+    } else {
+      errorMessage = 'auto_execute=false — mutation não enviada ao Vista, apenas registrada.';
+    }
+
+    await writeAuditLog(
+      ctx,
+      'update_value',
+      { [field]: oldValue },
+      { [field]: args.novo_valor },
+      args.motivo,
+      executed,
+      vistaResponse,
+      errorMessage
+    );
+
+    await closeOwnerUpdateResult(
+      ctx,
+      'price_changed',
+      `${args.motivo} | Novo ${args.tipo_valor}: R$ ${args.novo_valor.toLocaleString('pt-BR')}`,
+      executed ? 'completed' : 'failed'
+    );
+
+    await logActivity(ctx.supabase, ctx.tenantId, 'atualizacao_value_updated', 'owner_update_results', entry.resultId, {
+      property_code: entry.propertyCode,
+      field,
+      old_value: oldValue,
+      new_value: args.novo_valor,
+      executed,
+      conversation_id: ctx.conversationId,
+    });
+
+    console.log(`💰 Value update queued: ${entry.propertyCode} ${field}: ${oldValue} → ${args.novo_valor} (executed=${executed})`);
+
+    if (executed) {
+      return `Novo valor de ${args.tipo_valor} registrado com sucesso no sistema. Agora confirme ao proprietário em uma linha breve que o ajuste foi feito e agradeça o retorno. Não adicione assunto novo.`;
+    }
+    return `Registrei o ajuste pra nossa equipe aplicar. Confirme ao proprietário com naturalidade que a equipe vai atualizar e agradeça o retorno.`;
+  } catch (error) {
+    console.error('❌ executeUpdatePropertyValue error:', error);
+    return 'Registrei sua atualização. Despeça-se com naturalidade.';
+  }
+}
+
+export async function executeMarkUnavailable(
+  ctx: AgentContext,
+  args: { motivo: string }
+): Promise<string> {
+  try {
+    const entry = ctx.activeUpdateEntry;
+    if (!entry) {
+      console.error('❌ marcar_indisponivel called without activeUpdateEntry');
+      return 'Não encontrei a referência do imóvel. Despeça-se com naturalidade.';
+    }
+
+    const autoExecute = (ctx.tenant as any).atualizacao_auto_execute === true;
+    const newFields = { Status: 'Inativo', ExibirNoSite: 'Nao' };
+
+    let vistaResponse: any = null;
+    let executed = false;
+    let errorMessage: string | null = null;
+
+    if (autoExecute) {
+      const result = await callVistaUpdate(ctx, entry.propertyCode, newFields);
+      vistaResponse = result.response;
+      executed = result.ok;
+      errorMessage = result.error || null;
+    } else {
+      errorMessage = 'auto_execute=false — mutation não enviada ao Vista, apenas registrada.';
+    }
+
+    await writeAuditLog(
+      ctx,
+      'mark_unavailable',
+      { Status: entry.currentStatus },
+      newFields,
+      args.motivo,
+      executed,
+      vistaResponse,
+      errorMessage
+    );
+
+    await closeOwnerUpdateResult(
+      ctx,
+      'unavailable',
+      `Proprietário retirou do mercado: ${args.motivo}`,
+      executed ? 'completed' : 'failed'
+    );
+
+    await logActivity(ctx.supabase, ctx.tenantId, 'atualizacao_marked_unavailable', 'owner_update_results', entry.resultId, {
+      property_code: entry.propertyCode,
+      motivo: args.motivo,
+      executed,
+      conversation_id: ctx.conversationId,
+    });
+
+    console.log(`🚫 Marked unavailable: ${entry.propertyCode} (executed=${executed})`);
+
+    if (executed) {
+      return 'Imóvel marcado como indisponível no sistema. Despeça-se do proprietário com uma linha breve, agradecendo por avisar. Não adicione assunto novo.';
+    }
+    return 'Registrei sua solicitação — a equipe vai suspender o anúncio em breve. Despeça-se com naturalidade e agradeça.';
+  } catch (error) {
+    console.error('❌ executeMarkUnavailable error:', error);
+    return 'Registrei sua solicitação. Despeça-se com naturalidade.';
+  }
+}
+
+export async function executeMarkSoldElsewhere(
+  ctx: AgentContext,
+  args: { tipo_transacao: 'venda' | 'locacao'; canal?: string }
+): Promise<string> {
+  try {
+    const entry = ctx.activeUpdateEntry;
+    if (!entry) {
+      console.error('❌ marcar_vendido_terceiros called without activeUpdateEntry');
+      return 'Não encontrei a referência do imóvel. Despeça-se com naturalidade.';
+    }
+
+    const autoExecute = (ctx.tenant as any).atualizacao_auto_execute === true;
+    const novoStatus = args.tipo_transacao === 'venda' ? 'Vendido' : 'Alugado';
+    const situacao = args.tipo_transacao === 'venda' ? 'Vendido Terceiros' : 'Alugado Terceiros';
+    const newFields = { Status: novoStatus, Situacao: situacao, ExibirNoSite: 'Nao' };
+
+    let vistaResponse: any = null;
+    let executed = false;
+    let errorMessage: string | null = null;
+
+    if (autoExecute) {
+      const result = await callVistaUpdate(ctx, entry.propertyCode, newFields);
+      vistaResponse = result.response;
+      executed = result.ok;
+      errorMessage = result.error || null;
+    } else {
+      errorMessage = 'auto_execute=false — mutation não enviada ao Vista, apenas registrada.';
+    }
+
+    await writeAuditLog(
+      ctx,
+      'mark_sold_elsewhere',
+      { Status: entry.currentStatus },
+      newFields,
+      `Fechou por ${args.canal || 'canal não especificado'}`,
+      executed,
+      vistaResponse,
+      errorMessage
+    );
+
+    const mappedStatus = args.tipo_transacao === 'venda' ? 'sold' : 'rented';
+    await closeOwnerUpdateResult(
+      ctx,
+      mappedStatus,
+      `Fechou por ${args.canal || 'canal não especificado'} (${args.tipo_transacao})`,
+      executed ? 'completed' : 'failed'
+    );
+
+    await logActivity(ctx.supabase, ctx.tenantId, 'atualizacao_marked_sold_elsewhere', 'owner_update_results', entry.resultId, {
+      property_code: entry.propertyCode,
+      tipo_transacao: args.tipo_transacao,
+      canal: args.canal,
+      executed,
+      conversation_id: ctx.conversationId,
+    });
+
+    console.log(`🏠 Marked sold elsewhere: ${entry.propertyCode} (${args.tipo_transacao}, executed=${executed})`);
+
+    if (executed) {
+      return 'Imóvel registrado como fechado por terceiros no sistema. Despeça-se do proprietário com uma linha calorosa — parabenize-o pela transação e agradeça por avisar. Não adicione assunto novo.';
+    }
+    return 'Registrei a informação — a equipe vai atualizar o anúncio. Despeça-se, parabenize pela transação e agradeça por avisar.';
+  } catch (error) {
+    console.error('❌ executeMarkSoldElsewhere error:', error);
+    return 'Registrei sua informação. Despeça-se com naturalidade.';
+  }
+}
+
+export async function executeAtualizacaoHandoff(
+  ctx: AgentContext,
+  args: { motivo: string }
+): Promise<string> {
+  try {
+    await ctx.supabase
+      .from('conversation_states')
+      .upsert({
+        tenant_id: ctx.tenantId,
+        phone_number: ctx.phoneNumber,
+        is_ai_active: false,
+        operator_takeover_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,phone_number' });
+
+    await ctx.supabase.from('messages').insert({
+      tenant_id: ctx.tenantId,
+      conversation_id: ctx.conversationId,
+      direction: 'outbound',
+      body: `Atualização transferida para supervisor humano. Motivo: ${args.motivo}`,
+      sender_type: 'system',
+      event_type: 'ai_paused',
+      created_at: new Date().toISOString(),
+    });
+
+    await ctx.supabase.from('conversation_events').insert({
+      tenant_id: ctx.tenantId,
+      conversation_id: ctx.conversationId,
+      event_type: 'ai_paused',
+      metadata: { reason: args.motivo, sector: 'atualizacao' },
+    });
+
+    if (ctx.activeUpdateEntry) {
+      await closeOwnerUpdateResult(
+        ctx,
+        null,
+        `Transferido pra supervisor: ${args.motivo}`,
+        'failed'
+      );
+    }
+
+    await logActivity(ctx.supabase, ctx.tenantId, 'atualizacao_handoff', 'conversations', ctx.conversationId, {
+      reason: args.motivo,
+      property_code: ctx.activeUpdateEntry?.propertyCode,
+    });
+
+    console.log(`🔄 Atualizacao handoff: ${ctx.conversationId} | Reason: ${args.motivo}`);
+
+    return 'Transferência para supervisor concluída. Agora se despeça do proprietário de forma natural e calorosa — mencione que alguém da equipe vai retomar o contato em breve. Seja breve.';
+  } catch (error) {
+    console.error('❌ Atualizacao handoff error:', error);
+    return 'Houve um imprevisto, mas vou garantir que alguém da equipe retome o contato. Despeça-se de forma calorosa.';
+  }
+}

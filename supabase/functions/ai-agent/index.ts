@@ -21,6 +21,7 @@ import { AgentModule, AgentContext, AgentType } from '../_shared/agents/agent-in
 import { comercialAgent } from '../_shared/agents/comercial.ts';
 import { adminAgent } from '../_shared/agents/admin.ts';
 import { remarketingAgent } from '../_shared/agents/remarketing.ts';
+import { atualizacaoAgent } from '../_shared/agents/atualizacao.ts';
 import { decryptApiKey, loadConversationHistory, loadRemarketingContext, sendAndSave, sendAndSaveAudio, generateEmbedding, executeLeadHandoff, generatePropertyCaption, executeAdminHandoff, executeGetNearbyPlaces } from '../_shared/agents/tool-executors.ts';
 import { shouldSendAudio, generateTTSAudio, uploadAudioToStorage } from '../_shared/tts.ts';
 import { AudioConfig } from '../_shared/types.ts';
@@ -36,12 +37,17 @@ function selectAgent(
     return { agentType: 'remarketing', agent: remarketingAgent };
   }
 
-  // Priority 2: Admin department
+  // Priority 2: Atualização (setor de gestão ativa da carteira ADM — proprietários)
+  if (department === 'atualizacao') {
+    return { agentType: 'atualizacao', agent: atualizacaoAgent };
+  }
+
+  // Priority 3: Admin department
   if (department === 'administrativo') {
     return { agentType: 'admin', agent: adminAgent };
   }
 
-  // Priority 3: Everything else (locacao, vendas, null) uses comercial
+  // Priority 4: Everything else (locacao, vendas, null) uses comercial
   return { agentType: 'comercial', agent: comercialAgent };
 }
 
@@ -470,8 +476,79 @@ serve(async (req: Request) => {
       console.log(`🤖 Agent: ${agentType} | dept: ${effectiveDepartment} | source: ${conversationSource}`);
 
       // Sprint 6.1 — Admin-specific context: contact_type + active ticket
+      // Sprint 6.2 — Atualização sector: active update queue entry + property snapshot
       let contactType: 'lead' | 'proprietario' | 'inquilino' | null = null;
       let activeTicket: any = null;
+      let activeUpdateEntry: any = null;
+
+      if (agentType === 'atualizacao' && conversation_id) {
+        const { data: resultRow } = await supabase
+          .from('owner_update_results')
+          .select('id, campaign_id, owner_contact_id, status')
+          .eq('tenant_id', tenant_id)
+          .eq('conversation_id', conversation_id)
+          .in('status', ['pending', 'sent', 'delivered', 'replied'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (resultRow) {
+          const { data: ownerRow } = await supabase
+            .from('owner_contacts')
+            .select('id, name, phone, property_code, property_address, property_type, neighborhood')
+            .eq('id', resultRow.owner_contact_id)
+            .maybeSingle();
+
+          // Tenta localizar imóvel no cache local (properties.external_id = property_code)
+          let propertyIdLocal: string | null = null;
+          let currentStatus: string | null = null;
+          let currentValorVenda: number | null = null;
+          let currentValorLocacao: number | null = null;
+          if (ownerRow?.property_code) {
+            const { data: propRow } = await supabase
+              .from('properties')
+              .select('id, raw_data')
+              .eq('tenant_id', tenant_id)
+              .eq('external_id', ownerRow.property_code)
+              .maybeSingle();
+            if (propRow) {
+              propertyIdLocal = propRow.id;
+              const raw = (propRow.raw_data || {}) as Record<string, any>;
+              currentStatus = raw.Status || null;
+              currentValorVenda = raw.ValorVenda ? parseFloat(String(raw.ValorVenda)) : null;
+              currentValorLocacao = raw.ValorLocacao ? parseFloat(String(raw.ValorLocacao)) : null;
+            }
+          }
+
+          const refParts: string[] = [];
+          if (ownerRow?.property_type) refParts.push(ownerRow.property_type);
+          if (ownerRow?.neighborhood) refParts.push(`no ${ownerRow.neighborhood}`);
+          const propertyRef = refParts.filter(Boolean).join(' ') ||
+            ownerRow?.property_address ||
+            `código ${ownerRow?.property_code || '?'}`;
+
+          activeUpdateEntry = {
+            resultId: resultRow.id,
+            campaignId: resultRow.campaign_id,
+            ownerContactId: ownerRow?.id || resultRow.owner_contact_id,
+            ownerName: ownerRow?.name || '',
+            ownerPhone: ownerRow?.phone || '',
+            propertyCode: ownerRow?.property_code || '',
+            propertyAddress: ownerRow?.property_address || null,
+            propertyType: ownerRow?.property_type || null,
+            neighborhood: ownerRow?.neighborhood || null,
+            propertyRef,
+            currentStatus,
+            currentValorVenda,
+            currentValorLocacao,
+            propertyIdLocal,
+            tenantAutoExecute: (tenant as any).atualizacao_auto_execute === true,
+          };
+          console.log(`🏠 Active update entry: result=${resultRow.id.slice(0, 8)} | code=${ownerRow?.property_code} | auto_exec=${activeUpdateEntry.tenantAutoExecute}`);
+        } else {
+          console.warn(`⚠️ Atualizacao department but no active owner_update_result for conv ${conversation_id}`);
+        }
+      }
 
       if (agentType === 'admin' && contact_id) {
         const { data: contactRow } = await supabase
@@ -555,6 +632,8 @@ serve(async (req: Request) => {
         // Sprint 6.1 — Admin setor locação
         contactType,
         activeTicket,
+        // Sprint 6.2 — Setor atualização
+        activeUpdateEntry,
       };
 
       let systemPrompt = agent.buildSystemPrompt(ctx);

@@ -4,7 +4,7 @@
 
 import { Tenant, AIAgentConfig, AIBehaviorConfig, Region, QualificationData, ConversationMessage, StructuredConfig, AiModule } from '../types.ts';
 
-export type AgentType = 'comercial' | 'admin' | 'remarketing';
+export type AgentType = 'comercial' | 'admin' | 'remarketing' | 'atualizacao';
 
 // Context bundle passed from Router to Agent (loaded once, reused by all agent methods)
 export interface AgentContext {
@@ -40,7 +40,29 @@ export interface AgentContext {
   isFirstTurn?: boolean;                   // True when conversationHistory is empty — agent should self-introduce + respond to intent in the same turn
   contactType?: 'lead' | 'proprietario' | 'inquilino' | null; // Sprint 6.1: admin usa pra adaptar tom
   activeTicket?: ActiveTicketContext | null; // Sprint 6.1: admin usa pra saber se já tem ticket aberto + contexto do operador
+  activeUpdateEntry?: ActiveUpdateEntryContext | null; // Sprint 6.2: setor atualização — contexto do imóvel sendo verificado
   supabase: any;
+}
+
+// Sprint 6.2 — contexto da entry ativa na fila de atualização (setor atualização)
+// Integrado às tabelas owner_* existentes (UI /atualizacao).
+export interface ActiveUpdateEntryContext {
+  resultId: string;                // owner_update_results.id
+  campaignId: string;              // owner_update_campaigns.id
+  ownerContactId: string;          // owner_contacts.id
+  ownerName: string;
+  ownerPhone: string;
+  propertyCode: string;            // owner_contacts.property_code (Vista code)
+  propertyAddress: string | null;
+  propertyType: string | null;
+  neighborhood: string | null;
+  propertyRef: string;             // Referência curta pro prompt (ex: "Apto 3 dorm. no Centro")
+  // Vista snapshot — opcional, vem de properties cache se existir
+  currentStatus: string | null;
+  currentValorVenda: number | null;
+  currentValorLocacao: number | null;
+  propertyIdLocal: string | null;  // properties.id se existir no cache local
+  tenantAutoExecute: boolean;      // Kill-switch: se false, Aimee conversa + registra intenção, não executa no Vista
 }
 
 // Sprint 6.1 — estado do ticket ativo pra conversa (setor administrativo)

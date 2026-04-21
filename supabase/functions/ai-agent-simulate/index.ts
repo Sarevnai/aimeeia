@@ -16,10 +16,12 @@ import { AgentModule, AgentContext, AgentType } from '../_shared/agents/agent-in
 import { comercialAgent } from '../_shared/agents/comercial.ts';
 import { adminAgent } from '../_shared/agents/admin.ts';
 import { remarketingAgent } from '../_shared/agents/remarketing.ts';
+import { atualizacaoAgent } from '../_shared/agents/atualizacao.ts';
 import { decryptApiKey, loadConversationHistory, loadRemarketingContext, executeLeadHandoff } from '../_shared/agents/tool-executors.ts';
 
 function selectAgent(department: string | null, source: string): { agentType: AgentType; agent: AgentModule } {
   if (source === 'remarketing' || department === 'remarketing') return { agentType: 'remarketing', agent: remarketingAgent };
+  if (department === 'atualizacao') return { agentType: 'atualizacao', agent: atualizacaoAgent };
   if (department === 'administrativo') return { agentType: 'admin', agent: adminAgent };
   return { agentType: 'comercial', agent: comercialAgent };
 }

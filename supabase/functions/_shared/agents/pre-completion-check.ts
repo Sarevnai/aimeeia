@@ -25,13 +25,28 @@ const INTERNAL_PATTERNS = [
   /\bsupabase\b.*\bfrom\b.*\bselect\b/gi,
 ];
 
-// Common English words — if many appear, response may be in wrong language
+// Common English words — used to detect response language
 const ENGLISH_MARKERS = [
   'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had',
   'her', 'was', 'one', 'our', 'out', 'has', 'his', 'how', 'its', 'may',
   'would', 'could', 'should', 'about', 'which', 'their', 'there', 'these',
   'property', 'apartment', 'bedroom', 'looking', 'neighborhood', 'budget',
 ];
+
+// Common Portuguese words — used to detect when client is clearly writing in PT-BR
+const PORTUGUESE_MARKERS = [
+  'você', 'voce', 'não', 'nao', 'está', 'esta', 'é', 'com', 'para', 'pra',
+  'uma', 'meu', 'minha', 'seu', 'sua', 'tem', 'que', 'mas', 'também', 'tambem',
+  'muito', 'bom', 'quero', 'gostaria', 'preciso', 'obrigado', 'obrigada',
+  'apartamento', 'casa', 'bairro', 'quartos', 'aluguel', 'compra', 'venda',
+];
+
+function ratioOfMarkers(text: string, markers: string[]): number {
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 0;
+  const hit = words.filter(w => markers.includes(w)).length;
+  return hit / words.length;
+}
 
 // Qualification-related keywords in user messages
 const QUAL_KEYWORDS_BAIRRO = /\b(centro|ingleses|jurere|canasvieiras|campeche|cacupe|lagoa|trindade|itacorubi|coqueiros|estreito|corrego|barra da lagoa|rio tavares|santo antonio|pantanal|agronomica|saco dos limoes|ribeirao|costeira|capoeiras|kobrasol|barreiros|campinas|praia brava|lagoinha|ponta das canas|daniela|ratones|santo amaro|vargem|monte verde|saco grande)\b/i;
@@ -66,13 +81,21 @@ export async function runPreCompletionChecks(
     pattern.lastIndex = 0;
   }
 
-  // 3. Wrong language detection (PT-BR expected)
-  const words = aiResponse.toLowerCase().split(/\s+/);
-  if (words.length > 15) {
-    const englishCount = words.filter(w => ENGLISH_MARKERS.includes(w)).length;
-    const englishRatio = englishCount / words.length;
-    if (englishRatio > 0.25) {
-      issues.push(`WRONG_LANGUAGE: ${Math.round(englishRatio * 100)}% palavras em inglês detectadas`);
+  // 3. Language mismatch — só flaga quando a última mensagem do cliente é
+  //    claramente em português mas a resposta caiu em inglês (regressão),
+  //    para não penalizar respostas legítimas em inglês/espanhol/russo/chinês
+  //    quando o cliente estrangeiro escreveu no próprio idioma.
+  const responseWords = aiResponse.toLowerCase().split(/\s+/).filter(Boolean);
+  if (responseWords.length > 15) {
+    const userMsgPtRatio = ratioOfMarkers(userMessage || '', PORTUGUESE_MARKERS);
+    const userMsgEnRatio = ratioOfMarkers(userMessage || '', ENGLISH_MARKERS);
+    const userWrotePortuguese = userMsgPtRatio > 0.15 && userMsgPtRatio > userMsgEnRatio;
+
+    if (userWrotePortuguese) {
+      const englishRatio = ratioOfMarkers(aiResponse, ENGLISH_MARKERS);
+      if (englishRatio > 0.25) {
+        issues.push(`WRONG_LANGUAGE: cliente escreveu em português mas resposta tem ${Math.round(englishRatio * 100)}% palavras em inglês`);
+      }
     }
   }
 

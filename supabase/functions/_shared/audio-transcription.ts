@@ -79,7 +79,7 @@ export async function transcribeAudio(
   const cleanMime = mimeType.split(';')[0].trim();
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIPTION_MODEL}:generateContent?key=${apiKey}`;
-  const promptText = 'Transcreva este áudio em português brasileiro. Retorne APENAS o texto transcrito, sem formatação adicional, sem aspas, sem prefixos.';
+  const promptText = 'Transcreva este áudio no idioma original falado (português, inglês, espanhol, russo, chinês, ou qualquer outro). Preserve o idioma exato do falante, sem traduzir. Retorne APENAS o texto transcrito, sem formatação adicional, sem aspas, sem prefixos, sem comentários sobre o idioma.';
   const startTime = Date.now();
 
   const res = await fetch(url, {

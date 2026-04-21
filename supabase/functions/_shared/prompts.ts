@@ -342,6 +342,7 @@ export async function buildSystemPrompt(
       .maybeSingle())?.data;
 
     const postHandoff = buildPostHandoffFollowup();
+    const multilingual = buildMultilingualDirective();
     // C4: Contexto de lead retornante
     const returningContext = isReturningLead ? buildReturningLeadContext(previousQualificationData || null) : '';
 
@@ -356,6 +357,7 @@ export async function buildSystemPrompt(
         prompt += buildRemarketingAnamnese(remarketingContext);
       }
       prompt += postHandoff;
+      prompt += '\n\n' + multilingual;
       return prompt;
     }
 
@@ -377,6 +379,7 @@ export async function buildSystemPrompt(
         prompt += buildRemarketingAnamnese(remarketingContext);
       }
       prompt += postHandoff;
+      prompt += '\n\n' + multilingual;
       return prompt;
     }
   } catch (e) {
@@ -388,13 +391,14 @@ export async function buildSystemPrompt(
   const behaviorInstructions = buildBehaviorInstructions(behaviorConfig);
   const remarketingInstructions = conversationSource === 'remarketing' ? buildRemarketingAnamnese(remarketingContext) : '';
   const postHandoffFallback = buildPostHandoffFollowup();
+  const multilingualFallback = '\n\n' + buildMultilingualDirective();
   // C4: Contexto de lead retornante para built-in prompts
   const returningCtx = isReturningLead ? buildReturningLeadContext(previousQualificationData || null) : '';
   switch (department) {
-    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback;
-    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback;
-    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions + postHandoffFallback;
-    default: return buildDefaultPrompt(config, tenant, contactName) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback;
+    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback;
+    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback;
+    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback;
+    default: return buildDefaultPrompt(config, tenant, contactName) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback;
   }
 }
 
@@ -552,7 +556,7 @@ REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
 
 REGRAS:
 - Pergunte UMA informação por vez, de forma natural
-- Responda em português BR, max 3 parágrafos
+- Siga a regra de idioma da seção <idioma>, espelhando o idioma do cliente. Máximo 3 parágrafos.
 - PROIBIDO usar travessão longo (—) ou travessão médio (–). Use vírgula ou ponto no lugar.
 ${buildContextSummary(qualData, contactName)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
@@ -594,7 +598,7 @@ REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
 
 REGRAS:
 - Pergunte UMA informação por vez, de forma natural
-- Responda em português BR, max 3 parágrafos
+- Siga a regra de idioma da seção <idioma>, espelhando o idioma do cliente. Máximo 3 parágrafos.
 - PROIBIDO usar travessão longo (—) ou travessão médio (–). Use vírgula ou ponto no lugar.
 ${buildContextSummary(qualData, contactName)}${generateRegionKnowledge(regions)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
@@ -649,7 +653,7 @@ REGRAS:
 - Se tiver informações suficientes para abrir o chamado, USE criar_ticket SEM esperar ter todos os dados
 - Se o cliente pedir atendimento humano ou a demanda for muito complexa, use encaminhar_humano
 - NUNCA prometa prazos específicos de resolução - diga "nossa equipe vai analisar"
-- Responda em português BR, máximo 3 parágrafos
+- Siga a regra de idioma da seção <idioma>, espelhando o idioma do cliente. Máximo 3 parágrafos.
 ${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
 
@@ -663,7 +667,7 @@ function buildDefaultPrompt(
 ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}.` : ''}
 
 Responda de forma amigável e eficiente. Se não souber a resposta, encaminhe para atendimento humano.
-Responda em português BR.
+Siga a regra de idioma da seção <idioma>, espelhando o idioma do cliente.
 ${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}`;
 }
 
@@ -697,6 +701,41 @@ function buildBehaviorInstructions(behaviorConfig?: AIBehaviorConfig | null): st
   }
 
   return instructions;
+}
+
+// ========== DIRETIVA MULTILÍNGUE (espelhamento de idioma) ==========
+// A Smolka atende estrangeiros (EUA, Rússia, China, países hispânicos, etc.).
+// A Aimee deve espelhar o idioma da última mensagem do cliente,
+// sem anunciar a troca — simplesmente segue a conversa no idioma do cliente.
+export function buildMultilingualDirective(): string {
+  return `
+<idioma>
+REGRA DE IDIOMA — ESPELHAMENTO OBRIGATÓRIO:
+A imobiliária atende clientes brasileiros e estrangeiros (americanos, russos, chineses, hispanohablantes, europeus, etc.). Seu papel é falar o idioma em que o cliente se sente confortável.
+
+- Responda SEMPRE no MESMO idioma da última mensagem do cliente.
+- Cliente escreveu em português → responda em português BR.
+- Cliente escreveu em inglês → responda em inglês natural (não traduzido).
+- Cliente escreveu em espanhol → responda em espanhol neutro.
+- Cliente escreveu em russo → responda em russo (alfabeto cirílico).
+- Cliente escreveu em chinês (simplificado ou tradicional) → responda em chinês, nos mesmos caracteres.
+- Qualquer outro idioma (francês, italiano, alemão, árabe, etc.) → responda nesse idioma.
+
+- Se o cliente trocar de idioma no meio da conversa, troque junto, sem comentar a mudança.
+- NUNCA pergunte "prefere inglês?", "do you want to switch to English?" ou similar — apenas espelhe.
+- NUNCA misture dois idiomas na mesma resposta (evite "Hello, tudo bem?").
+- Se a mensagem for ambígua (apenas emoji, número, "ok", "sim", "no"), mantenha o idioma da última mensagem textual do cliente. Se não houver histórico textual, use português BR.
+
+ADAPTAÇÕES CULTURAIS ao responder em outro idioma:
+- Mantenha seu tom, sua persona, suas regras de handoff e de busca de imóveis idênticas — só o idioma muda.
+- Valores em reais (R$) continuam em reais, mas você pode mencionar equivalente aproximado se o cliente perguntar.
+- Nomes de bairros, códigos de imóvel e nomes próprios ficam em português (não traduza "Centro" pra "Downtown").
+- Os campos de qualificação (tipo de imóvel, bairro, orçamento, prazo, finalidade) continuam sendo coletados nos mesmos valores internos — o que muda é apenas o TEXTO da mensagem.
+- Ao chamar ferramentas (buscar_imoveis, enviar_lead_c2s, etc.), os parâmetros continuam em português (ex: finalidade="venda", bairro="Centro").
+
+Se não tiver certeza do idioma, use português BR como fallback.
+</idioma>
+`.trim();
 }
 
 // ========== FOLLOW-UP PÓS-HANDOFF ==========

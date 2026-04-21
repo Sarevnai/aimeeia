@@ -4,7 +4,7 @@
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
-import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext } from '../prompts.ts';
+import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
 import { isQualificationComplete, calculateQualificationScore } from '../qualification.ts';
@@ -298,6 +298,8 @@ PROIBIDO na resposta ao cliente:
 FORMATO CORRETO: Apenas a mensagem que a cliente verá no WhatsApp. Curta, natural, humana.
 </formato-resposta>`);
 
+  sections.push(buildMultilingualDirective());
+
   return sections.join('\n');
 }
 
@@ -553,6 +555,8 @@ Formato das respostas:
   // Post-handoff followup (if lead returns after being transferred)
   sections.push(buildPostHandoffFollowup());
 
+  sections.push(buildMultilingualDirective());
+
   return sections.join('\n');
 }
 
@@ -678,6 +682,8 @@ function buildStructuredRemarketingPrompt(ctx: AgentContext): string {
 
   sections.push(buildPostHandoffFollowup());
 
+  sections.push(buildMultilingualDirective());
+
   return sections.join('\n');
 }
 
@@ -701,6 +707,7 @@ function buildLegacyRemarketingPrompt(ctx: AgentContext): string {
     prompt += `\n${remarketingContext}`;
   }
   prompt += buildPostHandoffFollowup();
+  prompt += '\n\n' + buildMultilingualDirective();
   return prompt;
 }
 

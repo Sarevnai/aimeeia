@@ -4,7 +4,7 @@
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces, executeDepartmentTransfer } from './tool-executors.ts';
-import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext } from '../prompts.ts';
+import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
 import { isQualificationComplete } from '../qualification.ts';
@@ -85,6 +85,7 @@ ${activeModule.prompt_instructions}
 
   sections.push(buildAdminTransferRule());
   sections.push(buildPostHandoffFollowup());
+  sections.push(buildMultilingualDirective());
 
   // Fix J1: Guardrails anti-reasoning-leak — OBRIGATÓRIO no final do prompt
   sections.push(`<formato-resposta>
@@ -170,8 +171,8 @@ REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
 
 REGRAS:
 - Pergunte UMA informação por vez, de forma natural
-- Responda em português BR, max 3 parágrafos
-${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}`;
+- Siga a regra de idioma da seção <idioma>, espelhando o idioma do cliente. Máximo 3 parágrafos.
+${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}\n\n${buildMultilingualDirective()}`;
 }
 
 function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig): string {
@@ -284,6 +285,7 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
 
   sections.push(buildAdminTransferRule());
   sections.push(buildPostHandoffFollowup());
+  sections.push(buildMultilingualDirective());
 
   return sections.join('\n');
 }
@@ -305,6 +307,7 @@ function buildLegacyDirectivePrompt(ctx: AgentContext): string {
   }
   prompt += buildAdminTransferRule();
   prompt += buildPostHandoffFollowup();
+  prompt += '\n\n' + buildMultilingualDirective();
   return prompt;
 }
 

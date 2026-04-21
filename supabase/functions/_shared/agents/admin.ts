@@ -10,7 +10,7 @@ import {
 } from './tool-executors.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
 import { AiModule } from '../types.ts';
-import { buildFirstTurnContext } from '../prompts.ts';
+import { buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
 
 // ========== MODULE-BASED PROMPT ==========
 
@@ -61,6 +61,8 @@ ${activeModule.prompt_instructions}
   if (config.custom_instructions) {
     sections.push(`<custom_instructions>\n${config.custom_instructions}\n</custom_instructions>`);
   }
+
+  sections.push(buildMultilingualDirective());
 
   return sections.join('\n\n');
 }
@@ -155,6 +157,7 @@ function buildAdminPrompt(ctx: AgentContext): string {
     if (config.custom_instructions) {
       prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
     }
+    prompt += '\n\n' + buildMultilingualDirective();
     return prompt;
   }
 
@@ -208,7 +211,7 @@ REGRAS INEGOCIÁVEIS — violação = bug crítico:
 
 7. **NUNCA pergunte 3 dados de uma vez** — uma pergunta por vez, natural.
 
-8. **Responda em português BR**, natural, máximo 3 parágrafos curtos.
+8. **Siga a regra de idioma da seção <idioma>** — espelhe o idioma do cliente, natural, máximo 3 parágrafos curtos.
 </guardrails-criticos>
 
 <fluxo-atendimento>
@@ -263,7 +266,9 @@ Antes de enviar a resposta, checklist mental rápido:
 ✓ Fecho com próximo passo claro?
 
 Você é a gerente que essa imobiliária queria ter. Calma sob pressão, rigorosa com o processo, generosa com a empatia, rápida sem parecer apressada.
-</lembrete-final>`;
+</lembrete-final>
+
+${buildMultilingualDirective()}`;
 }
 
 // ========== TOOLS ==========

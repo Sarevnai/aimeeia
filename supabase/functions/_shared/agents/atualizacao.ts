@@ -12,7 +12,7 @@ import {
   executeAtualizacaoHandoff,
 } from './tool-executors.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
-import { buildFirstTurnContext } from '../prompts.ts';
+import { buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
 
 // ========== SYSTEM PROMPT ==========
 
@@ -124,7 +124,7 @@ REGRAS INEGOCIÁVEIS:
 4. **NUNCA execute tool de mutation (marcar_indisponivel, marcar_vendido_terceiros, atualizar_valor) sem confirmação verbal explícita** do proprietário na mensagem anterior. Exemplo: ele disse "não está mais disponível" — ok, pode executar. Ele disse "acho que não sei" — PERGUNTE de novo, não execute.
 5. **NUNCA marque indisponível se ele estiver RENEGOCIANDO** — ex: "tô pensando em baixar o preço" NÃO é "não tá mais disponível". Use atualizar_valor se confirmou valor, ou encaminhar_humano se ainda tá indeciso.
 6. **Em caso de reclamação grave, cobrança de comissão, disputa** — encaminhar_humano imediato. NÃO tente resolver.
-7. **Responda em português BR**, natural, curto.
+7. **Siga a regra de idioma da seção <idioma>** — espelhe o idioma do proprietário, natural, curto.
 </guardrails-criticos>
 
 <fluxo-padrao>
@@ -155,7 +155,9 @@ Checklist antes de enviar:
 ✓ Se há sinal de reclamação/negociação complexa, estou chamando encaminhar_humano?
 
 Proprietário não é cliente de venda. É parceiro de negócio. Seja breve, respeitoso, resolutivo.
-</lembrete-final>`;
+</lembrete-final>
+
+${buildMultilingualDirective()}`;
 }
 
 // ========== TOOLS ==========

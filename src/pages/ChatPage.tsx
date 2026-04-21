@@ -49,6 +49,7 @@ import SendToC2SDialog from '@/components/SendToC2SDialog';
 import { AdminContactSidebar } from '@/components/chat/AdminContactSidebar';
 import { AudioRecordButton } from '@/components/chat/AudioRecordButton';
 import BrokerWATemplatesManager from '@/components/chat/BrokerWATemplatesManager';
+import { usePollingFallback } from '@/hooks/usePollingFallback';
 import LeadTags from '@/components/LeadTags';
 
 type Message = Tables<'messages'>;
@@ -225,6 +226,10 @@ const ChatPage: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [id, tenantId, conversation?.phone_number, refetchMessages]);
+
+  // Rede de segurança: se o Realtime cair (CHANNEL_ERROR/TIMED_OUT/CLOSED),
+  // re-fetch a cada 15s. Para automaticamente quando o Realtime volta.
+  usePollingFallback(refetchMessages);
 
   // Resolve operator name when convState changes
   useEffect(() => {

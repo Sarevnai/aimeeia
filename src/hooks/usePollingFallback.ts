@@ -1,6 +1,6 @@
 // Sprint 6.2 — Polling fallback pra quando o Realtime do Supabase está caído.
-// Ativa automaticamente um setInterval de 3s chamando refetch enquanto o
-// status do realtime não for SUBSCRIBED. Para assim que voltar.
+// Intervalo default 15s (era 3s, estava queimando UX). Só ativa se o heartbeat
+// do Realtime não estiver SUBSCRIBED. Para assim que volta.
 
 import { useEffect, useRef } from 'react';
 import { useRealtimeStatus } from './useRealtimeStatus';
@@ -11,7 +11,7 @@ interface Options {
 }
 
 export function usePollingFallback(refetch: () => void, options: Options = {}) {
-  const { enabled = true, intervalMs = 3000 } = options;
+  const { enabled = true, intervalMs = 15000 } = options;
   const status = useRealtimeStatus();
   const refetchRef = useRef(refetch);
   refetchRef.current = refetch;

@@ -32,8 +32,16 @@ function selectAgent(
   department: string | null,
   conversationSource: string
 ): { agentType: AgentType; agent: AgentModule } {
-  // Priority 1: Remarketing (by source OR department)
-  if (conversationSource === 'remarketing' || department === 'remarketing') {
+  // Priority 1: Remarketing (por source OR department).
+  // ATENÇÃO: 'rewarm_archived' também tem que cair aqui — são leads vindos do cron
+  // de reaquecimento automático (ex-C2S, arquivados). Se cair no comercial, o agente
+  // ignora o contexto do CRM (crm_neighborhood, crm_price_hint, broker vinculado, etc)
+  // e a Aimee reinicia a qualificação do zero, perdendo o lead.
+  if (
+    conversationSource === 'remarketing' ||
+    conversationSource === 'rewarm_archived' ||
+    department === 'remarketing'
+  ) {
     return { agentType: 'remarketing', agent: remarketingAgent };
   }
 

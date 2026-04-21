@@ -830,6 +830,11 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
 
     const wantAudio = shouldSendAudio(audioConfig, message_type, ttsText.length);
 
+    // Se o cliente mandou áudio, espelha o canal e responde SÓ com áudio (sem texto duplicado),
+    // mesmo que a config do tenant esteja em 'text_and_audio'.
+    const inboundIsAudio = message_type === 'audio';
+    const effectiveAudioMode = inboundIsAudio ? 'audio_only' : audioConfig.audio_mode;
+
     if (wantAudio) {
       const elevenLabsKey = Deno.env.get('ELEVENLABS_API_KEY');
       if (!elevenLabsKey) {
@@ -846,7 +851,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
           const audioBytes = await generateTTSAudio(ttsText, audioConfig.audio_voice_id, elevenLabsKey, audioConfig.audio_voice_stability, audioConfig.audio_voice_similarity);
           const audioUrl = await uploadAudioToStorage(supabase, audioBytes, tenant_id);
 
-          if (audioConfig.audio_mode === 'text_and_audio') {
+          if (effectiveAudioMode === 'text_and_audio') {
             // Send text message and save to DB
             await sendAndSave(supabase, tenant as Tenant, tenant_id, conversation_id, phone_number, finalResponse, effectiveDepartment);
             await sleep(500);
@@ -857,7 +862,7 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
               await logActivity(supabase, tenant_id, 'tts_send_failed', 'conversations', conversation_id, {
                 step: 'sendWhatsAppAudio',
                 audio_url: audioUrl,
-                audio_mode: audioConfig.audio_mode,
+                audio_mode: effectiveAudioMode,
               });
             }
           } else {

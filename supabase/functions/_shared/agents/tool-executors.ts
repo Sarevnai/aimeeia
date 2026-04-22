@@ -1737,9 +1737,14 @@ export async function executeAtualizacaoHandoff(
 
     console.log(`🔄 Atualizacao handoff: ${ctx.conversationId} | Reason: ${args.motivo}`);
 
-    return 'Transferência para supervisor concluída. Agora se despeça do proprietário de forma natural e calorosa — mencione que alguém da equipe vai retomar o contato em breve. Seja breve.';
+    // P3 cutover 07/05: label "nosso Supervisor de Carteira" (paridade Lais
+    // dossiê §4) — proprietários em contato ativo com a administração esperam
+    // saber quem vai retornar, e "supervisor de carteira" é o título que a
+    // operação da Smolka usa internamente pra quem lida com renegociação,
+    // reclamação e ajuste de valor em imóvel já contratado.
+    return 'Transferência concluída. Agora se despeça do proprietário de forma calorosa e natural. Mencione que nosso Supervisor de Carteira vai retomar o contato em breve. Seja breve e humano. NÃO repita mensagens técnicas.';
   } catch (error) {
     console.error('❌ Atualizacao handoff error:', error);
-    return 'Houve um imprevisto, mas vou garantir que alguém da equipe retome o contato. Despeça-se de forma calorosa.';
+    return 'Houve um imprevisto, mas vou garantir que nosso Supervisor de Carteira entre em contato. Despeça-se de forma calorosa, mencionando que nosso Supervisor de Carteira vai retomar o contato em breve.';
   }
 }

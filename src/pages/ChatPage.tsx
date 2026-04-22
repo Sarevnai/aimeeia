@@ -762,7 +762,10 @@ const ChatPage: React.FC = () => {
   const isAdminDept = dept === 'administrativo';
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+    // h-screen (e não 100vh-4rem) porque o AppLayout desktop não tem top bar —
+    // só sidebar lateral. O calc anterior deixava ~4rem de espaço morto
+    // embaixo do composer, obrigando o operador a rolar a página.
+    <div className="flex h-screen overflow-hidden">
       {/* Main chat area */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Chat header */}

@@ -196,10 +196,25 @@ serve(async (req: Request) => {
     // ---- 7. Find or create contact ----
     let { data: contact } = await supabase
       .from('contacts')
-      .select('id, name')
+      .select('id, name, dnc, dnc_reason')
       .eq('tenant_id', tenant_id)
       .eq('phone', phone)
       .maybeSingle();
+
+    // ---- 7b. Hard block: contato já marcado DNC (opt-out prévio) ----
+    // LGPD: portal pode reenviar um lead cujo dono pediu pra sair da lista.
+    // Se ignorar aqui, a Aimee dispara greeting e violamos o opt-out. Log,
+    // registramos no portal_leads_log como filtrado, e NÃO disparamos nada.
+    if (contact?.dnc) {
+      console.log(`🚫 portal-leads-webhook: contact ${contact.id} é DNC (${contact.dnc_reason}), bloqueando greeting.`);
+      await supabase.from('portal_leads_log')
+        .update({ raw_payload: { ...body, _dnc_blocked: true, _dnc_reason: contact.dnc_reason } })
+        .eq('id', logEntry?.id);
+      await logActivity(supabase, tenant_id, 'portal_lead_dnc_blocked', 'contacts', contact.id, {
+        source, phone, origin_lead_id: originLeadId, dnc_reason: contact.dnc_reason,
+      });
+      return jsonResponse({ success: true, dnc_blocked: true, contact_id: contact.id });
+    }
 
     if (!contact) {
       const { data: newContact } = await supabase

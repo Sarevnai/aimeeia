@@ -389,16 +389,23 @@ const ChatPage: React.FC = () => {
   const handleTakeover = async () => {
     if (!conversation || !tenantId || !user) return;
     const myName = profile?.full_name || 'Operador';
+    const takeoverAt = new Date().toISOString();
 
+    // Bug 22/04: 77 de 79 conversas ativas da Smolka não têm row em
+    // conversation_states (IA roda por default se não houver). O .update()
+    // antigo afetava 0 rows silenciosamente nesses casos, e o optimistic
+    // setConvState retornava prev (null) — botão "Pausar" nunca flipava.
+    // Upsert cria a row se não existir, garantindo que a pausa persiste.
     await supabase
       .from('conversation_states')
-      .update({
+      .upsert({
+        tenant_id: tenantId,
+        phone_number: conversation.phone_number,
         is_ai_active: false,
         operator_id: user.id,
-        operator_takeover_at: new Date().toISOString(),
-      })
-      .eq('phone_number', conversation.phone_number)
-      .eq('tenant_id', tenantId);
+        operator_takeover_at: takeoverAt,
+        updated_at: takeoverAt,
+      }, { onConflict: 'tenant_id,phone_number' });
 
     // Insert system event message
     await supabase.from('messages').insert({
@@ -419,23 +426,48 @@ const ChatPage: React.FC = () => {
       actor_id: user.id,
     });
 
-    setConvState((prev) =>
-      prev ? { ...prev, is_ai_active: false, operator_id: user.id, operator_takeover_at: new Date().toISOString() } : prev
-    );
+    // Bug 22/04: se prev é null (77/79 conversas sem row), o ternary
+    // antigo retornava null e o UI não flipava. Agora construímos a row
+    // local a partir do takeover que acabamos de gravar no DB.
+    setConvState((prev) => ({
+      ...(prev || {
+        tenant_id: tenantId,
+        phone_number: conversation.phone_number,
+        triage_stage: null,
+        is_processing: false,
+        follow_up_sent_at: null,
+        current_module_slug: null,
+        pending_properties: null,
+        current_property_index: 0,
+        awaiting_property_feedback: false,
+        last_ai_messages: [],
+        last_property_shown_at: null,
+        department: null,
+        updated_at: takeoverAt,
+      } as ConversationState),
+      is_ai_active: false,
+      operator_id: user.id,
+      operator_takeover_at: takeoverAt,
+    }));
+    setOperatorName(myName);
   };
 
   const handleReturnToAI = async () => {
     if (!conversation || !tenantId || !user) return;
     const myName = profile?.full_name || 'Operador';
+    const resumedAt = new Date().toISOString();
 
+    // Mesmo motivo do handleTakeover: upsert cria row se não houver.
     await supabase
       .from('conversation_states')
-      .update({
+      .upsert({
+        tenant_id: tenantId,
+        phone_number: conversation.phone_number,
         is_ai_active: true,
         operator_id: null,
-      })
-      .eq('phone_number', conversation.phone_number)
-      .eq('tenant_id', tenantId);
+        operator_takeover_at: null,
+        updated_at: resumedAt,
+      }, { onConflict: 'tenant_id,phone_number' });
 
     // Insert system event message
     await supabase.from('messages').insert({
@@ -456,9 +488,27 @@ const ChatPage: React.FC = () => {
       actor_id: user.id,
     });
 
-    setConvState((prev) =>
-      prev ? { ...prev, is_ai_active: true, operator_id: null } : prev
-    );
+    setConvState((prev) => ({
+      ...(prev || {
+        tenant_id: tenantId,
+        phone_number: conversation.phone_number,
+        triage_stage: null,
+        is_processing: false,
+        follow_up_sent_at: null,
+        current_module_slug: null,
+        pending_properties: null,
+        current_property_index: 0,
+        awaiting_property_feedback: false,
+        last_ai_messages: [],
+        last_property_shown_at: null,
+        department: null,
+        updated_at: resumedAt,
+      } as ConversationState),
+      is_ai_active: true,
+      operator_id: null,
+      operator_takeover_at: null,
+    }));
+    setOperatorName(null);
   };
 
   const handleTransfer = async (targetOperator: TeamMember) => {
@@ -477,15 +527,18 @@ const ChatPage: React.FC = () => {
       sender_id: user.id,
     });
 
-    // Update conversation_states to new operator
+    // Upsert para garantir row — ver handleTakeover pra explicação.
+    const transferredAt = new Date().toISOString();
     await supabase
       .from('conversation_states')
-      .update({
+      .upsert({
+        tenant_id: tenantId,
+        phone_number: conversation.phone_number,
+        is_ai_active: false,
         operator_id: targetOperator.id,
-        operator_takeover_at: new Date().toISOString(),
-      })
-      .eq('phone_number', conversation.phone_number)
-      .eq('tenant_id', tenantId);
+        operator_takeover_at: transferredAt,
+        updated_at: transferredAt,
+      }, { onConflict: 'tenant_id,phone_number' });
 
     // Insert "operator joined" system message
     await supabase.from('messages').insert({
@@ -507,9 +560,27 @@ const ChatPage: React.FC = () => {
       target_id: targetOperator.id,
     });
 
-    setConvState((prev) =>
-      prev ? { ...prev, operator_id: targetOperator.id, operator_takeover_at: new Date().toISOString() } : prev
-    );
+    setConvState((prev) => ({
+      ...(prev || {
+        tenant_id: tenantId,
+        phone_number: conversation.phone_number,
+        triage_stage: null,
+        is_processing: false,
+        follow_up_sent_at: null,
+        current_module_slug: null,
+        pending_properties: null,
+        current_property_index: 0,
+        awaiting_property_feedback: false,
+        last_ai_messages: [],
+        last_property_shown_at: null,
+        department: null,
+        updated_at: transferredAt,
+      } as ConversationState),
+      is_ai_active: false,
+      operator_id: targetOperator.id,
+      operator_takeover_at: transferredAt,
+    }));
+    setOperatorName(targetName);
     setShowTransferModal(false);
   };
 
@@ -573,16 +644,18 @@ const ChatPage: React.FC = () => {
       const encodedMsg = encodeURIComponent(messageText);
       const waUrl = `https://wa.me/${leadPhone}?text=${encodedMsg}`;
 
-      // Pause AI so it doesn't interfere
+      // Pause AI so it doesn't interfere (upsert — ver handleTakeover).
+      const waTakeoverAt = new Date().toISOString();
       await supabase
         .from('conversation_states')
-        .update({
+        .upsert({
+          tenant_id: tenantId,
+          phone_number: conversation.phone_number,
           is_ai_active: false,
           operator_id: user.id,
-          operator_takeover_at: new Date().toISOString(),
-        })
-        .eq('phone_number', conversation.phone_number)
-        .eq('tenant_id', tenantId);
+          operator_takeover_at: waTakeoverAt,
+          updated_at: waTakeoverAt,
+        }, { onConflict: 'tenant_id,phone_number' });
 
       // Log the action
       const myName = profile?.full_name || 'Operador';
@@ -604,9 +677,28 @@ const ChatPage: React.FC = () => {
         metadata: { action: 'sent_to_personal_wa', lead_phone: leadPhone },
       });
 
-      setConvState((prev) =>
-        prev ? { ...prev, is_ai_active: false, operator_id: user.id, operator_takeover_at: new Date().toISOString() } : prev
-      );
+      const myFullName = profile?.full_name || 'Operador';
+      setConvState((prev) => ({
+        ...(prev || {
+          tenant_id: tenantId,
+          phone_number: conversation.phone_number,
+          triage_stage: null,
+          is_processing: false,
+          follow_up_sent_at: null,
+          current_module_slug: null,
+          pending_properties: null,
+          current_property_index: 0,
+          awaiting_property_feedback: false,
+          last_ai_messages: [],
+          last_property_shown_at: null,
+          department: null,
+          updated_at: waTakeoverAt,
+        } as ConversationState),
+        is_ai_active: false,
+        operator_id: user.id,
+        operator_takeover_at: waTakeoverAt,
+      }));
+      setOperatorName(myFullName);
 
       // Open WhatsApp link in new tab
       window.open(waUrl, '_blank');

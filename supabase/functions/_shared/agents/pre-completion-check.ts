@@ -65,9 +65,29 @@ export async function runPreCompletionChecks(
   let sanitized = aiResponse;
   let hasCritical = false;
 
-  // 1. Empty or too short response
-  if (!aiResponse || aiResponse.trim().length < 10) {
-    issues.push('EMPTY_RESPONSE: resposta vazia ou muito curta');
+  // 1. Empty / too short / truncated response (CRITICAL — blocks send)
+  // Incidente A-03 (20/04 21:54): LLM enviou "Olá, Roberto" sozinho como
+  // última mensagem, sem nenhuma continuação. 12 chars passava no antigo
+  // threshold de 10, mas a resposta era claramente incompleta — uma vocativa
+  // de abertura sem corpo. Se o caller manda isso ao cliente, Smolka perde
+  // credibilidade com um proprietário de 8 anos esperando resposta sobre
+  // repasse atrasado. Agora bloqueamos como crítico com fallback seguro.
+  const trimmedResponse = (aiResponse || '').trim();
+  const isEmpty = trimmedResponse.length < 10;
+  const looksLikeNakedGreeting = /^(ol[áa]|oi|bom\s+dia|boa\s+tarde|boa\s+noite|e\s+a[ií]|opa|prezad[oa]|sr\.?|sra\.?|senhor\s*a?)\s*[,.!?]?\s*[a-záàâãéêíóôõú\s.-]{2,40}\s*[!.]?\s*$/i
+    .test(trimmedResponse) && trimmedResponse.length < 40;
+  const endsMidClause = /[,;:]\s*$/.test(trimmedResponse) && trimmedResponse.length < 80;
+
+  if (isEmpty || looksLikeNakedGreeting || endsMidClause) {
+    hasCritical = true;
+    const reason = isEmpty ? 'vazia ou curta demais'
+      : looksLikeNakedGreeting ? 'apenas saudação sem conteúdo (provável truncamento do LLM)'
+      : 'termina em vírgula ou dois-pontos (provável corte mid-clause)';
+    issues.push(`TRUNCATED_RESPONSE: ${reason} — "${trimmedResponse.slice(0, 60)}"`);
+    // Fallback neutro: caller vai mandar isso em vez da msg quebrada.
+    // Não simulamos continuidade porque não sabemos o que o LLM ia dizer —
+    // melhor pedir reformulação de forma honesta.
+    sanitized = 'Desculpe, me perdi aqui. Pode repetir sua última mensagem que eu te respondo direitinho?';
   }
 
   // 2. Internal data leaking (CRITICAL — sanitize)

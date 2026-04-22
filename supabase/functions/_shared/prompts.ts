@@ -89,6 +89,39 @@ export function buildContextSummary(qualificationData: QualificationData | null,
     ? `\n⚠️ DADOS QUE AINDA FALTAM (pergunte APENAS estes): ${missing.join(', ')}`
     : '\n✅ QUALIFICAÇÃO COMPLETA — pode buscar imóveis quando o cliente pedir.';
 
+  // Incidente A-01 (09/04, lead Mone): LLM via "🎯 Objetivo: venda e locação"
+  // (interesse=ambos) e re-perguntava "você está buscando para alugar ou para
+  // comprar?" porque interpretava "ambos" como indefinição. Agora listamos
+  // explicitamente, por campo já preenchido, QUAL pergunta fica proibida,
+  // com exemplo negativo. Isso elimina a ambiguidade na cabeça do LLM.
+  const forbidden: string[] = [];
+  if (qualificationData.detected_interest) {
+    if (qualificationData.detected_interest === 'ambos') {
+      forbidden.push('• NÃO pergunte "é para alugar ou comprar?" — o cliente já disse que quer AMBOS (venda E locação). Busque nas duas finalidades quando for apresentar imóveis.');
+    } else {
+      const finalidade = qualificationData.detected_interest === 'locacao' ? 'alugar' : 'comprar';
+      forbidden.push(`• NÃO pergunte "é para alugar ou comprar?" — o cliente já disse que quer ${finalidade}.`);
+    }
+  }
+  if (qualificationData.detected_property_type) {
+    forbidden.push(`• NÃO pergunte "casa ou apartamento?" nem "que tipo de imóvel?" — cliente já disse: ${qualificationData.detected_property_type}.`);
+  }
+  if (qualificationData.detected_neighborhood) {
+    forbidden.push(`• NÃO pergunte "em que bairro?" nem "qual região?" — cliente já disse: ${qualificationData.detected_neighborhood}.`);
+  }
+  if (qualificationData.detected_bedrooms) {
+    forbidden.push(`• NÃO pergunte "quantos quartos?" — cliente já disse: ${qualificationData.detected_bedrooms}.`);
+  }
+  if (qualificationData.detected_budget_max) {
+    forbidden.push(`• NÃO pergunte "qual seu orçamento?" nem "qual faixa de valor?" — cliente já disse: até ${formatCurrency(qualificationData.detected_budget_max)}.`);
+  }
+  if (qualificationData.detected_timeline) {
+    forbidden.push('• NÃO pergunte "qual seu prazo?" — cliente já informou prazo.');
+  }
+  const forbiddenText = forbidden.length > 0
+    ? `\n\n🚫 PERGUNTAS PROIBIDAS NESTE TURNO (já respondidas):\n${forbidden.join('\n')}`
+    : '';
+
   // Bug #1 fix: inject qualification as structured JSON to prevent hallucination
   const qualJSON = JSON.stringify({
     nome: contactName || null,
@@ -104,7 +137,7 @@ export function buildContextSummary(qualificationData: QualificationData | null,
   return `\n<lead_data>
 📋 DADOS JÁ COLETADOS — NUNCA re-pergunte o que já está aqui:
 ${collected.join('\n')}
-${missingText}
+${missingText}${forbiddenText}
 
 <qualification_json>
 ${qualJSON}

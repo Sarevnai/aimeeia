@@ -132,58 +132,13 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
             }
           }
 
-          // Extract message body (sync) + attempt audio transcription if enabled
-          let messageBody = extractMessageBody(message);
-
-          // DEBUG: Log audio transcription attempt to DB
-          if (message.type === 'audio') {
-            await supabase.from('activity_logs').insert({
-              tenant_id: tenant.id,
-              action_type: 'audio_debug',
-              target_table: 'messages',
-              metadata: {
-                audioEnabled,
-                hasAudioId: !!message.audio?.id,
-                audioId: message.audio?.id,
-                hasToken: !!tenant.wa_access_token,
-                messageType: message.type,
-                willTranscribe: !!(audioEnabled && message.audio?.id && tenant.wa_access_token),
-              },
-            });
-          }
-
-          if (message.type === 'audio' && audioEnabled && message.audio?.id && tenant.wa_access_token) {
-            console.log(`🎙️ Audio detected (media_id: ${message.audio.id}, mime: ${message.audio.mime_type}). Attempting transcription...`);
-            try {
-              const transcription = await transcribeWhatsAppAudio(
-                message.audio.id,
-                message.audio.mime_type || 'audio/ogg',
-                tenant.wa_access_token,
-                { supabase, tenant_id: tenant.id }
-              );
-              if (transcription) {
-                messageBody = `[Transcrição de áudio]: ${transcription}`;
-                console.log(`🎙️ Audio transcribed (${transcription.length} chars): "${transcription.slice(0, 100)}"`);
-              }
-            } catch (err) {
-              const errorMsg = (err as Error).message;
-              console.error(`❌ Audio transcription failed: ${errorMsg}`);
-              // Log to activity_logs (logError is broken — column mismatch with ai_error_log)
-              await supabase.from('activity_logs').insert({
-                tenant_id: tenant.id,
-                action_type: 'audio_transcription_error',
-                target_table: 'messages',
-                metadata: {
-                  error: errorMsg,
-                  stack: (err as Error).stack?.slice(0, 500),
-                  mediaId: message.audio.id,
-                  mimeType: message.audio.mime_type,
-                },
-              });
-            }
-          } else if (message.type === 'audio') {
-            console.log(`🎙️ Audio received but transcription skipped (audioEnabled=${audioEnabled}, hasAudioId=${!!message.audio?.id}, hasToken=${!!tenant.wa_access_token})`);
-          }
+          // Extract message body (sync). Transcrição de áudio foi movida pra
+          // dentro de processInboundMessage — agora ela roda DEPOIS do INSERT
+          // inicial da mensagem, pra que ela apareça no chat imediatamente
+          // (placeholder "[🎙️ Áudio recebido, transcrevendo...]") e só então
+          // o body é atualizado com a transcrição real. Isso reduziu a latência
+          // percebida de áudio de ~10s pra ~1s.
+          const messageBody = extractMessageBody(message);
 
           await processInboundMessage(supabase, tenant, {
             phoneNumber: message.from,
@@ -195,6 +150,7 @@ async function handleMetaWebhook(supabase: any, body: any): Promise<Response> {
             rawMessage: message,
             timestamp: message.timestamp,
             quotedMessageBody,
+            audioEnabled,
           });
         }
       }
@@ -262,6 +218,7 @@ interface InboundMessageParams {
   timestamp: string;
   department?: string;
   quotedMessageBody?: string | null;
+  audioEnabled?: boolean;
 }
 
 interface ProcessResult {
@@ -293,6 +250,50 @@ async function processInboundMessage(
 
   // 3. Find or create conversation
   const conversation = await findOrCreateConversation(supabase, tenant.id, phoneNumber, contact.id);
+
+  // 3.1 INSERT IMEDIATO da mensagem — faz aqui (antes de qualquer detecção de
+  // remarketing ou update de department) pra o Realtime disparar o quanto antes
+  // e o operador ver a msg aparecer em ~1s. Pra texto isso corta a latência de
+  // 3-4s pra <1s porque todos os passos 3.5/3.6 (várias queries) rodam depois.
+  const rawMsg = params.rawMessage || {};
+  const mediaKinds = ['image', 'audio', 'video', 'document', 'sticker'];
+  const isMedia = mediaKinds.includes(params.messageType);
+  const isAudio = params.messageType === 'audio';
+  const mediaBlock = isMedia ? rawMsg[params.messageType] : null;
+  const mediaId = mediaBlock?.id || null;
+
+  let insertBody = messageBody;
+  if (isAudio && params.audioEnabled && mediaId) {
+    insertBody = '[🎙️ Áudio recebido, transcrevendo...]';
+  }
+
+  const { data: insertedRow, error: earlyInsertErr } = await supabase
+    .from('messages')
+    .insert({
+      tenant_id: tenant.id,
+      conversation_id: conversation.id,
+      wa_message_id: waMessageId,
+      wa_from: phoneNumber,
+      wa_to: params.waPhoneNumberId,
+      direction: 'inbound',
+      body: insertBody,
+      media_type: isMedia ? params.messageType : null,
+      media_url: null,
+      media_caption: rawMsg.image?.caption || rawMsg.video?.caption || rawMsg.document?.caption || null,
+      media_filename: rawMsg.document?.filename || null,
+      media_mime_type: null,
+      department_code: conversation.department_code,
+      raw: params.rawMessage,
+      sender_type: 'customer',
+      created_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+
+  if (earlyInsertErr) {
+    console.error('❌ Falha ao inserir msg inbound cedo:', earlyInsertErr);
+  }
+  const earlyMessageId = insertedRow?.id || null;
 
   // 3.5 Detect remarketing campaign response (new conversations only)
   const { data: convState } = await supabase
@@ -382,76 +383,93 @@ async function processInboundMessage(
       .is('department_code', null);
   }
 
-  // 3.9 Download and host inbound media (image/audio/video/document/sticker)
-  // so the chat UI can render it. Meta download URLs expire in ~5 minutes and
-  // require a bearer token, so we re-host to the public `chat-media` bucket.
+  // 3.10 Download/host mídia + transcrição de áudio em PARALELO — ambos podem
+  // demorar (hosting 500ms-3s, transcrição Gemini 5-8s), mas a mensagem já
+  // está salva e aparecendo no chat (passo 3.1).
+  const insertedMessageId = earlyMessageId;
   let mediaUrl: string | null = null;
-  let mediaCaption: string | null = null;
   let mediaFilename: string | null = null;
   let mediaMimeType: string | null = null;
+  let transcribedBody: string | null = null;
 
-  const rawMsg = params.rawMessage || {};
-  const mediaKinds = ['image', 'audio', 'video', 'document', 'sticker'];
-  if (
-    mediaKinds.includes(params.messageType) &&
-    tenant.wa_access_token
-  ) {
-    const mediaBlock = rawMsg[params.messageType];
-    const mediaId = mediaBlock?.id;
-    if (mediaId) {
-      try {
-        const hosted = await downloadAndHostWhatsAppMedia(
-          mediaId,
-          params.messageType as any,
-          tenant.wa_access_token,
-          {
-            supabase,
-            tenantId: tenant.id,
-            conversationId: conversation.id,
-            originalFilename: rawMsg.document?.filename || null,
-          }
-        );
-        mediaUrl = hosted.publicUrl;
-        mediaFilename = rawMsg.document?.filename || hosted.filename;
-        mediaMimeType = hosted.mimeType;
-        mediaCaption = rawMsg.image?.caption || rawMsg.video?.caption || rawMsg.document?.caption || null;
-        console.log(`📎 Hosted ${params.messageType} media: ${hosted.publicUrl}`);
-      } catch (err) {
-        const errorMsg = (err as Error).message;
-        console.error(`❌ Media hosting failed (${params.messageType}): ${errorMsg}`);
-        await supabase.from('activity_logs').insert({
-          tenant_id: tenant.id,
-          action_type: 'media_hosting_error',
-          target_table: 'messages',
-          metadata: {
-            error: errorMsg,
-            mediaId,
-            messageType: params.messageType,
-          },
-        });
-      }
-    }
+  const tasks: Promise<any>[] = [];
+
+  if (isMedia && tenant.wa_access_token && mediaId) {
+    tasks.push(
+      downloadAndHostWhatsAppMedia(
+        mediaId,
+        params.messageType as any,
+        tenant.wa_access_token,
+        {
+          supabase,
+          tenantId: tenant.id,
+          conversationId: conversation.id,
+          originalFilename: rawMsg.document?.filename || null,
+        }
+      )
+        .then((hosted) => {
+          mediaUrl = hosted.publicUrl;
+          mediaFilename = rawMsg.document?.filename || hosted.filename;
+          mediaMimeType = hosted.mimeType;
+          console.log(`📎 Hosted ${params.messageType} media: ${hosted.publicUrl}`);
+        })
+        .catch(async (err: Error) => {
+          console.error(`❌ Media hosting failed (${params.messageType}): ${err.message}`);
+          await supabase.from('activity_logs').insert({
+            tenant_id: tenant.id,
+            action_type: 'media_hosting_error',
+            target_table: 'messages',
+            metadata: { error: err.message, mediaId, messageType: params.messageType },
+          });
+        }),
+    );
   }
 
-  // 4. Save inbound message
-  await supabase.from('messages').insert({
-    tenant_id: tenant.id,
-    conversation_id: conversation.id,
-    wa_message_id: waMessageId,
-    wa_from: phoneNumber,
-    wa_to: params.waPhoneNumberId,
-    direction: 'inbound',
-    body: messageBody,
-    media_type: params.messageType !== 'text' ? params.messageType : null,
-    media_url: mediaUrl,
-    media_caption: mediaCaption,
-    media_filename: mediaFilename,
-    media_mime_type: mediaMimeType,
-    department_code: conversation.department_code,
-    raw: params.rawMessage,
-    sender_type: 'customer',
-    created_at: new Date().toISOString(),
-  });
+  if (isAudio && params.audioEnabled && mediaId && tenant.wa_access_token) {
+    console.log(`🎙️ Audio transcribing (media_id: ${mediaId})...`);
+    tasks.push(
+      transcribeWhatsAppAudio(
+        mediaId,
+        mediaBlock?.mime_type || 'audio/ogg',
+        tenant.wa_access_token,
+        { supabase, tenant_id: tenant.id },
+      )
+        .then((transcription) => {
+          if (transcription) {
+            transcribedBody = `[Transcrição de áudio]: ${transcription}`;
+            console.log(`🎙️ Audio transcribed (${transcription.length} chars)`);
+          }
+        })
+        .catch(async (err: Error) => {
+          console.error(`❌ Audio transcription failed: ${err.message}`);
+          await supabase.from('activity_logs').insert({
+            tenant_id: tenant.id,
+            action_type: 'audio_transcription_error',
+            target_table: 'messages',
+            metadata: { error: err.message, mediaId, mimeType: mediaBlock?.mime_type },
+          });
+        }),
+    );
+  }
+
+  if (tasks.length > 0) {
+    await Promise.all(tasks);
+  }
+
+  // 3.11 UPDATE da mensagem com dados finais (media_url + body transcrito).
+  // Só dispara UPDATE se tem algo pra atualizar.
+  if (insertedMessageId && (mediaUrl || transcribedBody || mediaFilename || mediaMimeType)) {
+    const patch: Record<string, any> = {};
+    if (mediaUrl) patch.media_url = mediaUrl;
+    if (mediaFilename) patch.media_filename = mediaFilename;
+    if (mediaMimeType) patch.media_mime_type = mediaMimeType;
+    if (transcribedBody) patch.body = transcribedBody;
+
+    await supabase.from('messages').update(patch).eq('id', insertedMessageId);
+  }
+
+  // Atualiza messageBody local pra que o resto do fluxo (ai-agent) use a transcrição
+  const finalMessageBody = transcribedBody || messageBody;
 
   // 4.5 Reset follow-up flag (lead replied, so clear inactivity follow-up)
   await supabase
@@ -658,7 +676,7 @@ async function processInboundMessage(
       body: {
         tenant_id: tenant.id,
         phone_number: phoneNumber,
-        message_body: messageBody,
+        message_body: finalMessageBody,
         message_type: params.messageType,
         contact_name: contact.name || params.contactName,
         conversation_id: conversation.id,

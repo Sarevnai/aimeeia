@@ -219,6 +219,13 @@ const ChatPage: React.FC = () => {
     if (data) setMessages(data as Message[]);
   }, [id, tenantId]);
 
+  // Um ÚNICO canal de realtime — antes havia dois (chat_page_${id} e chat-${id})
+  // escutando a mesma tabela messages com filtros idênticos, e o primeiro fazia
+  // refetch completo de 500 linhas a cada evento. 3 msgs em sequência =
+  // 3 SELECTs de 500 linhas em paralelo + 3 appends incrementais, piscando a UI.
+  // Agora: INSERT faz append (sobrescrevendo otimista), UPDATE atualiza só
+  // a msg afetada pelo id (transcrição de áudio, media_url tardio),
+  // DELETE remove, conversation_states atualiza state local.
   useEffect(() => {
     if (!id || !tenantId || !conversation?.phone_number) return;
 
@@ -226,9 +233,38 @@ const ChatPage: React.FC = () => {
       .channel(`chat_page_${id}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
-        () => {
-          refetchMessages();
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
+        (payload) => {
+          const msg = payload.new as Message;
+          setMessages((prev) => {
+            // Dedup por wa_message_id (caso realtime dispare 2x) + remove otimista
+            // correspondente (mesmo body + direction).
+            const filtered = prev.filter((m) => {
+              if (m.id === msg.id) return false;
+              if (msg.wa_message_id && m.wa_message_id === msg.wa_message_id) return false;
+              if (typeof m.id === 'string' && (m.id as string).startsWith('temp-')
+                  && m.body === msg.body && m.direction === msg.direction) return false;
+              return true;
+            });
+            return [...filtered, msg];
+          });
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
+        (payload) => {
+          const msg = payload.new as Message;
+          setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
+        (payload) => {
+          const oldId = (payload.old as Message | undefined)?.id;
+          if (!oldId) return;
+          setMessages((prev) => prev.filter((m) => m.id !== oldId));
         },
       )
       .on(
@@ -247,7 +283,7 @@ const ChatPage: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, tenantId, conversation?.phone_number, refetchMessages]);
+  }, [id, tenantId, conversation?.phone_number]);
 
   // Rede de segurança: se o Realtime cair (CHANNEL_ERROR/TIMED_OUT/CLOSED),
   // re-fetch a cada 15s. Para automaticamente quando o Realtime volta.
@@ -293,45 +329,9 @@ const ChatPage: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Realtime messages
-  useEffect(() => {
-    if (!id || !tenantId) return;
-
-    const channel = supabase
-      .channel(`chat-${id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${id}`,
-        },
-        (payload) => {
-          console.log('[ChatPage realtime] nova msg:', payload.new);
-          setMessages((prev) => {
-            // Remove a mensagem otimista correspondente antes de inserir a definitiva
-            // para evitar duplicação (mesmo body + direction outbound + id temporário)
-            const filtered = prev.filter(
-              (m) =>
-                !(
-                  typeof m.id === 'string' && (m.id as string).startsWith('temp-') &&
-                  m.body === (payload.new as Message).body &&
-                  m.direction === 'outbound'
-                )
-            );
-            return [...filtered, payload.new as Message];
-          });
-        }
-      )
-      .subscribe((status, err) => {
-        console.log(`[ChatPage realtime] chat ${id?.slice(0, 8)} status:`, status, err || '');
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [id, tenantId]);
+  // Canal `chat-${id}` removido em 22/04: era duplicado com `chat_page_${id}`,
+  // ambos escutando messages INSERT pro mesmo conversation_id. Lógica de dedup
+  // + remoção de otimista movida para o canal unificado acima.
 
   const handleSend = async () => {
     if (!inputValue.trim() || !conversation || !tenantId || sending) return;

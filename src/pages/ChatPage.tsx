@@ -119,6 +119,13 @@ const ChatPage: React.FC = () => {
   const [contact, setContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [convState, setConvState] = useState<ConversationState | null>(null);
+  // Bug descoberto em 22/04 no cutover 07/05: ausência de row em
+  // conversation_states = IA ativa por default no backend (whatsapp-webhook e
+  // ai-agent rodam se não houver state bloqueando). A UI antes tratava
+  // convState null como pausada, mostrando "Aimee pausada" em 77/79 conversas
+  // da Smolka que nunca tiveram state criado. Agora só consideramos pausada
+  // quando is_ai_active === false explicitamente.
+  const aimeeActive = convState?.is_ai_active !== false;
   const [leadQual, setLeadQual] = useState<LeadQualification | null>(null);
   const [loading, setLoading] = useState(true);
   const [inputValue, setInputValue] = useSessionState(`chat_input_${id}`, '');
@@ -692,7 +699,7 @@ const ChatPage: React.FC = () => {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Phone className="h-3 w-3" />
               <span>{conversation.phone_number}</span>
-              {convState?.is_ai_active ? (
+              {aimeeActive ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-success text-success">
                   <Bot className="h-3 w-3 mr-0.5" /> Aimee ativa
                 </Badge>
@@ -707,7 +714,7 @@ const ChatPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {convState?.is_ai_active ? (
+            {aimeeActive ? (
               <Button size="sm" variant="outline" onClick={handleTakeover} className="text-xs" title="Pausa a Aimee nesta conversa e marca você como responsável">
                 <Pause className="h-3.5 w-3.5 mr-1" /> Pausar Aimee
               </Button>
@@ -916,7 +923,7 @@ const ChatPage: React.FC = () => {
                 contactC2SLeadId: (contact as any)?.c2s_lead_id,
                 dnc: (contact as any)?.dnc,
                 dncReason: (contact as any)?.dnc_reason,
-                isAiActive: convState?.is_ai_active,
+                isAiActive: aimeeActive,
                 operatorTakeoverAt: convState?.operator_takeover_at,
                 triageStage: convState?.triage_stage,
                 qualificationScore: leadQual?.qualification_score ?? null,
@@ -985,7 +992,7 @@ const ChatPage: React.FC = () => {
                     <p className="text-xs font-medium text-foreground">Triage IA: {convState.triage_stage}</p>
                     <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                       <Bot className="h-3 w-3" />
-                      {convState.is_ai_active ? 'IA ativa' : 'Operador assume'}
+                      {convState.is_ai_active !== false ? 'IA ativa' : 'Operador assume'}
                     </p>
                   </div>
                 </div>
@@ -1011,12 +1018,12 @@ const ChatPage: React.FC = () => {
               {/* Current status */}
               <div className="flex gap-2.5">
                 <div className="flex flex-col items-center">
-                  <div className={cn('h-2 w-2 rounded-full mt-1.5', convState?.is_ai_active ? 'bg-success' : 'bg-warning')} />
+                  <div className={cn('h-2 w-2 rounded-full mt-1.5', aimeeActive ? 'bg-success' : 'bg-warning')} />
                 </div>
                 <div>
                   <p className="text-xs font-medium text-foreground">Status atual</p>
                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 mt-0.5">
-                    {convState?.is_ai_active ? 'IA ativa' : convState?.operator_id ? 'Com operador' : 'Inativa'}
+                    {aimeeActive ? 'IA ativa' : convState?.operator_id ? 'Com operador' : 'Pausada'}
                   </Badge>
                 </div>
               </div>

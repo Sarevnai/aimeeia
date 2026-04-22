@@ -58,6 +58,21 @@ type Contact = Tables<'contacts'>;
 type ConversationState = Tables<'conversation_states'>;
 type LeadQualification = Tables<'lead_qualification'>;
 
+// P2 (cutover 07/05): formata quanto tempo a Aimee está pausada nesta conversa,
+// pra que o operador veja "há X" no badge e não esqueça uma conversa pausada
+// há horas. Granularidade m/h/d cobre os casos práticos da operação Smolka.
+function formatPausedFor(isoTs: string): string {
+  const ms = Date.now() - new Date(isoTs).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return 'agora';
+  if (min < 60) return `há ${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `há ${hr}h`;
+  const d = Math.floor(hr / 24);
+  return `há ${d}d`;
+}
+
 const DEPT_LABELS: Record<string, string> = {
   locacao: 'Locação',
   vendas: 'Vendas',
@@ -679,11 +694,13 @@ const ChatPage: React.FC = () => {
               <span>{conversation.phone_number}</span>
               {convState?.is_ai_active ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-success text-success">
-                  <Bot className="h-3 w-3 mr-0.5" /> AI Ativa
+                  <Bot className="h-3 w-3 mr-0.5" /> Aimee ativa
                 </Badge>
               ) : (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-warning text-warning">
-                  <UserCheck className="h-3 w-3 mr-0.5" /> {operatorName || 'Operador'}
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-warning text-warning" title={convState?.operator_takeover_at ? `Pausada em ${new Date(convState.operator_takeover_at).toLocaleString('pt-BR')}` : undefined}>
+                  <Pause className="h-3 w-3 mr-0.5" />
+                  Aimee pausada{convState?.operator_takeover_at ? ` · ${formatPausedFor(convState.operator_takeover_at)}` : ''}
+                  {operatorName ? ` · ${operatorName}` : ''}
                 </Badge>
               )}
             </div>
@@ -691,8 +708,8 @@ const ChatPage: React.FC = () => {
 
           <div className="flex items-center gap-2 shrink-0">
             {convState?.is_ai_active ? (
-              <Button size="sm" variant="outline" onClick={handleTakeover} className="text-xs">
-                <UserCheck className="h-3.5 w-3.5 mr-1" /> Assumir
+              <Button size="sm" variant="outline" onClick={handleTakeover} className="text-xs" title="Pausa a Aimee nesta conversa e marca você como responsável">
+                <Pause className="h-3.5 w-3.5 mr-1" /> Pausar Aimee
               </Button>
             ) : (
               <>

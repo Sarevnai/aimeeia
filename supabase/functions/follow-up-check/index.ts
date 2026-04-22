@@ -65,15 +65,18 @@ function buildContextualFollowUp(ctx: ConversationContext): string {
     return `${greeting}Vi que ficamos sem conversar. Lembra que estávamos vendo opções de imóveis pra você? Posso continuar te ajudando quando quiser!`;
   }
 
-  // --- Comercial department ---
-  if (ctx.departmentCode === 'comercial') {
+  // --- Comercial (venda/locação) — cobre ambos os department_codes reais ---
+  // P4 cutover 07/05: antes só 'comercial' batia — não existe esse dept no
+  // db, o que mandava toda conversa de venda/locação pro fallback genérico.
+  if (ctx.departmentCode === 'vendas' || ctx.departmentCode === 'locacao' || ctx.departmentCode === 'comercial') {
     if (ctx.hadPropertySearch || ctx.moduleSlug === 'apresentacao_imovel') {
       const location = ctx.qualification.neighborhood || '';
       const type = ctx.qualification.propertyType || 'imóvel';
+      const bedroomsText = ctx.qualification.bedrooms ? ` de ${ctx.qualification.bedrooms} quartos` : '';
       if (location) {
-        return `${greeting}Estava te mostrando opções de ${type} em ${location}. Algum te interessou? Posso buscar mais alternativas!`;
+        return `${greeting}Estava te mostrando opções de ${type}${bedroomsText} em ${location}. Algum te interessou? Posso buscar mais alternativas!`;
       }
-      return `${greeting}Estávamos vendo algumas opções de imóveis. Quer que eu continue a busca?`;
+      return `${greeting}Estávamos vendo algumas opções de imóveis${bedroomsText}. Quer que eu continue a busca?`;
     }
 
     if (ctx.qualification.interest) {
@@ -81,10 +84,18 @@ function buildContextualFollowUp(ctx: ConversationContext): string {
       const budget = ctx.qualification.budgetMax
         ? ` com orçamento de até R$ ${(ctx.qualification.budgetMax / 1000).toFixed(0)}mil`
         : '';
-      return `${greeting}Estávamos conversando sobre ${interest} um imóvel${budget}. Posso continuar te ajudando?`;
+      const location = ctx.qualification.neighborhood ? ` em ${ctx.qualification.neighborhood}` : '';
+      return `${greeting}Estávamos conversando sobre ${interest} um imóvel${location}${budget}. Posso continuar te ajudando?`;
     }
 
     return `${greeting}Vi que ficamos sem conversar. Ainda posso te ajudar a encontrar o imóvel ideal! É só me chamar.`;
+  }
+
+  // --- Atualização (proprietário em imóvel já administrado) ---
+  // P4 cutover 07/05: tom diferente — não é busca, é atualização de dado.
+  // "Supervisor de Carteira" alinha com label de handoff do P3.
+  if (ctx.departmentCode === 'atualizacao') {
+    return `${greeting}Precisava confirmar alguns dados sobre seu imóvel. Consegue me dar um retorno quando puder? Se preferir, nosso Supervisor de Carteira fala com você diretamente.`;
   }
 
   // --- Handoff pending (waiting for broker) ---
@@ -148,6 +159,12 @@ serve(async (req: Request) => {
           .maybeSingle();
 
         if (!conversation) continue;
+
+        // P4 cutover 07/05: admin NÃO recebe follow-up automático. Clientes
+        // do setor administrativo (inquilino/proprietário) estão ou em
+        // ticket aberto (follow-up virá do fluxo de SLA do ticket) ou já
+        // concluíram demanda — disparar "ainda tá por aí?" soa deslocado.
+        if (conversation.department_code === 'administrativo') continue;
 
         // Get the last few messages to check timing + context
         const { data: recentMessages } = await supabase

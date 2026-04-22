@@ -497,7 +497,11 @@ async function processInboundMessage(
     return { action: 'dnc_silent_drop' };
   }
 
-  const filterHit = classifyInbound(messageBody);
+  // DNC must see the transcribed audio body, not the empty/raw messageBody.
+  // Without this, a lead sending an audio "retire meu contato" would bypass
+  // the guardrail and be handed to the ai-agent — reproducing incident A-02
+  // on the audio channel. See inbound-filters.regression.test.ts.
+  const filterHit = classifyInbound(finalMessageBody);
   if (filterHit.reason) {
     console.log(`🚦 Inbound filter hit: ${filterHit.reason} ("${filterHit.matched}") for ${phoneNumber}`);
 
@@ -551,7 +555,7 @@ async function processInboundMessage(
         matched: filterHit.matched,
         phone: phoneNumber,
         conversation_id: conversation.id,
-        message_body: messageBody.slice(0, 200),
+        message_body: finalMessageBody.slice(0, 200),
       },
     });
 
@@ -566,7 +570,7 @@ async function processInboundMessage(
 
   // 5.1 Sprint 6.4 — Captura NPS pós-resolução (admin setor locação)
   // Se Aimee pediu avaliação nas últimas 24h e msg é 1-5, grava e responde.
-  const npsCaptured = await tryCaptureNps(supabase, tenant, phoneNumber, messageBody, conversation.id);
+  const npsCaptured = await tryCaptureNps(supabase, tenant, phoneNumber, finalMessageBody, conversation.id);
   if (npsCaptured) {
     return { action: 'nps_captured' };
   }
@@ -591,7 +595,7 @@ async function processInboundMessage(
     await supabase.from('ticket_comments').insert({
       tenant_id: tenant.id,
       ticket_id: openTicket.id,
-      body: `[cliente no WhatsApp] ${messageBody}`,
+      body: `[cliente no WhatsApp] ${finalMessageBody}`,
       is_internal: true,
     });
     // NÃO retorna — continua pra IA responder.

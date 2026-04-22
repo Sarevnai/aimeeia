@@ -606,32 +606,16 @@ async function processInboundMessage(
     .maybeSingle();
 
   if (state?.is_ai_active === false) {
-    // BUG-5 fix: Don't reactivate AI if handoff was less than 5 minutes ago
-    // This prevents double handoff when the client sends a follow-up message
-    // right after being transferred (e.g. "Obrigado", "Perfeito").
-    const handoffAgeMs = state?.operator_takeover_at
-      ? Date.now() - new Date(state.operator_takeover_at).getTime()
-      : Infinity;
-    const HANDOFF_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-
-    if (handoffAgeMs < HANDOFF_COOLDOWN_MS) {
-      console.log(`⏸️ AI reactivation skipped — handoff was ${Math.round(handoffAgeMs / 1000)}s ago (cooldown: ${HANDOFF_COOLDOWN_MS / 1000}s). Message saved but not processed by AI.`);
-      return new Response(JSON.stringify({ status: 'skipped_handoff_cooldown' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    console.log('🔄 Reactivating AI after handoff — lead sent new message');
-    await supabase.from('conversation_states').upsert({
-      phone_number: phoneNumber,
-      tenant_id: tenant.id,
-      is_ai_active: true,
-      operator_takeover_at: null,
-      triage_stage: state?.triage_stage || 'greeting',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'phone_number,tenant_id' });
-    // Don't return — continue to step 7 to invoke ai-agent
+    // Operador assumiu a conversa: a Aimee fica pausada indefinidamente até o
+    // operador clicar em "Devolver pra IA" manualmente. Nada de reativação
+    // automática após N minutos — isso quebrava o handoff humano porque o
+    // operador levava mais de 5 min pra responder o cliente e a Aimee voltava
+    // a enviar mensagens junto com ele.
+    const handoffAgeMin = state?.operator_takeover_at
+      ? Math.round((Date.now() - new Date(state.operator_takeover_at).getTime()) / 60_000)
+      : null;
+    console.log(`⏸️ AI pausada (operador assumiu há ${handoffAgeMin ?? '?'}min). Mensagem salva, sem invocar ai-agent.`);
+    return { action: 'ai_paused_operator_took_over' };
   }
 
   // 6.5 MC-4: Debounce — if AI is already processing a message for this conversation,

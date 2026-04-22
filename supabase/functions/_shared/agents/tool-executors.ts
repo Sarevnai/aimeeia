@@ -886,11 +886,20 @@ export async function executeLeadHandoff(
     }
 
     // F3: Dual output — DB log stays as system message, LLM gets instruction to generate humanized farewell
-    return 'Handoff concluído com sucesso. Agora se despeça do cliente de forma calorosa e natural. Mencione que um corretor especialista entrará em contato em breve para alinhar os detalhes. Seja breve, elegante e humano. NÃO repita "Lead transferido" ou qualquer mensagem técnica.';
+    // P3 cutover 07/05: label de setor visível ao cliente (paridade Lais dossiê §4).
+    // Lastro escreve literalmente "o Consultor Imobiliário" / "o Atendente de Locação",
+    // fixando a expectativa do lead. Fazemos o mesmo aqui, dept-aware.
+    const setorLabel = ctx.department === 'locacao'
+      ? 'nosso Atendente de Locação'
+      : 'nosso Consultor de Venda';
+    return `Handoff concluído com sucesso. Agora se despeça do cliente de forma calorosa e natural. Mencione que ${setorLabel} entrará em contato em breve para alinhar os detalhes. Seja breve, elegante e humano. NÃO repita "Lead transferido" ou qualquer mensagem técnica.`;
 
   } catch (error) {
     console.error('❌ Lead handoff error:', error);
-    return 'Houve um imprevisto técnico, mas vou garantir que um corretor entre em contato. Despeça-se do cliente de forma calorosa, mencionando que alguém da equipe entrará em contato em breve.';
+    const setorLabel = ctx.department === 'locacao'
+      ? 'nosso Atendente de Locação'
+      : 'nosso Consultor de Venda';
+    return `Houve um imprevisto técnico, mas vou garantir que ${setorLabel} entre em contato. Despeça-se do cliente de forma calorosa, mencionando que ${setorLabel} entrará em contato em breve.`;
   }
 }
 
@@ -1079,11 +1088,12 @@ export async function executeAdminHandoff(
     console.log(`🔄 Admin handoff: conversation ${ctx.conversationId} | Reason: ${args.motivo}`);
 
     // F3: Dual output — DB log stays as system message, LLM gets instruction to generate humanized farewell
-    return 'Transferência para atendente concluída. Agora se despeça do cliente de forma calorosa e natural. Mencione que um atendente da equipe entrará em contato para ajudá-lo. Seja breve e humano. NÃO repita mensagens técnicas.';
+    // P3: label "nosso Setor Administrativo" (paridade Lais dossiê §4, Manoel/Estevan).
+    return 'Transferência concluída. Agora se despeça do cliente de forma calorosa e natural. Mencione que nosso Setor Administrativo entrará em contato para ajudá-lo. Seja breve e humano. NÃO repita mensagens técnicas.';
 
   } catch (error) {
     console.error('❌ Admin handoff error:', error);
-    return 'Houve um imprevisto, mas vou garantir que um atendente entre em contato. Despeça-se do cliente de forma calorosa.';
+    return 'Houve um imprevisto, mas vou garantir que nosso Setor Administrativo entre em contato. Despeça-se do cliente de forma calorosa, mencionando que nosso Setor Administrativo entrará em contato em breve.';
   }
 }
 

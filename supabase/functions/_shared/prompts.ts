@@ -5,7 +5,7 @@
 import { AIAgentConfig, AIBehaviorConfig, EssentialQuestion, ConversationMessage, QualificationData, DepartmentType, StructuredConfig, SkillConfig } from './types.ts';
 import { generateRegionKnowledge } from './regions.ts';
 import { Region } from './types.ts';
-import { formatCurrency } from './utils.ts';
+import { formatCurrency, resolveContactNameForPrompt } from './utils.ts';
 
 // ========== FIRST TURN CONTEXT ==========
 // Injected into the system prompt when conversationHistory is empty so the agent
@@ -48,6 +48,7 @@ REGRAS PARA ESTE TURNO:
 3. Nunca use respostas robóticas tipo "Como posso te chamar?" isoladas. Misture apresentação + próxima pergunta ou resposta num mesmo fôlego.
 4. Se o cliente mandou áudio, a transcrição está no histórico. Trate o conteúdo como se tivesse ouvido, não peça pra ele repetir.
 5. Se a mensagem mencionar algo que sugira conversa anterior ("já te falei", "como combinamos", "aquele do X"), reconheça com naturalidade mesmo sem ter contexto — diga que pode ter havido troca de atendente e pergunte o essencial pra continuar.
+6. VOCATIVO QUANDO O NOME AINDA É DESCONHECIDO: se o nome do cliente não está disponível, PROIBIDO usar as palavras "cliente", "usuário", "lead", "consumidor" ou qualquer placeholder genérico como vocativo. Nunca escreva frases como "Prazer em te conhecer, cliente!" ou "cliente, que bom ter você aqui". Use saudações naturais sem vocativo ("Oi, tudo bem?", "Olá! Como posso te ajudar?") até descobrir o nome.
 </primeiro-turno>
 `.trim();
 }
@@ -367,7 +368,7 @@ export async function buildSystemPrompt(
       prompt = prompt.replaceAll('{{AGENT_NAME}}', config.agent_name || 'Aimee');
       prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
       prompt = prompt.replaceAll('{{CITY}}', tenant.city);
-      prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
+      prompt = prompt.replaceAll('{{CONTACT_NAME}}', resolveContactNameForPrompt(contactName));
       prompt += buildContextSummary(qualificationData, contactName);
       prompt += generateRegionKnowledge(regions);
       prompt += buildBehaviorInstructions(behaviorConfig);
@@ -417,7 +418,7 @@ function buildStructuredPrompt(
     '{{AGENT_NAME}}': config.agent_name || 'Aimee',
     '{{COMPANY_NAME}}': tenant.company_name || '',
     '{{CITY}}': tenant.city || '',
-    '{{CONTACT_NAME}}': contactName || 'cliente',
+    '{{CONTACT_NAME}}': resolveContactNameForPrompt(contactName),
   };
 
   const replaceVars = (text: string): string => {

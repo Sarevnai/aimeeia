@@ -9,6 +9,7 @@ import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
 import { isQualificationComplete, calculateQualificationScore } from '../qualification.ts';
 import { SkillConfig, AiModule } from '../types.ts';
+import { resolveContactNameForPrompt } from '../utils.ts';
 import { runPreCompletionChecks } from './pre-completion-check.ts';
 
 // ========== SERVER-SIDE MODULE RESOLUTION ==========
@@ -585,7 +586,7 @@ function buildStructuredRemarketingPrompt(ctx: AgentContext): string {
     '{{AGENT_NAME}}': config.agent_name || 'Aimee',
     '{{COMPANY_NAME}}': tenant.company_name || '',
     '{{CITY}}': tenant.city || '',
-    '{{CONTACT_NAME}}': contactName || 'cliente',
+    '{{CONTACT_NAME}}': resolveContactNameForPrompt(contactName),
   };
 
   const replaceVars = (text: string): string => {
@@ -696,7 +697,7 @@ function buildLegacyRemarketingPrompt(ctx: AgentContext): string {
   prompt = prompt.replaceAll('{{AGENT_NAME}}', config.agent_name || 'Aimee');
   prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
   prompt = prompt.replaceAll('{{CITY}}', tenant.city);
-  prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
+  prompt = prompt.replaceAll('{{CONTACT_NAME}}', resolveContactNameForPrompt(contactName));
   prompt += buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (ctx.isReturningLead) prompt += buildReturningLeadContext(ctx.previousQualificationData);
   prompt += generateRegionKnowledge(regions);

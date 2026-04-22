@@ -10,6 +10,7 @@ import {
 } from './tool-executors.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
 import { AiModule } from '../types.ts';
+import { resolveContactNameForPrompt } from '../utils.ts';
 import { buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
 
 // ========== MODULE-BASED PROMPT ==========
@@ -153,7 +154,7 @@ function buildAdminPrompt(ctx: AgentContext): string {
     prompt = prompt.replaceAll('{{AGENT_NAME}}', config.agent_name || 'Aimee');
     prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
     prompt = prompt.replaceAll('{{CITY}}', tenant.city);
-    prompt = prompt.replaceAll('{{CONTACT_NAME}}', contactName || 'cliente');
+    prompt = prompt.replaceAll('{{CONTACT_NAME}}', resolveContactNameForPrompt(contactName));
     if (config.custom_instructions) {
       prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
     }

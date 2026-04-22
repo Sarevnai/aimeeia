@@ -26,6 +26,20 @@ export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Incidente A-02 (20/04/2026): quando contactName era null, o fallback
+// `contactName || 'cliente'` substituía {{CONTACT_NAME}} pelo literal "cliente"
+// e o LLM tratava isso como nome próprio, produzindo "Prazer em te conhecer,
+// cliente!" e "cliente, que bom ter você aqui!". Esta função normaliza o
+// nome para uso em prompts: devolve string vazia quando o valor é nulo,
+// vazio ou um placeholder genérico que jamais deve virar vocativo.
+export function resolveContactNameForPrompt(contactName: string | null | undefined): string {
+  const trimmed = (contactName || '').trim();
+  if (!trimmed) return '';
+  const lower = trimmed.toLowerCase();
+  if (lower === 'cliente' || lower === 'customer' || lower === 'lead' || lower === 'usuário' || lower === 'usuario') return '';
+  return trimmed;
+}
+
 export function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength - 3) + '...';

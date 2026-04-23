@@ -615,7 +615,20 @@ function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-function formatBudgetBucket(value: number): string {
+function formatBudgetBucket(value: number, interest?: string | null): string {
+  // Aluguel: valores mensais, buckets em R$ por mês.
+  // Heurística: se interest=locacao OU valor < 50k (não tem venda de imóvel abaixo disso em FLN),
+  // tratar como faixa de aluguel.
+  const isLocacao = interest === 'locacao' || interest === 'ambos' && value < 50000 || (!interest && value < 50000);
+  if (isLocacao) {
+    if (value <= 1500) return 'até R$ 1.500/mês';
+    if (value <= 2500) return 'R$ 1.500-2.500/mês';
+    if (value <= 4000) return 'R$ 2.500-4.000/mês';
+    if (value <= 6000) return 'R$ 4.000-6.000/mês';
+    if (value <= 10000) return 'R$ 6.000-10.000/mês';
+    if (value <= 20000) return 'R$ 10.000-20.000/mês';
+    return 'acima de R$ 20.000/mês';
+  }
   if (value <= 100000) return 'até 100k';
   if (value <= 300000) return '100k-300k';
   if (value <= 500000) return '300k-500k';
@@ -654,7 +667,7 @@ export function generateTagsFromQualification(data: QualificationData | null): s
     tags.push(`Quartos: ${data.detected_bedrooms}`);
   }
   if (data.detected_budget_max) {
-    tags.push(`Orçamento: ${formatBudgetBucket(data.detected_budget_max)}`);
+    tags.push(`Orçamento: ${formatBudgetBucket(data.detected_budget_max, data.detected_interest)}`);
   }
   if (data.detected_timeline) {
     tags.push(`Prazo: ${formatTimeline(data.detected_timeline)}`);

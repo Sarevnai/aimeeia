@@ -757,6 +757,17 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
           apiKey: tenantApiKey,
           temperature: 0.7,
           maxTokens: aiConfig.max_tokens || 500,
+          // Checa a cada tool se operador assumiu. Se sim, o loop aborta e IA
+          // não manda mais mensagens — respeita handoff humano imediato.
+          isStillActive: async () => {
+            const { data } = await supabase
+              .from('conversation_states')
+              .select('is_ai_active')
+              .eq('tenant_id', tenant_id)
+              .eq('phone_number', phone_number)
+              .maybeSingle();
+            return data?.is_ai_active !== false;
+          },
         }
       );
 
@@ -823,6 +834,15 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
           apiKey: tenantApiKey,
           temperature: 0.7,
           maxTokens: aiConfig.max_tokens || 500,
+          isStillActive: async () => {
+            const { data } = await supabase
+              .from('conversation_states')
+              .select('is_ai_active')
+              .eq('tenant_id', tenant_id)
+              .eq('phone_number', phone_number)
+              .maybeSingle();
+            return data?.is_ai_active !== false;
+          },
         }
       );
 
@@ -867,7 +887,52 @@ REGRAS OBRIGATÓRIAS PARA ÁUDIO:
       .replace(/\n{3,}/g, '\n\n')
       .trim();
 
+    // ========== REWRITE SEARCH-URL LINKS TO PROPERTY PAGE ==========
+    // IA às vezes fabrica URL de busca (/busca?codigo=X) em vez de copiar o link
+    // de ficha do imóvel (/imovel/{slug}-{codigo}) do resultado do tool. Detecta
+    // busca com codigo e troca por /imovel/{codigo}. Se não conseguir resolver,
+    // remove a URL (evita mandar link quebrado).
+    finalResponse = finalResponse.replace(/https?:\/\/[^\s)]*\/busca\?[^\s)]*?\bcodigo=(\d+)[^\s)]*/gi, (match, codigo) => {
+      const websiteBase = (aiConfig as any).website_url?.replace(/\/$/, '') || '';
+      if (websiteBase) return `${websiteBase}/imovel/${codigo}`;
+      return '';
+    }).replace(/\n{3,}/g, '\n\n').trim();
+
+    // ========== SANITIZE TECH-LEAK PHRASES ==========
+    // IA às vezes verbaliza estado técnico ("instabilidade", "oscilação", "sistema fora")
+    // pro cliente em vez de simplesmente fazer handoff silencioso. Filtra frases
+    // completas que contêm esses marcadores e substitui por mensagem consultiva neutra.
+    const techLeakPattern = /\b(instabilidade|oscila[çc][aã]o|sistema\s+(deu|est[aá]|apresentou|caiu|fora)|problema\s+(ao\s+)?(processar|carregar|puxar|buscar)|erro\s+(do\s+sistema|t[eé]cnico)|n[aã]o\s+consegui\s+(carregar|puxar|acessar))/i;
+    if (techLeakPattern.test(finalResponse)) {
+      console.warn(`🧼 Tech-leak detected in AI output, sanitizing. Original: "${finalResponse.slice(0, 200)}"`);
+      await logActivity(supabase, tenant_id, 'ai_tech_leak_sanitized', 'conversations', conversation_id, {
+        original: finalResponse.slice(0, 500),
+      }).catch(() => {});
+      // Remove sentenças completas que contêm o leak (separadas por . ! ?)
+      finalResponse = finalResponse
+        .split(/(?<=[.!?])\s+/)
+        .filter((s) => !techLeakPattern.test(s))
+        .join(' ')
+        .trim();
+      // Se sobrar nada ou muito pouco, silencia (evita mandar frase solta sem contexto).
+      if (finalResponse.length < 10) {
+        finalResponse = '';
+      }
+    }
+
     // ========== SEND RESPONSE ==========
+
+    // Se finalResponse ficou vazio (operador assumiu mid-execution OU leak sanitizado
+    // sem sobra), não envia nada. Evita texto robótico / mensagem fantasma pro cliente.
+    if (!finalResponse || finalResponse.trim().length === 0) {
+      console.log('⏹️ Sem resposta para enviar (abort ou sanitize total). Liberando lock.');
+      await supabase
+        .from('conversation_states')
+        .update({ is_processing: false, updated_at: new Date().toISOString() })
+        .eq('tenant_id', tenant_id)
+        .eq('phone_number', phone_number);
+      return jsonResponse({ action: 'silent', reason: 'empty_response_after_sanitize_or_abort' });
+    }
 
     // Prefixar com nome do agente para identificação no WhatsApp
     const agentName = aiConfig.agent_name || 'Aimee';

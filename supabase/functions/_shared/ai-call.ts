@@ -365,13 +365,25 @@ export async function callLLM(
   return result;
 }
 
+// Nomes de ferramentas que encerram o turno da IA. Se qualquer uma dessas rodar,
+// o loop trava: mais nenhuma tool pode ser chamada na mesma execução (só a
+// mensagem final de fechamento ao cliente).
+const TERMINAL_TOOLS = new Set([
+  'transferir_ao_plantao',
+  'transferir_lead_para_humano',
+  'transferir_administrativo',
+  'abrir_ticket',
+  'finalizar_atendimento',
+  'encaminhar_corretor',
+]);
+
 export async function callLLMWithToolExecution(
   systemPrompt: string,
   conversationHistory: ConversationMessage[],
   userMessage: string,
   tools: any[],
   toolExecutor: (name: string, args: any) => Promise<string>,
-  options: LLMCallOptions & { maxIterations?: number } = {}
+  options: LLMCallOptions & { maxIterations?: number; isStillActive?: () => Promise<boolean> } = {}
 ): Promise<LLMResultWithTrace> {
   const model = options.model || 'gpt-4o-mini';
   const provider = detectProvider(model, options.provider);
@@ -398,11 +410,16 @@ export async function callLLMWithToolExecution(
 
   let finalContent = '';
   let lastAssistantContent = '';
+  let terminalToolFired = false;  // travou após handoff/ticket/etc
+  let aborted = false;             // operador assumiu mid-execution
 
   try {
     for (let i = 0; i < maxIterations; i++) {
       iterationsCount++;
-      const result = await callProviderOnce(provider, apiKey, model, messages, tools, options);
+      // Após terminal tool (ex: handoff disparou), proíbe mais tool calls.
+      // LLM é forçado a produzir texto de fechamento pro cliente.
+      const currentTools = terminalToolFired ? [] : tools;
+      const result = await callProviderOnce(provider, apiKey, model, messages, currentTools, options);
 
       // No tool calls → done
       if (!result.toolCalls || result.toolCalls.length === 0) {
@@ -433,6 +450,17 @@ export async function callLLMWithToolExecution(
         const args = JSON.parse(toolCall.function.arguments);
         console.log(`🔧 Tool call: ${toolCall.function.name}`, args);
 
+        // Detecta ferramenta terminal ANTES de executar: se já teve outra terminal nesta
+        // iteração, pula as subsequentes (LLM às vezes chama handoff + buscar_imoveis juntos).
+        if (terminalToolFired && TERMINAL_TOOLS.has(toolCall.function.name)) {
+          messages.push({
+            role: 'tool',
+            content: 'Ignorado: atendimento já encaminhado nesta execução.',
+            tool_call_id: toolCall.id,
+          });
+          continue;
+        }
+
         try {
           const toolResult = await toolExecutor(toolCall.function.name, args);
           messages.push({
@@ -440,6 +468,10 @@ export async function callLLMWithToolExecution(
             content: toolResult,
             tool_call_id: toolCall.id,
           });
+          if (TERMINAL_TOOLS.has(toolCall.function.name)) {
+            terminalToolFired = true;
+            console.log(`🛑 Terminal tool fired: ${toolCall.function.name} — bloqueando próximas tool calls`);
+          }
         } catch (e) {
           messages.push({
             role: 'tool',
@@ -449,20 +481,42 @@ export async function callLLMWithToolExecution(
         }
       }
 
-      // Property search hint detected — let the LLM generate a consultive response
-      // based on the rich hint with concrete data, POI, and client profile.
-      // Do NOT bypass the LLM here — the hint contains all the data it needs to
-      // present the property with specific details instead of generic phrases.
+      // Checa se operador assumiu a conversa durante a execução do LLM. Se sim,
+      // aborta sem mandar mais nada pro cliente — respeita o takeover imediato.
+      if (options.isStillActive) {
+        try {
+          const active = await options.isStillActive();
+          if (!active) {
+            aborted = true;
+            console.log(`⏹️ Aborting LLM loop: operator took over mid-execution`);
+            finalContent = '';
+            break;
+          }
+        } catch (e) {
+          console.warn('⚠️ isStillActive check failed (ignoring):', e);
+        }
+      }
 
       // If last iteration, do final call without tools
       if (i === maxIterations - 1) {
         const finalResult = await callProviderOnce(provider, apiKey, model, messages, [], options);
-        finalContent = finalResult.content || 'Desculpe, tive um problema ao processar sua solicitação.';
+        // Bug: mensagem "Desculpe, tive um problema ao processar" vazava pro cliente
+        // quando o provider falhava. Agora usa lastAssistantContent ou fica vazio
+        // (ai-agent/index.ts faz fallback silencioso em vez de enviar robôtica).
+        finalContent = finalResult.content || lastAssistantContent || '';
       }
     }
   } catch (e) {
     errorMessage = (e as Error).message;
-    finalContent = finalContent || 'Desculpe, tive um problema ao processar sua solicitação.';
+    console.error('❌ callLLMWithToolExecution failed:', errorMessage);
+    // Não vaza mensagem de erro técnica pro cliente. Deixa vazio — o caller
+    // (ai-agent/index.ts) decide se envia fallback humanizado ou nada.
+    finalContent = finalContent || lastAssistantContent || '';
+  }
+
+  if (aborted) {
+    // Não envia nada se operador assumiu. Retorna content vazio.
+    finalContent = '';
   }
 
   const latencyMs = Date.now() - startTime;

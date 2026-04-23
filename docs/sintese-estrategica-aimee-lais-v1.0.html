@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Síntese Estratégica Aimee × Lais — v1.0</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141822;
+    --panel-2: #1b2030;
+    --border: #2a3040;
+    --text: #e6e8ef;
+    --muted: #8a93a6;
+    --accent: #7c9cff;
+    --aimee: #4ade80;
+    --lais: #f472b6;
+    --warn: #fbbf24;
+    --crit: #ef4444;
+    --ok: #22c55e;
+    --info: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    font-size: 14px;
+  }
+  header {
+    padding: 24px 32px;
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  nav {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 12px 32px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 74px; z-index: 99;
+  }
+  nav a {
+    color: var(--muted); text-decoration: none;
+    padding: 4px 10px; border-radius: 6px;
+    font-size: 12px; border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+  nav a:hover { background: var(--panel-2); color: var(--text); border-color: var(--border); }
+  main { padding: 24px 32px; max-width: 1600px; margin: 0 auto; }
+  section { margin-bottom: 36px; }
+  h2 {
+    font-size: 18px; margin: 0 0 16px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 15px; margin: 20px 0 10px; color: var(--accent); }
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card h4 {
+    margin: 0 0 8px; font-size: 13px; font-weight: 600;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .kpi { font-size: 28px; font-weight: 700; margin: 4px 0; }
+  .kpi.sm { font-size: 20px; }
+  .kpi-sub { font-size: 11px; color: var(--muted); }
+  .kpi-aimee { color: var(--aimee); }
+  .kpi-lais { color: var(--lais); }
+  .kpi-crit { color: var(--crit); }
+  .kpi-warn { color: var(--warn); }
+  .kpi-ok { color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td {
+    text-align: left; padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--panel-2); color: var(--muted);
+    font-weight: 600; text-transform: uppercase; font-size: 10px;
+    letter-spacing: 0.5px; position: sticky; top: 0;
+  }
+  tr:hover td { background: rgba(124, 156, 255, 0.04); }
+  .tag {
+    display: inline-block; padding: 2px 7px;
+    border-radius: 10px; font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.3px;
+    border: 1px solid;
+  }
+  .tag-aimee { color: var(--aimee); border-color: rgba(74, 222, 128, 0.4); background: rgba(74, 222, 128, 0.08); }
+  .tag-lais { color: var(--lais); border-color: rgba(244, 114, 182, 0.4); background: rgba(244, 114, 182, 0.08); }
+  .tag-simetrica { color: var(--info); border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08); }
+  .tag-assimetrica { color: var(--muted); border-color: var(--border); background: var(--panel-2); }
+  .tag-crit { color: #fff; background: var(--crit); border-color: var(--crit); }
+  .tag-warn { color: #000; background: var(--warn); border-color: var(--warn); }
+  .tag-ok { color: #000; background: var(--ok); border-color: var(--ok); }
+  .tag-verificada { color: var(--aimee); border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.05); }
+  .tag-nao { color: var(--warn); border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.05); }
+  .bar {
+    height: 6px; border-radius: 3px; background: var(--panel-2);
+    overflow: hidden; margin-top: 6px;
+  }
+  .bar-fill { height: 100%; background: var(--accent); }
+  .bench-id {
+    font-family: 'SF Mono', Menlo, monospace; font-size: 11px;
+    color: var(--muted); white-space: nowrap;
+  }
+  .code { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; color: var(--muted); }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; font-size: 11px; color: var(--muted); }
+  .legend span::before {
+    content: "■"; margin-right: 4px;
+  }
+  .swot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 800px) { .swot-grid { grid-template-columns: 1fr; } }
+  .swot-grid .card { padding: 12px; }
+  .swot-grid ul { margin: 0; padding-left: 0; list-style: none; font-size: 12px; }
+  .swot-grid li { padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .swot-grid li:last-child { border-bottom: none; }
+  .dim-row { display: grid; grid-template-columns: 220px 1fr 1fr auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .dim-row:last-child { border-bottom: none; }
+  .dim-name { font-weight: 600; font-size: 12px; }
+  .bar-dual { display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: var(--panel-2); }
+  .bar-dual > div { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #000; }
+  .risk-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .risk-row:last-child { border-bottom: none; }
+  .risk-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  details { background: var(--panel-2); border-radius: 6px; padding: 8px 12px; margin-top: 8px; }
+  details summary { cursor: pointer; font-size: 12px; color: var(--muted); font-weight: 600; }
+  details[open] summary { margin-bottom: 8px; color: var(--text); }
+  .postura { background: linear-gradient(135deg, rgba(124, 156, 255, 0.1), rgba(244, 114, 182, 0.1)); border: 1px solid var(--border); padding: 20px; border-radius: 10px; font-size: 14px; line-height: 1.7; }
+  .rice-bar { background: var(--panel-2); height: 22px; border-radius: 4px; overflow: hidden; position: relative; }
+  .rice-bar-fill { height: 100%; background: linear-gradient(90deg, var(--info), var(--accent)); }
+  .rice-bar-label { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Síntese Estratégica Aimee × Lais — v1.0</h1>
+  <div class="meta">Artefato de decisão de roadmap · 2026-04-22 · Ian Veras · Commit AIMEE df7b437 · Fontes: LAIS.v1.0 (black-box) + AIMEE.v1.0 (white-box) + Dossiê Helena + Análise Comparativa</div>
+</header>
+
+<nav>
+  <a href="#sumario">1. Sumário</a>
+  <a href="#metodo">2. Paridade epistêmica</a>
+  <a href="#matriz">3. Matriz</a>
+  <a href="#swot">4. SWOT</a>
+  <a href="#assimetrias">5. Assimetrias</a>
+  <a href="#diferenciais">6. Diferenciais</a>
+  <a href="#dimensoes">7. Dimensões</a>
+  <a href="#debito">8. Débito técnico</a>
+  <a href="#backlog">9. Backlog RICE</a>
+  <a href="#riscos">10. Riscos</a>
+  <a href="#rejeicoes">11. Rejeições</a>
+  <a href="#postura">13. Postura</a>
+</nav>
+
+<main>
+
+<!-- HERO KPIs -->
+<section>
+  <div class="grid grid-4">
+    <div class="card"><h4>Paridades verificadas</h4><div class="kpi kpi-ok">7</div><div class="kpi-sub">BENCH.P-01..07</div></div>
+    <div class="card"><h4>Diferenciais Aimee</h4><div class="kpi kpi-aimee">7</div><div class="kpi-sub">BENCH.D.A-01..07</div></div>
+    <div class="card"><h4>Diferenciais Lais</h4><div class="kpi kpi-lais">5</div><div class="kpi-sub">BENCH.D.L-01..05</div></div>
+    <div class="card"><h4>Assimetrias puras</h4><div class="kpi" style="color:var(--muted)">10</div><div class="kpi-sub">BENCH.E-01..10</div></div>
+    <div class="card"><h4>Forças Aimee</h4><div class="kpi sm kpi-aimee">8</div><div class="kpi-sub">S.A-01..08</div></div>
+    <div class="card"><h4>Fraquezas Aimee</h4><div class="kpi sm kpi-crit">10</div><div class="kpi-sub">W.A-01..10 (2 críticas)</div></div>
+    <div class="card"><h4>Forças Lais</h4><div class="kpi sm kpi-lais">6</div><div class="kpi-sub">S.L-01..06</div></div>
+    <div class="card"><h4>Fraquezas Lais</h4><div class="kpi sm" style="color:var(--warn)">6</div><div class="kpi-sub">W.L-01..06</div></div>
+    <div class="card"><h4>Oportunidades</h4><div class="kpi kpi-warn">14</div><div class="kpi-sub">Top RICE = 95 (O-14)</div></div>
+    <div class="card"><h4>Riscos estratégicos</h4><div class="kpi kpi-crit">6</div><div class="kpi-sub">1 crítico (LGPD)</div></div>
+    <div class="card"><h4>Deadline cutover</h4><div class="kpi kpi-warn">07/05</div><div class="kpi-sub">Canal Pro ZAP — Smolka</div></div>
+    <div class="card"><h4>Hotspot #1</h4><div class="kpi sm">61 commits</div><div class="kpi-sub">ai-agent/index.ts / 3mo</div></div>
+  </div>
+</section>
+
+<!-- 1. SUMÁRIO -->
+<section id="sumario">
+  <h2>1. Sumário Executivo</h2>
+  <div class="card">
+    <ul style="margin:0; padding-left:20px; line-height:1.8;">
+      <li>Paridade real > paridade aparente quando se controla pela assimetria epistêmica. <span class="bench-id">§2 · §5</span></li>
+      <li>Aimee puxa em pipeline operacional (Kanban, Tickets, AI Lab, multi-agente, realtime+áudio); Lais puxa em <b>Visitas</b> (M-04) e <b>Captação</b> (M-08). <span class="bench-id">§6 · O-01 · O-02</span></li>
+      <li>Drift Identity/Memory/Soul/Governance é o mais relevante — não existe como camadas no código. <span class="bench-id">Q-001 · O-08</span></li>
+      <li>PII em <code>ai_traces</code> (30.7k rows) é risco estratégico #1. <span class="bench-id">Q-008 · R-01 · O-03</span></li>
+      <li>Mocks de billing/metrics bloqueiam comercialização. <span class="bench-id">Q-011 · O-05</span></li>
+      <li>Modelo de acesso por código único da Lais é arquiteturalmente primitivo — Aimee já supera. <span class="bench-id">D.A-01 · §11</span></li>
+    </ul>
+    <div class="postura" style="margin-top:16px;">
+      <b>Postura recomendada:</b> <i>diferenciar em governança e operação multi-agente, parear em Visitas e Captação, rejeitar o modelo de acesso por código e a UI monolítica Bubble.</i>
+    </div>
+  </div>
+</section>
+
+<!-- 2. METODOLOGIA -->
+<section id="metodo">
+  <h2>2. Nota Metodológica de Paridade Epistêmica</h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h4 class="kpi-lais">LAIS.v1.0 — black-box</h4>
+      <p style="margin:0; font-size:12px;">a11y-tree + text-walker em 12 rotas autenticadas. <b>Zero screenshots, zero código, zero prompts, zero schema, zero logs.</b> Bubble.io sem <code>aria-*</code> em 5+ rotas (M-02, M-04, M-08, M-09, parcial M-07) → conteúdo inobservável. O que parece polido pode esconder débito equivalente.</p>
+    </div>
+    <div class="card">
+      <h4 class="kpi-aimee">AIMEE.v1.0 — white-box</h4>
+      <p style="margin:0; font-size:12px;">Código completo, 64 migrations, 43 edge functions, 22 prompt builders, 45 tabelas, 30.7k traces, churn, drift arquitetural, 13 débitos catalogados. <b>Viés pessimista por natureza</b> — vemos as cicatrizes da Aimee, não as da Lais.</p>
+    </div>
+  </div>
+  <div class="card" style="margin-top:12px; border-left: 3px solid var(--warn);">
+    <b>Regra de leitura:</b> toda célula de SWOT/diferenciais carrega marcador
+    <span class="tag tag-verificada">verificada</span>
+    <span class="tag tag-nao">não-verificada</span>
+    <span class="tag tag-assimetrica">assimétrica</span>.
+    Sem marcador, a célula é inválida. Afirmações não-verificáveis vão para §5 (Assimetrias), <b>não</b> para §4.
+  </div>
+</section>
+
+<!-- 3. MATRIZ -->
+<section id="matriz">
+  <h2>3. Matriz de Paridade (25 capacidades)</h2>
+  <div class="legend">
+    <span class="tag tag-simetrica">simétrica</span>
+    <span class="tag tag-aimee">dif-A verificado</span>
+    <span class="tag tag-lais">dif-L verificado</span>
+    <span class="tag tag-assimetrica">assimétrica</span>
+  </div>
+  <div class="card" style="padding:0; overflow:hidden;">
+  <table>
+    <thead><tr><th>#</th><th>Capacidade</th><th>Aimee</th><th>Lais</th><th>Categoria</th><th>BENCH</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Dashboard KPIs tenant</td><td class="code">R-01.01, R-01.22</td><td class="code">M-01</td><td><span class="tag tag-simetrica">simétrica</span></td><td class="bench-id">P-01</td></tr>
+      <tr><td>2</td><td>Inbox WA × lead</td><td class="code">R-01.02/03</td><td class="code">M-02</td><td><span class="tag tag-simetrica">simétrica</span></td><td class="bench-id">P-02</td></tr>
+      <tr><td>3</td><td>Tabela de leads</td><td class="code">R-01.05</td><td class="code">M-03</td><td><span class="tag tag-simetrica">simétrica</span></td><td class="bench-id">P-03</td></tr>
+      <tr><td>4</td><td>Relatórios analíticos</td><td class="code">R-01.10</td><td class="code">M-05</td><td><span class="tag tag-simetrica">simétrica</span></td><td class="bench-id">P-04</td></tr>
+      <tr><td>5</td><td>Empreendimentos</td><td class="code">R-01.12..14, T-041 (0)</td><td class="code">M-06 (empty)</td><td><span class="tag tag-simetrica">simétrica</span></td><td class="bench-id">P-05</td></tr>
+      <tr><td>6</td><td>Atualização (IA × proprietário)</td><td class="code">R-01.18 Sprint 6.2</td><td class="code">M-07</td><td><span class="tag tag-simetrica">simétrica</span></td><td class="bench-id">P-06</td></tr>
+      <tr><td>7</td><td><b>Captação</b> (IA detecta imóvel 3º)</td><td>—</td><td class="code">M-08, F-025</td><td><span class="tag tag-lais">dif-L</span></td><td class="bench-id">D.L-01</td></tr>
+      <tr><td>8</td><td><b>Visitas</b> (agendamento)</td><td>pré-agend. via tool, sem módulo</td><td class="code">M-04 [NOVO]</td><td><span class="tag tag-lais">dif-L</span></td><td class="bench-id">D.L-02</td></tr>
+      <tr><td>9</td><td>Config do agente</td><td class="code">R-01.15, T-021..025</td><td class="code">M-09 (opaco)</td><td><span class="tag tag-assimetrica">assim.</span></td><td class="bench-id">E-01</td></tr>
+      <tr><td>10</td><td>Billing do tenant</td><td class="code">R-01.19 MOCK</td><td class="code">M-10 vivo</td><td><span class="tag tag-lais">dif-L</span></td><td class="bench-id">D.L-03</td></tr>
+      <tr><td>11</td><td>Gestão de acessos</td><td>roles granulares (4)</td><td>código compartilhado único</td><td><span class="tag tag-aimee">dif-A</span></td><td class="bench-id">D.A-01</td></tr>
+      <tr><td>12</td><td>Onboarding in-app</td><td class="code">R-01.26</td><td class="code">M-12</td><td><span class="tag tag-simetrica">simétrica</span></td><td class="bench-id">P-07</td></tr>
+      <tr><td>13</td><td><b>Pipeline Kanban</b></td><td class="code">R-01.06 (7 col)</td><td>—</td><td><span class="tag tag-aimee">dif-A</span></td><td class="bench-id">D.A-02</td></tr>
+      <tr><td>14</td><td>Campanhas massa</td><td>módulo T-050..053</td><td>botão "Programar Remarketing"</td><td><span class="tag tag-assimetrica">assim.</span></td><td class="bench-id">E-02</td></tr>
+      <tr><td>15</td><td><b>Tickets/setor admin</b></td><td class="code">T-060..064</td><td>—</td><td><span class="tag tag-aimee">dif-A</span></td><td class="bench-id">D.A-03</td></tr>
+      <tr><td>16</td><td><b>AI Lab</b></td><td class="code">R-03.01..06</td><td>—</td><td><span class="tag tag-aimee">dif-A</span></td><td class="bench-id">D.A-04</td></tr>
+      <tr><td>17</td><td><b>Multi-agente federado</b></td><td>4 domain agents</td><td>comportamento unificado</td><td><span class="tag tag-aimee">dif-A</span></td><td class="bench-id">D.A-05</td></tr>
+      <tr><td>18</td><td>Kill-switch IA</td><td class="code">is_ai_active</td><td>n/ observado</td><td><span class="tag tag-assimetrica">assim.</span></td><td class="bench-id">E-03</td></tr>
+      <tr><td>19</td><td>DNC/opt-out</td><td class="code">R-01.24, M-23</td><td>n/ observado</td><td><span class="tag tag-assimetrica">assim.</span></td><td class="bench-id">E-04</td></tr>
+      <tr><td>20</td><td>Realtime+áudio+TTS</td><td class="code">I-006, H-009</td><td>n/ observado</td><td><span class="tag tag-assimetrica">assim.</span></td><td class="bench-id">E-05</td></tr>
+      <tr><td>21</td><td>Multilingual</td><td class="code">PR-012</td><td>n/ observado</td><td><span class="tag tag-assimetrica">assim.</span></td><td class="bench-id">E-06</td></tr>
+      <tr><td>22</td><td><b>Espelho CRM cliente</b></td><td class="code">R-01.11 C2S delta 1min</td><td>coluna "CRM" abstrata</td><td><span class="tag tag-aimee">dif-A</span></td><td class="bench-id">D.A-06</td></tr>
+      <tr><td>23</td><td>Modelo de permissões</td><td>super_admin/admin/op/viewer</td><td>código compartilhado</td><td><span class="tag tag-aimee">dif-A</span></td><td class="bench-id">D.A-01</td></tr>
+      <tr><td>24</td><td>Suporte in-app</td><td>—</td><td class="code">I-001 Intercom</td><td><span class="tag tag-lais">dif-L</span></td><td class="bench-id">D.L-04</td></tr>
+      <tr><td>25</td><td>Runtime UI</td><td>custom React+Vite</td><td class="code">Bubble.io</td><td><span class="tag tag-aimee">dif-A estr.</span></td><td class="bench-id">D.A-07</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- 4. SWOT -->
+<section id="swot">
+  <h2>4. SWOT Ancorado</h2>
+  <div class="swot-grid">
+    <div class="card" style="border-top: 3px solid var(--aimee);">
+      <h3 style="color:var(--aimee); margin-top:0;">4.1 Forças Aimee (S.A)</h3>
+      <ul>
+        <li><b>S.A-01</b> Multi-agente federado (contrato AgentModule) <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.A-02</b> Roles granulares + vínculo corretor <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.A-03</b> AI Lab operacional (6 sub-rotas) <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.A-04</b> Pipeline Kanban 7 colunas <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.A-05</b> ai_traces 30.7k linhas <span class="tag tag-nao">não-verif.</span></li>
+        <li><b>S.A-06</b> Realtime+áudio+TTS+multilingual <span class="tag tag-nao">não-verif.</span></li>
+        <li><b>S.A-07</b> Espelho C2S delta 1min <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.A-08</b> Tickets/setor admin locação <span class="tag tag-verificada">verif.</span></li>
+      </ul>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--lais);">
+      <h3 style="color:var(--lais); margin-top:0;">4.2 Forças Lais (S.L)</h3>
+      <ul>
+        <li><b>S.L-01</b> Módulo Visitas + quota anual <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.L-02</b> Captação (pipeline inverso) <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.L-03</b> Billing vivo (boleto, plano, histórico) <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.L-04</b> Funil granular "Status por canal" <span class="tag tag-verificada">verif.</span></li>
+        <li><b>S.L-05</b> Trilha de vídeos in-app polida <span class="tag tag-nao">não-verif.</span></li>
+        <li><b>S.L-06</b> Carousel editorial Lastro <span class="tag tag-nao">não-verif.</span></li>
+      </ul>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--crit);">
+      <h3 style="color:var(--crit); margin-top:0;">4.3 Fraquezas Aimee (W.A)</h3>
+      <ul>
+        <li><b>W.A-01</b> Drift Identity/Memory/Soul <span class="tag tag-assimetrica">assim.</span> <span class="tag tag-crit">alta</span></li>
+        <li><b>W.A-02</b> PII não-mascarada em ai_traces <span class="tag tag-crit">CRÍTICA LGPD</span></li>
+        <li><b>W.A-03</b> lead_qualification com 2 rows <span class="tag tag-crit">alta</span></li>
+        <li><b>W.A-04</b> Orquestrador monolítico 1.3k LOC / 61 commits <span class="tag tag-assimetrica">assim.</span></li>
+        <li><b>W.A-05</b> /financeiro /billing /metrics MOCK <span class="tag tag-verificada">verif.</span> <span class="tag tag-crit">alta</span></li>
+        <li><b>W.A-06</b> Sem módulo Visitas <span class="tag tag-verificada">verif.</span></li>
+        <li><b>W.A-07</b> Sem módulo Captação <span class="tag tag-verificada">verif.</span></li>
+        <li><b>W.A-08</b> 43 edge functions JWT off <span class="tag tag-assimetrica">assim.</span></li>
+        <li><b>W.A-09</b> Zero testes em prompts/qualification (core) <span class="tag tag-assimetrica">assim.</span></li>
+        <li><b>W.A-10</b> 7 tabelas 0 rows + legacy prompts <span class="tag tag-assimetrica">assim.</span></li>
+      </ul>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--warn);">
+      <h3 style="color:var(--warn); margin-top:0;">4.4 Fraquezas Lais (W.L)</h3>
+      <ul>
+        <li><b>W.L-01</b> Acesso por código único (primitivo) <span class="tag tag-verificada">verif.</span></li>
+        <li><b>W.L-02</b> Bubble.io sem aria-* em 5+ rotas <span class="tag tag-verificada">verif.</span></li>
+        <li><b>W.L-03</b> /relatorio-v2 sugere deprecação de v1 <span class="tag tag-nao">não-verif.</span></li>
+        <li><b>W.L-04</b> Erro "houveram" em UI oficial <span class="tag tag-verificada">verif.</span></li>
+        <li><b>W.L-05</b> Quota 112% sem UI de upgrade <span class="tag tag-nao">não-verif.</span></li>
+        <li><b>W.L-06</b> "Exibindo 0 / Exibindo 1 de" (regressão paginação) <span class="tag tag-verificada">verif.</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 5. ASSIMETRIAS -->
+<section id="assimetrias">
+  <h2>5. Assimetrias Epistêmicas Puras</h2>
+  <div class="card" style="border-left: 3px solid var(--muted);">
+    <p style="margin:0 0 12px; font-size:12px; color:var(--muted);">Itens que <b>parecem</b> diferenciais mas são apenas ausência de verificação. <b>Não contam como SWOT.</b></p>
+    <table>
+      <thead><tr><th>ID</th><th>Item</th><th>Observação</th></tr></thead>
+      <tbody>
+        <tr><td class="bench-id">E-01</td><td>Shape completo /configs Lais</td><td>Lais tem só 3 cards preview visíveis; conteúdo interno fora do a11y</td></tr>
+        <tr><td class="bench-id">E-02</td><td>Profundidade de Campanhas Lais</td><td>Aimee: módulo T-050..053. Lais: botão sem shape visível</td></tr>
+        <tr><td class="bench-id">E-03</td><td>Kill-switch IA na Lais</td><td>Pode ter mecanismo invisível na UI</td></tr>
+        <tr><td class="bench-id">E-04</td><td>DNC/opt-out na Lais</td><td>Não observado; deveria ter por LGPD</td></tr>
+        <tr><td class="bench-id">E-05</td><td>Realtime/áudio/TTS na Lais</td><td>Não observável (Bubble + fora do a11y)</td></tr>
+        <tr><td class="bench-id">E-06</td><td>Multilingual na Lais</td><td>Idem</td></tr>
+        <tr><td class="bench-id">E-07</td><td>Débito técnico catalogado</td><td>Só Aimee tem (por ser white-box) — <b>não é vantagem Lais</b></td></tr>
+        <tr><td class="bench-id">E-08</td><td>CRM nomeado</td><td>Aimee: C2S+Vista. Lais: coluna abstrata</td></tr>
+        <tr><td class="bench-id">E-09</td><td>Observabilidade server-side</td><td>Aimee: ai_traces. Lais: Hotjar (UI, não agente)</td></tr>
+        <tr><td class="bench-id">E-10</td><td>Painel superadmin cross-tenant Lais</td><td>Presumido em subdomínio interno (LAIS.X-001)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 6. DIFERENCIAIS -->
+<section id="diferenciais">
+  <h2>6. Diferenciais Estruturais Verificados</h2>
+  <div class="grid grid-2">
+    <div class="card" style="border-top: 3px solid var(--aimee);">
+      <h3 style="color:var(--aimee); margin-top:0;">6.1 Aimee (D.A) — 7 itens</h3>
+      <table>
+        <tbody>
+          <tr><td class="bench-id">D.A-01</td><td>Acesso por roles + vínculo corretor</td></tr>
+          <tr><td class="bench-id">D.A-02</td><td>Pipeline Kanban 7 colunas</td></tr>
+          <tr><td class="bench-id">D.A-03</td><td>Tickets/setor admin locação</td></tr>
+          <tr><td class="bench-id">D.A-04</td><td>AI Lab (6 sub-rotas)</td></tr>
+          <tr><td class="bench-id">D.A-05</td><td>Multi-agente federado por dept</td></tr>
+          <tr><td class="bench-id">D.A-06</td><td>Espelho C2S delta-sync 1min</td></tr>
+          <tr><td class="bench-id">D.A-07</td><td>Stack custom vs. no-code (↑ manutenib.)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--lais);">
+      <h3 style="color:var(--lais); margin-top:0;">6.2 Lais (D.L) — 5 itens</h3>
+      <table>
+        <tbody>
+          <tr><td class="bench-id">D.L-01</td><td><b>Captação</b> — IA detecta imóvel de 3º em conversa</td></tr>
+          <tr><td class="bench-id">D.L-02</td><td><b>Visitas</b> — módulo dedicado + quota anual</td></tr>
+          <tr><td class="bench-id">D.L-03</td><td><b>Billing vivo</b> — boleto + plano + histórico</td></tr>
+          <tr><td class="bench-id">D.L-04</td><td>Intercom embutido</td></tr>
+          <tr><td class="bench-id">D.L-05</td><td>Funil granular "Status por canal"</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 7. DIMENSÕES -->
+<section id="dimensoes">
+  <h2>7. Análise por Dimensão Estratégica</h2>
+  <div class="card">
+    <div class="legend"><span style="color:var(--aimee)">Aimee</span><span style="color:var(--lais)">Lais</span></div>
+    <!-- Dim rows: visual heuristic split -->
+    <div class="dim-row"><div class="dim-name">1. Exp. operador</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:55%">55%</div><div style="background:var(--lais); width:45%">45%</div></div>
+      <div></div>
+      <div class="bench-id">Empate tático · D.A-02/03/04 × D.L-04/S.L-05</div></div>
+    <div class="dim-row"><div class="dim-name">2. Exp. do lead</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:45%">45%</div><div style="background:var(--lais); width:55%">55%</div></div>
+      <div></div>
+      <div class="bench-id">Captação + Visitas puxam Lais · D.L-01/02</div></div>
+    <div class="dim-row"><div class="dim-name">3. Arq. agente</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:65%">65%</div><div style="background:var(--lais); width:35%">35%</div></div>
+      <div></div>
+      <div class="bench-id">Vantagem Aimee mas com drift W.A-01</div></div>
+    <div class="dim-row"><div class="dim-name">4. Governança/LGPD</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:50%">50%</div><div style="background:var(--lais); width:50%">50%</div></div>
+      <div></div>
+      <div class="bench-id">Aimee ganha em roles, perde em PII (W.A-02)</div></div>
+    <div class="dim-row"><div class="dim-name">5. Observabilidade</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:75%">75%</div><div style="background:var(--lais); width:25%">25%</div></div>
+      <div></div>
+      <div class="bench-id">Vantagem clara Aimee · AI Lab + traces</div></div>
+    <div class="dim-row"><div class="dim-name">6. Integrações</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:55%">55%</div><div style="background:var(--lais); width:45%">45%</div></div>
+      <div></div>
+      <div class="bench-id">Aimee profunda C2S/Vista; Lais escala abstração</div></div>
+    <div class="dim-row"><div class="dim-name">7. Multi-tenant</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:70%">70%</div><div style="background:var(--lais); width:30%">30%</div></div>
+      <div></div>
+      <div class="bench-id">Roles + RLS vs. código único</div></div>
+    <div class="dim-row"><div class="dim-name">8. Manutenibilidade</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:60%">60%</div><div style="background:var(--lais); width:40%">40%</div></div>
+      <div></div>
+      <div class="bench-id">Custom vs. Bubble · assimétrico por natureza</div></div>
+    <div class="dim-row"><div class="dim-name">9. Modelo de dados</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:60%">60%</div><div style="background:var(--lais); width:40%">40%</div></div>
+      <div></div>
+      <div class="bench-id">45 tab. RLS + embeddings · Lais inobservável</div></div>
+    <div class="dim-row"><div class="dim-name">10. Postura de produto</div>
+      <div class="bar-dual"><div style="background:var(--aimee); width:55%">55%</div><div style="background:var(--lais); width:45%">45%</div></div>
+      <div></div>
+      <div class="bench-id">Aimee recua via kill-switch/DNC · Lais n/obs.</div></div>
+  </div>
+</section>
+
+<!-- 8. DÉBITO -->
+<section id="debito">
+  <h2>8. Drift Arquitetural e Débito Técnico (lado Aimee)</h2>
+  <div class="card" style="border-left: 3px solid var(--warn);">
+    <p style="margin:0 0 12px; font-size:12px; color:var(--muted);"><b>Assimetria por natureza</b> — débito equivalente na Lais não é observável. Não leia esta seção como vantagem competitiva da Lais.</p>
+    <table>
+      <thead><tr><th>Prio</th><th>ID</th><th>Descrição</th><th>Severidade</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td class="bench-id">Q-008</td><td>PII em ai_traces (LGPD) — bloqueia enterprise</td><td><span class="tag tag-crit">crítica</span></td></tr>
+        <tr><td>2</td><td class="bench-id">Q-003</td><td>lead_qualification vazia — invalida cognição</td><td><span class="tag tag-crit">alta</span></td></tr>
+        <tr><td>3</td><td class="bench-id">Q-001</td><td>Drift Identity/Memory/Soul — decisão de produto</td><td><span class="tag tag-crit">alta</span></td></tr>
+        <tr><td>4</td><td class="bench-id">H-001/H-002</td><td>Orquestrador + tool-executors monolíticos</td><td><span class="tag tag-warn">média-alta</span></td></tr>
+        <tr><td>5</td><td class="bench-id">Q-011</td><td>Mocks billing/metrics — bloqueia comercialização</td><td><span class="tag tag-warn">alta</span></td></tr>
+        <tr><td>6</td><td class="bench-id">Q-013</td><td>JWT off em 43 functions — compensar com rate-limit</td><td><span class="tag tag-warn">média</span></td></tr>
+        <tr><td>7</td><td class="bench-id">Q-004/Q-009</td><td>Código morto candidato (legacy prompts + property-followup)</td><td><span class="tag">baixa</span></td></tr>
+        <tr><td>8</td><td class="bench-id">Q-010</td><td>7 tabelas com 0 rows (slots não realizados)</td><td><span class="tag">baixa</span></td></tr>
+        <tr><td>9</td><td class="bench-id">Q-002</td><td>3 env vars Google AI redundantes</td><td><span class="tag">trivial</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 9. BACKLOG -->
+<section id="backlog">
+  <h2>9. Backlog Priorizado (RICE)</h2>
+  <div class="legend"><span style="color:var(--muted)">R × I × Conf / Effort em dias</span></div>
+  <div class="card" style="padding:0; overflow:hidden;">
+  <table>
+    <thead><tr><th>ID</th><th>Oportunidade</th><th>Camada</th><th>R</th><th>I</th><th>Conf</th><th>Ef.</th><th>RICE</th><th>Justificativa</th></tr></thead>
+    <tbody>
+      <tr><td class="bench-id">O-14</td><td>Desligar flag legacy + deletar buildLegacy*Prompt</td><td class="code">A-03</td><td>100%</td><td>1</td><td>95%</td><td>1</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:100%"></div><div class="rice-bar-label">95.0</div></div></td>
+        <td>Higiene · W.A-10</td></tr>
+      <tr><td class="bench-id">O-04</td><td>Persistência real de lead_qualification</td><td class="code">A-02</td><td>100%</td><td>3</td><td>80%</td><td>3</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:84%"></div><div class="rice-bar-label">80.0</div></div></td>
+        <td>W.A-03 · Q-003 reforço Sprint 3</td></tr>
+      <tr><td class="bench-id">O-03</td><td><b>Mascarar PII em ai_traces + backfill</b></td><td class="code">A-04 + A-02</td><td>100%</td><td>3</td><td>90%</td><td>5</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:57%"></div><div class="rice-bar-label">54.0</div></div></td>
+        <td><span class="tag tag-crit">LGPD</span> Q-008</td></tr>
+      <tr><td class="bench-id">O-13</td><td>Carousel destaques/changelog no dashboard</td><td>UI</td><td>100%</td><td>1</td><td>90%</td><td>2</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:47%"></div><div class="rice-bar-label">45.0</div></div></td>
+        <td>S.L-06 · canal Greattings↔cliente</td></tr>
+      <tr><td class="bench-id">O-06</td><td>Rate-limit + validação de origem em edge</td><td class="code">A-04</td><td>100%</td><td>2</td><td>90%</td><td>4</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:47%"></div><div class="rice-bar-label">45.0</div></div></td>
+        <td>W.A-08 · compensa JWT off</td></tr>
+      <tr><td class="bench-id">O-12</td><td>Testes em prompts.ts + qualification.ts</td><td class="code">A-03 + A-02</td><td>100%</td><td>2</td><td>85%</td><td>6</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:30%"></div><div class="rice-bar-label">28.3</div></div></td>
+        <td>W.A-09 · core cognitivo</td></tr>
+      <tr><td class="bench-id">O-01</td><td><b>Módulo Visitas (pré-cutover)</b></td><td class="code">A-05 + A-03</td><td>100%</td><td>3</td><td>80%</td><td>10</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:25%"></div><div class="rice-bar-label">24.0</div></div></td>
+        <td>D.L-02 · deadline 07/05</td></tr>
+      <tr><td class="bench-id">O-11</td><td>Suporte in-app (Intercom ou equiv.)</td><td>UI + I-###</td><td>100%</td><td>1</td><td>85%</td><td>4</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:22%"></div><div class="rice-bar-label">21.3</div></div></td>
+        <td>D.L-04</td></tr>
+      <tr><td class="bench-id">O-10</td><td>Breakdown "Status por canal" no dashboard</td><td>A-05 + UI</td><td>70%</td><td>1</td><td>90%</td><td>3</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:22%"></div><div class="rice-bar-label">21.0</div></div></td>
+        <td>D.L-05 · paridade diagnóstico</td></tr>
+      <tr><td class="bench-id">O-07</td><td>Extrair context-loader/trace/dispatch de ai-agent</td><td class="code">A-05</td><td>100%</td><td>2</td><td>80%</td><td>8</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:21%"></div><div class="rice-bar-label">20.0</div></div></td>
+        <td>W.A-04 · H-001</td></tr>
+      <tr><td class="bench-id">O-02</td><td><b>Módulo Captação</b> (notifications + detecção)</td><td class="code">A-03 + A-05</td><td>100%</td><td>3</td><td>60%</td><td>15</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:13%"></div><div class="rice-bar-label">12.0</div></div></td>
+        <td>D.L-01 · receita direta</td></tr>
+      <tr><td class="bench-id">O-05</td><td>Billing real + desmock /financeiro /billing /metrics</td><td>+ camada</td><td>100%</td><td>3</td><td>70%</td><td>25</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:9%"></div><div class="rice-bar-label">8.4</div></div></td>
+        <td>D.L-03 · bloqueia comercialização</td></tr>
+      <tr><td class="bench-id">O-09</td><td>Memory unificada (TTL + sumarização + embedding conv)</td><td class="code">A-02</td><td>100%</td><td>2</td><td>60%</td><td>20</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:6%"></div><div class="rice-bar-label">6.0</div></div></td>
+        <td>W.A-03 · Q-006</td></tr>
+      <tr><td class="bench-id">O-08</td><td>Decidir: refatorar p/ Identity/Memory/Soul OU reescrever briefing</td><td>todas</td><td>100%</td><td>2</td><td>50%</td><td>?</td>
+        <td><div class="rice-bar"><div class="rice-bar-fill" style="width:5%; background:var(--muted)"></div><div class="rice-bar-label">decisão</div></div></td>
+        <td>W.A-01 · Q-001</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="card" style="margin-top:12px; font-size:12px;">
+    <b>Top 5 por RICE:</b> O-14 · O-04 · O-03 · O-13/O-06 · O-12 &nbsp;&nbsp; | &nbsp;&nbsp;
+    <b>Top 5 por impacto estratégico:</b> O-03 LGPD · O-05 billing · O-01 Visitas · O-04 qualification · O-02 Captação
+  </div>
+</section>
+
+<!-- 10. RISCOS -->
+<section id="riscos">
+  <h2>10. Riscos Estratégicos</h2>
+  <div class="card">
+    <div class="risk-row"><div class="risk-dot" style="background:var(--crit)"></div>
+      <div style="flex:1;"><b>R-01</b> PII em ai_traces (LGPD)</div>
+      <div class="bench-id">Prob 100% · Impacto crítico</div>
+      <div class="bench-id">→ O-03 · dono A-04</div></div>
+    <div class="risk-row"><div class="risk-dot" style="background:var(--crit)"></div>
+      <div style="flex:1;"><b>R-02</b> Drift arquitetural contamina roadmap</div>
+      <div class="bench-id">Prob alta · Impacto alto</div>
+      <div class="bench-id">→ O-08 · dono produto</div></div>
+    <div class="risk-row"><div class="risk-dot" style="background:var(--warn)"></div>
+      <div style="flex:1;"><b>R-03</b> Hotspots H-001/H-002 acumulando churn</div>
+      <div class="bench-id">Prob alta · Impacto alto</div>
+      <div class="bench-id">→ O-07 · dono A-05</div></div>
+    <div class="risk-row"><div class="risk-dot" style="background:var(--warn)"></div>
+      <div style="flex:1;"><b>R-04</b> 43 edge functions com JWT off</div>
+      <div class="bench-id">Prob média · Impacto alto</div>
+      <div class="bench-id">→ O-06 · dono A-04</div></div>
+    <div class="risk-row"><div class="risk-dot" style="background:var(--warn)"></div>
+      <div style="flex:1;"><b>R-05</b> Cutover 07/05 sem módulo Visitas</div>
+      <div class="bench-id">Prob média · Impacto alto</div>
+      <div class="bench-id">→ O-01 · dono A-05</div></div>
+    <div class="risk-row"><div class="risk-dot" style="background:var(--info)"></div>
+      <div style="flex:1;"><b>R-06</b> Gap de Captação afeta narrativa comercial</div>
+      <div class="bench-id">Prob alta · Impacto médio</div>
+      <div class="bench-id">→ O-02 · dono produto</div></div>
+  </div>
+</section>
+
+<!-- 11. REJEIÇÕES -->
+<section id="rejeicoes">
+  <h2>11. Rejeições Deliberadas</h2>
+  <div class="grid grid-2">
+    <div class="card"><h4>🚫 Acesso por código compartilhado</h4><p style="margin:0; font-size:12px;">(LAIS.M-11) Fere A-04 e A-07. Aimee já supera via roles granulares (D.A-01).</p></div>
+    <div class="card"><h4>🚫 Runtime UI no-code (Bubble.io)</h4><p style="margin:0; font-size:12px;">(LAIS.I-011) Teto de manutenibilidade e observabilidade — LAIS.X-002 evidencia o custo.</p></div>
+    <div class="card"><h4>🚫 Configuração do agente como cards soltos</h4><p style="margin:0; font-size:12px;">Aimee já tem contrato explícito (ai_directives/modules/behavior). Aprofundar, não regredir.</p></div>
+    <div class="card"><h4>🚫 Funil linear hardcoded de 3 níveis</h4><p style="margin:0; font-size:12px;">Aimee tem Pipeline Kanban configurável (D.A-02). Não regredir.</p></div>
+  </div>
+</section>
+
+<!-- 13. POSTURA -->
+<section id="postura">
+  <h2>13. Postura Estratégica Recomendada</h2>
+  <div class="postura">
+    <b>Diferenciar</b> em governança (roles, DNC, kill-switch, LGPD pós-O-03), operação multi-agente (A-05 federado + tickets + Kanban) e observabilidade (AI Lab + ai_traces maskados). <b>Parear</b> em Visitas (O-01, inadiável pelo cutover 07/05) e Captação (O-02, narrativa comercial). <b>Rejeitar</b> o modelo de acesso por código, a UI no-code como runtime e o funil linear.
+    <br><br>
+    A tese competitiva é <i>"Aimee é uma Lais com chão estrutural — multi-agente verdadeiro, governança de primeira classe, CRM espelhado, multi-tenant com roles"</i> — mas essa tese só se sustenta publicamente depois que <b>O-03 (PII)</b>, <b>O-04 (qualification)</b> e <b>O-05 (billing)</b> estiverem fechados. <b>Antes disso, o chão é concreto pintado.</b>
+  </div>
+</section>
+
+<footer style="text-align:center; padding:32px; color:var(--muted); font-size:11px; border-top:1px solid var(--border); margin-top:40px;">
+  Síntese v1.0 · Próxima iteração (v1.1) após entrega de O-01/O-03/O-04 e localização física de Dossiê Helena + Análise Comparativa no repo.
+</footer>
+
+</main>
+</body>
+</html>

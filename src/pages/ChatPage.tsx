@@ -808,15 +808,13 @@ const ChatPage: React.FC = () => {
                 <Pause className="h-3.5 w-3.5 mr-1" /> Pausar Aimee
               </Button>
             ) : (
-              <>
-                <Button size="sm" variant="outline" onClick={handleReturnToAI} className="text-xs">
-                  <Bot className="h-3.5 w-3.5 mr-1" /> Devolver AI
-                </Button>
-                <Button size="sm" variant="outline" onClick={openTransferModal} className="text-xs">
-                  <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transferir
-                </Button>
-              </>
+              <Button size="sm" variant="outline" onClick={handleReturnToAI} className="text-xs">
+                <Bot className="h-3.5 w-3.5 mr-1" /> Devolver AI
+              </Button>
             )}
+            <Button size="sm" variant="outline" onClick={openTransferModal} className="text-xs" title="Transferir esta conversa para outro operador">
+              <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transferir
+            </Button>
             <Button
               size="sm"
               variant="outline"

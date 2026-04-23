@@ -639,44 +639,35 @@ const ChatPage: React.FC = () => {
     setSendingToWA(true);
 
     try {
-      // Build wa.me link with the LEAD's phone number
-      const leadPhone = conversation.phone_number.replace(/\D/g, '');
-      const encodedMsg = encodeURIComponent(messageText);
-      const waUrl = `https://wa.me/${leadPhone}?text=${encodedMsg}`;
+      // Resolve broker: prioriza assigned_broker_id da conversa, fallback pro user logado (se ele mesmo é broker)
+      const brokerId = conversation.assigned_broker_id;
 
-      // Pause AI so it doesn't interfere (upsert — ver handleTakeover).
-      const waTakeoverAt = new Date().toISOString();
-      await supabase
-        .from('conversation_states')
-        .upsert({
+      if (!brokerId) {
+        alert('Essa conversa ainda não tem um corretor atribuído. Atribua um antes de encaminhar.');
+        setSendingToWA(false);
+        return;
+      }
+
+      // Chama edge function que faz TUDO server-side: pausa Aimee, marca handoff_mode,
+      // envia handshake ao cliente, loga evento.
+      const { data: result, error: rpcErr } = await supabase.functions.invoke('handoff-to-broker-wa', {
+        body: {
           tenant_id: tenantId,
-          phone_number: conversation.phone_number,
-          is_ai_active: false,
+          conversation_id: id,
+          broker_id: brokerId,
           operator_id: user.id,
-          operator_takeover_at: waTakeoverAt,
-          updated_at: waTakeoverAt,
-        }, { onConflict: 'tenant_id,phone_number' });
-
-      // Log the action
-      const myName = profile?.full_name || 'Operador';
-      await supabase.from('messages').insert({
-        tenant_id: tenantId,
-        conversation_id: id,
-        direction: 'outbound',
-        body: `${myName} continuou o atendimento pelo WhatsApp pessoal`,
-        sender_type: 'system',
-        event_type: 'sent_to_broker_wa',
-        sender_id: user.id,
+        },
       });
 
-      await supabase.from('conversation_events').insert({
-        tenant_id: tenantId,
-        conversation_id: id,
-        event_type: 'operator_joined',
-        actor_id: user.id,
-        metadata: { action: 'sent_to_personal_wa', lead_phone: leadPhone },
-      });
+      if (rpcErr || !result?.success) {
+        console.error('handoff-to-broker-wa failed:', rpcErr || result);
+        alert('Não consegui preparar o encaminhamento. Tenta de novo em alguns segundos.');
+        setSendingToWA(false);
+        return;
+      }
 
+      // Atualiza estado local pra UI refletir imediato
+      const nowIso = new Date().toISOString();
       const myFullName = profile?.full_name || 'Operador';
       setConvState((prev) => ({
         ...(prev || {
@@ -692,15 +683,18 @@ const ChatPage: React.FC = () => {
           last_ai_messages: [],
           last_property_shown_at: null,
           department: null,
-          updated_at: waTakeoverAt,
+          updated_at: nowIso,
         } as ConversationState),
         is_ai_active: false,
         operator_id: user.id,
-        operator_takeover_at: waTakeoverAt,
+        operator_takeover_at: nowIso,
       }));
       setOperatorName(myFullName);
 
-      // Open WhatsApp link in new tab
+      // Abre a aba wa.me do CLIENTE pro corretor mandar a primeira msg do seu número pessoal
+      const leadPhone = (result.client_phone || conversation.phone_number).replace(/\D/g, '');
+      const encodedMsg = encodeURIComponent(messageText);
+      const waUrl = `https://wa.me/${leadPhone}?text=${encodedMsg}`;
       window.open(waUrl, '_blank');
       setShowWADialog(false);
     } catch (error) {
@@ -829,9 +823,10 @@ const ChatPage: React.FC = () => {
               onClick={() => setShowWADialog(true)}
               className="text-xs"
               title="Continuar atendimento no WhatsApp pessoal"
+              disabled={conversation.status === 'forwarded'}
             >
               <Phone className="h-3.5 w-3.5 mr-1" />
-              WhatsApp
+              Atender no meu WhatsApp
             </Button>
             {!isAdminDept && (
               <Button size="sm" variant="outline" onClick={() => setC2sDialogOpen(true)} className="text-xs" title="Encaminhar ao C2S">
@@ -848,6 +843,18 @@ const ChatPage: React.FC = () => {
             </Button>
           </div>
         </div>
+
+        {/* Banner: conversa encaminhada ao WhatsApp pessoal do corretor */}
+        {(conversation.status === 'forwarded' || (convState as any)?.handoff_mode === 'broker_wa_personal') && (
+          <div className="px-4 py-2 bg-warning/10 border-b border-warning/30 text-xs text-warning-foreground flex items-center gap-2">
+            <Phone className="h-3.5 w-3.5 text-warning shrink-0" />
+            <span>
+              Conversa encaminhada ao WhatsApp pessoal do corretor
+              {(convState as any)?.handoff_at ? ` em ${new Date((convState as any).handoff_at).toLocaleString('pt-BR')}` : ''}.
+              O cliente foi avisado. Respostas futuras do cliente aqui não vão reativar a Aimee.
+            </span>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-auto p-4 space-y-1" style={{ background: 'var(--gradient-surface)' }}>

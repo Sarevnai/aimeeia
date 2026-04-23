@@ -4,6 +4,7 @@ import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDepartmentFilter } from '@/contexts/DepartmentFilterContext';
 import { useSessionState } from '@/hooks/useSessionState';
+import { useCurrentBroker } from '@/hooks/useCurrentBroker';
 import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2, MessageSquare, Globe, Phone, Facebook, Home, Tag, ExternalLink } from 'lucide-react';
@@ -53,11 +54,12 @@ const DEPT_COLORS: Record<string, string> = {
   administrativo: 'bg-warning/15 text-warning',
 };
 
-type TabValue = 'all' | 'mine';
+type TabValue = 'all' | 'assigned' | 'mine';
 
 const InboxPage: React.FC = () => {
   const { tenantId } = useTenant();
   const { user } = useAuth();
+  const { broker: currentBroker } = useCurrentBroker();
   const { department } = useDepartmentFilter();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<ConversationWithContact[]>([]);
@@ -134,8 +136,12 @@ const InboxPage: React.FC = () => {
   const filtered = useMemo(() => {
     let result = conversations;
 
-    // Tab filter: "mine" shows only conversations where operator is current user
-    if (tab === 'mine' && user) {
+    // Tab filter
+    if (tab === 'assigned' && currentBroker?.id) {
+      // "Atribuídas a mim": leads cujo assigned_broker_id bate com o broker do user logado
+      result = result.filter((c) => c.assigned_broker_id === currentBroker.id);
+    } else if (tab === 'mine' && user) {
+      // "Assumidas": operator_id bate com o user logado (post-takeover)
       result = result.filter((c) => {
         const state = states[c.phone_number];
         return state?.operator_id === user.id;
@@ -185,6 +191,10 @@ const InboxPage: React.FC = () => {
   };
 
   const totalAll = conversations.length;
+  const totalAssigned = useMemo(() => {
+    if (!currentBroker?.id) return 0;
+    return conversations.filter((c) => c.assigned_broker_id === currentBroker.id).length;
+  }, [conversations, currentBroker?.id]);
   const totalMine = useMemo(() => {
     if (!user) return 0;
     return conversations.filter((c) => {
@@ -215,6 +225,19 @@ const InboxPage: React.FC = () => {
           >
             Todas <span className="text-xs opacity-70">({totalAll})</span>
           </button>
+          {currentBroker?.id && (
+            <button
+              onClick={() => setTab('assigned')}
+              className={cn(
+                'flex-1 text-sm font-medium px-3 py-1.5 rounded-md transition-all',
+                tab === 'assigned'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Atribuídas <span className="text-xs opacity-70">({totalAssigned})</span>
+            </button>
+          )}
           <button
             onClick={() => setTab('mine')}
             className={cn(
@@ -224,7 +247,7 @@ const InboxPage: React.FC = () => {
                 : 'text-muted-foreground hover:text-foreground'
             )}
           >
-            Minhas <span className="text-xs opacity-70">({totalMine})</span>
+            Assumidas <span className="text-xs opacity-70">({totalMine})</span>
           </button>
         </div>
 
@@ -249,7 +272,11 @@ const InboxPage: React.FC = () => {
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 text-sm text-muted-foreground gap-2">
             <MessageSquare className="h-8 w-8 opacity-40" />
-            {tab === 'mine' ? 'Nenhuma conversa atribuída a você' : 'Nenhuma conversa encontrada'}
+            {tab === 'assigned'
+              ? 'Nenhum lead atribuído a você'
+              : tab === 'mine'
+                ? 'Nenhuma conversa assumida por você'
+                : 'Nenhuma conversa encontrada'}
           </div>
         ) : (
           <div className="divide-y divide-border">

@@ -618,7 +618,33 @@ async function processInboundMessage(
     const handoffAgeMin = state?.operator_takeover_at
       ? Math.round((Date.now() - new Date(state.operator_takeover_at).getTime()) / 60_000)
       : null;
-    console.log(`⏸️ AI pausada (operador assumiu há ${handoffAgeMin ?? '?'}min). Mensagem salva, sem invocar ai-agent.`);
+
+    // Se a conversa foi encaminhada pro WhatsApp pessoal do corretor, alerta via sino
+    // quando o cliente responde no número da imobiliária (significa que ele não migrou).
+    if (state?.handoff_mode === 'broker_wa_personal' && state?.handoff_broker_id) {
+      try {
+        const { data: broker } = await supabase
+          .from('brokers')
+          .select('profile_id, full_name')
+          .eq('id', state.handoff_broker_id)
+          .maybeSingle();
+        if (broker?.profile_id) {
+          await supabase.from('notifications').insert({
+            tenant_id: tenant.id,
+            recipient_profile_id: broker.profile_id,
+            type: 'post_handoff_client_reply',
+            title: `Cliente respondeu após o encaminhamento`,
+            body: `O cliente ${params.contactName || phoneNumber} mandou nova mensagem no número da imobiliária mesmo após o handoff pro seu WhatsApp. Pode ser bom responder.`,
+            link: `/chat/${conversation.id}`,
+            metadata: { conversation_id: conversation.id, phone_number: phoneNumber },
+          });
+        }
+      } catch (err) {
+        console.warn('⚠️ post-handoff notify falhou:', err);
+      }
+    }
+
+    console.log(`⏸️ AI pausada (operador assumiu há ${handoffAgeMin ?? '?'}min, mode=${state?.handoff_mode || 'takeover'}). Mensagem salva, sem invocar ai-agent.`);
     return { action: 'ai_paused_operator_took_over' };
   }
 

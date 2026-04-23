@@ -371,8 +371,23 @@ serve(async (req: Request) => {
     }
 
     // Extract qualification from current message (skip for admin)
-    const extracted = effectiveDepartment === 'administrativo' ? {} : extractQualificationFromText(message_body, isReturningLead ? {} : qualData, regions);
+    // Pega a última mensagem da IA para contexto do detector (ex: "quantos quartos?" → "2 ou mais" vira bedrooms)
+    const lastAiMsg = (state?.last_ai_messages && Array.isArray(state.last_ai_messages) && state.last_ai_messages.length > 0)
+      ? String(state.last_ai_messages[state.last_ai_messages.length - 1] || '')
+      : null;
+    const extracted = effectiveDepartment === 'administrativo'
+      ? {}
+      : extractQualificationFromText(message_body, isReturningLead ? {} : qualData, regions, lastAiMsg);
     const mergedQual = isReturningLead ? mergeQualificationData({}, extracted) : mergeQualificationData(qualData, extracted);
+
+    // Diagnostic: sempre loga o que extraiu (ou não) desta mensagem. Facilita debug
+    // quando lead_qualification não popula (ex: bugs no detector, msg sem keywords).
+    const extractedKeys = Object.keys(extracted).filter(k => k !== 'field_sources' && (extracted as any)[k] !== undefined);
+    if (extractedKeys.length > 0) {
+      console.log(`🔍 Extract "${message_body.slice(0, 60)}" → ${extractedKeys.map(k => `${k}=${JSON.stringify((extracted as any)[k])}`).join(', ')}`);
+    } else {
+      console.log(`🔍 Extract "${message_body.slice(0, 60)}" → {} (nenhum slot detectado)`);
+    }
 
     if (Object.keys(extracted).length > 0) {
       await saveQualificationData(supabase, tenant_id, phone_number, contact_id, mergedQual);

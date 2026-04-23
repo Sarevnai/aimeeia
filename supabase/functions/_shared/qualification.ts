@@ -56,7 +56,8 @@ export function getNextQualificationQuestion(
 export function extractQualificationFromText(
   text: string,
   currentData: QualificationData | null,
-  regions: Array<{ region_name: string; neighborhoods: string[] }>
+  regions: Array<{ region_name: string; neighborhoods: string[] }>,
+  lastAiMessage?: string | null
 ): ExtractedQualificationData {
   const lower = text.toLowerCase();
   const extracted: ExtractedQualificationData = {};
@@ -82,7 +83,7 @@ export function extractQualificationFromText(
   }
 
   // Bedrooms detection
-  const bedrooms = detectBedrooms(lower);
+  const bedrooms = detectBedrooms(lower, lastAiMessage);
   if (bedrooms && bedrooms !== currentData?.detected_bedrooms) {
     extracted.detected_bedrooms = bedrooms;
     sources.detected_bedrooms = 'client_explicit';
@@ -118,8 +119,11 @@ export function extractQualificationFromText(
 
 // Detect interest (venda/locação/ambos) from text
 function detectInterest(lower: string): string | null {
-  const hasLocacao = /\b(alug|locar|loca[çc][aã]o|pra\s+alugar|para\s+alugar|quero\s+alugar)\b/i.test(lower);
-  const hasVenda = /\b(comprar|compra|investir|adquirir|pra\s+comprar|para\s+comprar|quero\s+comprar)\b/i.test(lower);
+  // Bugfix: \balug\b não bate em "alugar" (g→a sem word boundary). Usar stems
+  // com \w* cobre alugar, alugando, alugaria, aluguel, alugue, alug, etc.
+  // Mesma lógica pra comprar/investir/adquirir (comprando, compraria, investindo).
+  const hasLocacao = /\b(alug\w*|locar|locaria|loca[çc][aã]o|arrend\w*)\b/i.test(lower);
+  const hasVenda = /\b(compr\w*|investi\w*|adquir\w*)\b/i.test(lower);
 
   // Dual interest: "compra ou locação", "venda e locação", etc.
   if (hasLocacao && hasVenda) return 'ambos';
@@ -437,7 +441,7 @@ function detectPropertyType(lower: string): string | null {
   return null;
 }
 
-function detectBedrooms(lower: string): number | null {
+function detectBedrooms(lower: string, lastAiMessage?: string | null): number | null {
   // Match "3 quartos", "3 dormitórios", "de 3 quartos", "com 3 quartos"
   // Also "3 quartos sendo 2 suítes" — always extract TOTAL bedrooms count
   const match = lower.match(/(?:de\s+|com\s+)?(\d+)\s*(?:quartos?|dormit[oó]rios?|dorms?)/i);
@@ -454,6 +458,18 @@ function detectBedrooms(lower: string): number | null {
   };
   for (const [word, num] of Object.entries(wordMap)) {
     if (new RegExp(`(?:de\\s+|com\\s+)?${word}\\s*(?:quartos?|dormit|su[ií]tes?)`, 'i').test(lower)) return num;
+  }
+
+  // Context-aware: se a última mensagem da IA perguntou sobre quartos/dormitórios
+  // e a resposta é curta + começa com número, trata como contagem de quartos.
+  // Ex: IA pergunta "quantos quartos?" → cliente responde "2 ou mais" / "3" / "pelo menos 2".
+  const aiAskedBedrooms = lastAiMessage && /\b(quartos?|dormit[oó]rios?|dorms?|quantos?\s+quartos?|c[oô]modos?)\b/i.test(lastAiMessage);
+  if (aiAskedBedrooms && lower.length <= 40) {
+    const shortNumMatch = lower.match(/\b(\d+)\s*(?:\+|ou\s*mais|pelo\s*menos|no\s*m[ií]nimo|m[ií]nimo\s*(?:de\s*)?|\s|$)/i);
+    if (shortNumMatch) {
+      const n = parseInt(shortNumMatch[1]);
+      if (n >= 1 && n <= 10) return n;
+    }
   }
 
   return null;

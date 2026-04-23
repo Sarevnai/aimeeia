@@ -771,7 +771,8 @@ export async function executePropertyByCode(
         current_property_index: 0,
         awaiting_property_feedback: true,
         shown_property_ids: shownIds,
-        portal_property_code: null, // Já atendido — não fire a regra de novo
+        // Manter portal_property_code sticky — só limpar quando cliente rejeitar explicitamente o imóvel.
+        // Enquanto o código estiver setado, Aimee só fala desse imóvel (regra no prompt comercial).
         last_property_shown_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
@@ -796,11 +797,25 @@ export async function executePropertyByCode(
     if (!isSimulation) {
       if (formatted.foto_destaque) {
         const imgRes = await sendWhatsAppImage(ctx.phoneNumber, formatted.foto_destaque, captionLines, ctx.tenant);
-        if (!imgRes.success) {
-          await sendWhatsAppMessage(ctx.phoneNumber, captionLines, ctx.tenant);
+        if (imgRes.success) {
+          // Persistir no inbox para o painel renderizar (sem isso, foto vai pro WA mas não aparece no chat do admin)
+          await saveOutboundMessage(
+            ctx.supabase, ctx.tenantId, ctx.conversationId, ctx.phoneNumber,
+            captionLines, imgRes.messageId, 'vendas', 'image', formatted.foto_destaque,
+          );
+        } else {
+          const txt = await sendWhatsAppMessage(ctx.phoneNumber, captionLines, ctx.tenant);
+          await saveOutboundMessage(
+            ctx.supabase, ctx.tenantId, ctx.conversationId, ctx.phoneNumber,
+            captionLines, txt?.messageId, 'vendas',
+          );
         }
       } else {
-        await sendWhatsAppMessage(ctx.phoneNumber, captionLines, ctx.tenant);
+        const txt = await sendWhatsAppMessage(ctx.phoneNumber, captionLines, ctx.tenant);
+        await saveOutboundMessage(
+          ctx.supabase, ctx.tenantId, ctx.conversationId, ctx.phoneNumber,
+          captionLines, txt?.messageId, 'vendas',
+        );
       }
     }
 

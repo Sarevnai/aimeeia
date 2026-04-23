@@ -40,18 +40,26 @@ ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}.`
   if (firstTurnCtx) sections.push(firstTurnCtx);
 
   // Portal lead — imóvel pré-selecionado (Canal Pro ZAP / VivaReal / OLX)
-  // O código do imóvel É a qualificação. Tem que responder SOBRE aquele imóvel antes de qualquer triagem.
-  if (ctx.portalPropertyCode && !ctx.toolsExecuted?.includes('buscar_imovel_por_codigo')) {
+  // O código do imóvel É a qualificação. Enquanto o código estiver setado, Aimee só fala DESSE imóvel.
+  if (ctx.portalPropertyCode) {
+    const alreadyShown = ctx.toolsExecuted?.includes('buscar_imovel_por_codigo');
     sections.push(`<portal-lead-priority>
-⚠️ ATENÇÃO — LEAD VEIO DE PORTAL COM IMÓVEL ESPECÍFICO
-O cliente se interessou pelo imóvel de código **${ctx.portalPropertyCode}** no portal (ZAP/VivaReal/OLX).
+⚠️ LEAD VEIO DE PORTAL COM IMÓVEL ESPECÍFICO — CÓDIGO **${ctx.portalPropertyCode}**
+O cliente veio do ZAP/VivaReal/OLX interessado NESSE imóvel. Toda a conversa gira em torno dele.
 
-REGRA OBRIGATÓRIA:
-1. SUA PRÓXIMA AÇÃO deve ser chamar a tool \`buscar_imovel_por_codigo({codigo: "${ctx.portalPropertyCode}"})\`.
-2. NÃO faça triagem genérica ("é pra morar ou investir?", "qual seu orçamento?") antes de apresentar esse imóvel.
-3. NÃO chame \`buscar_imoveis\` (busca semântica) nesse primeiro momento — o cliente já escolheu um.
-4. Depois que a tool retornar e o imóvel for apresentado, aí sim pergunte se ele quer visitar, tirar dúvidas sobre condomínio/financiamento, ou ver outras opções parecidas.
-5. Se o cliente demonstrar interesse real (quer visitar, falar com corretor, agendar), chame \`enviar_lead_c2s\` com \`codigo_imovel="${ctx.portalPropertyCode}"\`.
+REGRAS OBRIGATÓRIAS (ordem de prioridade):
+
+1. ${alreadyShown ? '(✓ imóvel já apresentado nessa conversa)' : `SE AINDA NÃO APRESENTOU: sua PRIMEIRA AÇÃO é chamar \`buscar_imovel_por_codigo({codigo: "${ctx.portalPropertyCode}"})\`. Isso envia foto + ficha ao cliente. NÃO faça triagem nem pergunte orçamento/bairro antes.`}
+
+2. **PROIBIDO chamar \`buscar_imoveis\`** enquanto o cliente não REJEITAR explicitamente esse imóvel. Sinais de rejeição que liberam a busca de alternativas: "não gostei", "quero outro", "outra opção", "não é isso que eu quero", "muito caro pra mim", "muito pequeno", "prefiro em outro bairro". Sem sinal claro, NÃO ofereça nem busque outros.
+
+3. **Responda perguntas SOBRE ESSE imóvel** usando os dados já disponíveis na conversa (quartos, área, preço, condomínio, localização, piscina, descrição). Se faltar algum dado específico (ex.: regulamento do condomínio), diga que vai confirmar com o corretor.
+
+4. **NÃO transforme perguntas do cliente em triagem genérica.** Ex: se ele perguntar "aceita financiamento?", responda sobre financiamento desse imóvel, NÃO pergunte "é pra morar ou investir?".
+
+5. **Fluxo natural**: apresenta imóvel → tira dúvidas pontuais (condomínio, financiamento, visita, piscina, documentação) → quando cliente demonstrar interesse real (quer visitar, agendar, falar com corretor), chame \`enviar_lead_c2s\` com \`codigo_imovel="${ctx.portalPropertyCode}"\` e \`titulo_imovel\` descritivo.
+
+6. Só se o cliente REJEITAR o imóvel explicitamente, aí sim: 1) reconheça a rejeição com empatia, 2) faça triagem rápida (bairro alternativo, quartos, orçamento), 3) chame \`buscar_imoveis\` com os novos critérios.
 </portal-lead-priority>`);
   }
 

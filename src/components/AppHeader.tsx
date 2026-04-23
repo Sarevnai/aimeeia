@@ -11,6 +11,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { LogOut, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import NotificationsBell from '@/components/notifications/NotificationsBell';
 
 interface AppHeaderProps {
   onMobileMenuToggle?: () => void;
@@ -66,6 +67,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ onMobileMenuToggle }) => {
       </div>
 
       <div className="flex items-center gap-3">
+        <NotificationsBell />
         <span className="hidden md:block text-sm font-medium text-foreground">
           {profile?.full_name || 'Usuário'}
         </span>

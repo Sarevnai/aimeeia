@@ -190,21 +190,85 @@ serve(async (req: Request) => {
         }
       }
 
-      // Persist on contact + conversation
-      if (c2sLeadId && contact_id) {
-        await supabase.from('contacts').update({
-          c2s_lead_id: c2sLeadId,
-          c2s_lead_internal_id: c2sLeadInternalId,
-          c2s_lead_synced_at: new Date().toISOString(),
-          assigned_broker_id: assignedBrokerId,
-        }).eq('id', contact_id);
+      // Fallback plantão local — se C2S não resolveu broker, pega próximo do round-robin
+      if (!assignedBrokerId) {
+        const { data: dutyBroker } = await supabase
+          .from('brokers')
+          .select('id, c2s_seller_id, full_name')
+          .eq('tenant_id', tenant_id)
+          .eq('on_duty', true)
+          .eq('is_active', true)
+          .order('last_assigned_at', { ascending: true, nullsFirst: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (dutyBroker) {
+          assignedBrokerId = dutyBroker.id;
+          console.log(`🎯 Plantão fallback: lead atribuído a ${dutyBroker.full_name} (${dutyBroker.id})`);
+          await supabase.from('brokers')
+            .update({ last_assigned_at: new Date().toISOString() })
+            .eq('id', dutyBroker.id);
+
+          // Força atribuição no C2S também (se broker tem seller_id e já existe lead no C2S)
+          if (dutyBroker.c2s_seller_id && c2sLeadId) {
+            try {
+              const forwardRes = await fetch(
+                `https://api.contact2sale.com/integration/leads/${c2sLeadId}/forward`,
+                {
+                  method: 'PATCH',
+                  headers: {
+                    'Authentication': `Bearer ${c2sConfig.setting_value.api_key}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ seller_to_id: dutyBroker.c2s_seller_id }),
+                },
+              );
+              if (forwardRes.ok) {
+                c2sSellerId = dutyBroker.c2s_seller_id;
+                console.log(`✅ C2S forward para seller ${dutyBroker.c2s_seller_id} concluído`);
+              } else {
+                console.warn(`⚠️ C2S forward falhou (${forwardRes.status})`);
+              }
+            } catch (err) {
+              console.warn('⚠️ C2S forward exception:', err);
+            }
+          }
+        } else {
+          console.warn(`⚠️ Nenhum corretor em plantão no tenant ${tenant_id} — lead sem dono`);
+        }
       }
-      if (c2sLeadId && conversation_id) {
-        await supabase.from('conversations').update({
-          c2s_lead_id: c2sLeadId,
-          assigned_broker_id: assignedBrokerId,
-        }).eq('id', conversation_id);
+
+      // Persist on contact + conversation (broker pode vir do fallback mesmo sem c2sLeadId)
+      if (contact_id && (c2sLeadId || assignedBrokerId)) {
+        const contactUpdate: any = { assigned_broker_id: assignedBrokerId };
+        if (c2sLeadId) {
+          contactUpdate.c2s_lead_id = c2sLeadId;
+          contactUpdate.c2s_lead_internal_id = c2sLeadInternalId;
+          contactUpdate.c2s_lead_synced_at = new Date().toISOString();
+        }
+        await supabase.from('contacts').update(contactUpdate).eq('id', contact_id);
       }
+      if (conversation_id && (c2sLeadId || assignedBrokerId)) {
+        const convUpdate: any = { assigned_broker_id: assignedBrokerId };
+        if (c2sLeadId) convUpdate.c2s_lead_id = c2sLeadId;
+        await supabase.from('conversations').update(convUpdate).eq('id', conversation_id);
+      }
+    }
+
+    // Notificar corretor atribuído (fire-and-forget)
+    if (assignedBrokerId && conversation_id) {
+      supabase.functions.invoke('notify-broker-new-lead', {
+        body: {
+          tenant_id,
+          broker_id: assignedBrokerId,
+          conversation_id,
+          contact_name: contact?.name || null,
+          contact_phone: phone_number,
+          property_code: finalDevId,
+          property_title: finalDevTitle,
+          neighborhood: qualification_data?.detected_neighborhood || propertyDetails?.bairro || null,
+        },
+      }).catch((err: any) => console.warn('⚠️ notify-broker-new-lead failed:', err));
     }
 
     // Log the lead to portal_leads_log

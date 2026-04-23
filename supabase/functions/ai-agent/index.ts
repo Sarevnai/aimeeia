@@ -192,6 +192,18 @@ serve(async (req: Request) => {
             const merged = mergeQualificationData(qualData, triageExtracted);
             await saveQualificationData(supabase, tenant_id, phone_number, contact_id, merged);
             console.log(`📋 Triage qualification extracted:`, Object.keys(triageExtracted).filter(k => (triageExtracted as any)[k]).join(', '));
+
+            // Sync tags ao C2S se já existe lead lá
+            const { data: convRow } = await supabase
+              .from('conversations')
+              .select('c2s_lead_id')
+              .eq('id', conversation_id)
+              .maybeSingle();
+            if (convRow?.c2s_lead_id) {
+              supabase.functions.invoke('c2s-sync-lead-tags', {
+                body: { tenant_id, c2s_lead_id: convRow.c2s_lead_id, qualification_data: merged },
+              }).catch((err: any) => console.warn('⚠️ c2s-sync-lead-tags (triage) failed:', err));
+            }
           }
         } catch (e) {
           console.warn('⚠️ Triage qualification extraction failed (non-blocking):', e);
@@ -362,6 +374,13 @@ serve(async (req: Request) => {
       const autoTags = generateTagsFromQualification(mergedQual);
       if (autoTags.length > 0 && contact_id) {
         await syncContactTags(supabase, contact_id, autoTags);
+      }
+
+      // Sync tags ao C2S (fire-and-forget) se a conversa já tem lead no C2S
+      if (conversation?.c2s_lead_id) {
+        supabase.functions.invoke('c2s-sync-lead-tags', {
+          body: { tenant_id, c2s_lead_id: conversation.c2s_lead_id, qualification_data: mergedQual },
+        }).catch((err: any) => console.warn('⚠️ c2s-sync-lead-tags failed:', err));
       }
 
       // Invalidate pending_properties when a critical qualification field changes significantly

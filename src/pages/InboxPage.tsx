@@ -58,15 +58,17 @@ type TabValue = 'all' | 'assigned' | 'mine';
 
 const InboxPage: React.FC = () => {
   const { tenantId } = useTenant();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { broker: currentBroker } = useCurrentBroker();
   const { department } = useDepartmentFilter();
   const navigate = useNavigate();
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
   const [conversations, setConversations] = useState<ConversationWithContact[]>([]);
   const [states, setStates] = useState<Record<string, ConversationState>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useSessionState('inbox_search', '');
-  const [tab, setTab] = useSessionState<TabValue>('inbox_tab', 'all');
+  // Default tab: admin/super_admin começa em "Todas", corretor começa em "Atribuídas" (o que é dele).
+  const [tab, setTab] = useSessionState<TabValue>('inbox_tab', isAdmin ? 'all' : 'assigned');
   const [c2sConv, setC2sConv] = useState<ConversationWithContact | null>(null);
 
   const fetchConversations = async () => {
@@ -214,17 +216,19 @@ const InboxPage: React.FC = () => {
 
         {/* Tabs */}
         <div className="flex gap-1 p-0.5 bg-muted rounded-lg">
-          <button
-            onClick={() => setTab('all')}
-            className={cn(
-              'flex-1 text-sm font-medium px-3 py-1.5 rounded-md transition-all',
-              tab === 'all'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            Todas <span className="text-xs opacity-70">({totalAll})</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setTab('all')}
+              className={cn(
+                'flex-1 text-sm font-medium px-3 py-1.5 rounded-md transition-all',
+                tab === 'all'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Todas <span className="text-xs opacity-70">({totalAll})</span>
+            </button>
+          )}
           {currentBroker?.id && (
             <button
               onClick={() => setTab('assigned')}

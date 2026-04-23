@@ -18,8 +18,9 @@ export const ROLE_PATHS: Record<string, string[]> = {
     '/empreendimentos', '/campanhas', '/atualizacao', '/dnc',
     '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia',
     '/dashboard-admin', '/contatos-admin'],
-  operator: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
-  viewer: ['/', '/relatorios', '/dashboard-c2s', '/dnc', '/guia'],
+  // Corretor (operator): só vê SEUS leads e SUAS conversas. Sem Dashboard, sem DNC.
+  operator: ['/inbox', '/chat', '/leads', '/pipeline', '/guia'],
+  viewer: ['/relatorios', '/guia'],
 };
 
 // Department-specific paths for operators (overrides ROLE_PATHS.operator when set).
@@ -28,9 +29,10 @@ export const ROLE_PATHS: Record<string, string[]> = {
 // métricas do setor (TTFR, chamados abertos, órfãs, NPS médio).
 export const DEPT_PATHS: Record<string, string[]> = {
   administrativo: ['/dashboard-admin', '/chamados', '/inbox', '/chat', '/contatos-admin', '/modulos', '/minha-aimee', '/guia'],
-  vendas: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
-  locacao: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/dnc'],
-  remarketing: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/campanhas', '/empreendimentos', '/dnc', '/guia'],
+  // Corretor em qualquer setor comercial: só inbox + leads + pipeline + chat. Sem Dashboard/DNC.
+  vendas: ['/inbox', '/chat', '/leads', '/pipeline', '/guia'],
+  locacao: ['/inbox', '/chat', '/leads', '/pipeline', '/guia'],
+  remarketing: ['/inbox', '/chat', '/leads', '/pipeline', '/campanhas', '/empreendimentos', '/guia'],
 };
 
 export function getAllowedPaths(profile: AccessProfile | null | undefined): string[] {

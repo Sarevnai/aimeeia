@@ -243,6 +243,62 @@ export async function saveQualificationData(
   }
 }
 
+// ========== DEPARTMENT RECLASSIFICATION ==========
+
+// Quando a IA detecta a finalidade (venda/locação) e ela diverge do department_code
+// atual da conversa, realinha. Ex: conversa criada como 'vendas' (default do rewarm),
+// cliente diz "alugar" → passa pra 'locacao'. Evita atendimento/handoff no departamento
+// errado sem precisar do corretor corrigir manualmente.
+export async function reclassifyConversationDepartment(
+  supabase: any,
+  tenantId: string,
+  conversationId: string | null,
+  phoneNumber: string,
+  detectedInterest: string | null | undefined,
+  currentDepartment: string | null | undefined
+): Promise<string | null> {
+  if (!conversationId || !detectedInterest) return null;
+
+  // 'administrativo', 'remarketing', 'atualizacao' não sofrem reclassificação por
+  // detected_interest — só a dupla vendas ↔ locacao (a IA comercial roda em ambos).
+  const isCommercialDept = !currentDepartment || currentDepartment === 'vendas' || currentDepartment === 'locacao';
+  if (!isCommercialDept) return null;
+
+  const target = detectedInterest === 'locacao' ? 'locacao'
+    : detectedInterest === 'venda' ? 'vendas'
+    : null;
+  if (!target || target === currentDepartment) return null;
+
+  const { data: firstStage } = await supabase
+    .from('conversation_stages')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('department_code', target)
+    .order('order_index', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const update: any = { department_code: target };
+  if (firstStage?.id) update.stage_id = firstStage.id;
+
+  await supabase.from('conversations').update(update).eq('id', conversationId);
+  await supabase
+    .from('contacts')
+    .update({ department_code: target })
+    .eq('tenant_id', tenantId)
+    .eq('phone', phoneNumber);
+
+  await supabase.from('conversation_events').insert({
+    tenant_id: tenantId,
+    conversation_id: conversationId,
+    event_type: 'department_reclassified',
+    metadata: { from: currentDepartment || null, to: target, reason: 'detected_interest' },
+  }).then(() => {}, () => {});
+
+  console.log(`🔀 Dept reclassified ${currentDepartment || 'null'} → ${target} (interest=${detectedInterest}) for ${phoneNumber}`);
+  return target;
+}
+
 // ========== PRIVATE HELPERS ==========
 
 // Common abbreviations and aliases for neighborhoods in Florianópolis

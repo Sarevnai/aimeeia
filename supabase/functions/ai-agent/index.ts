@@ -9,7 +9,7 @@ import { callLLMWithToolExecution, TraceData, insertTrace } from '../_shared/ai-
 import { sendWhatsAppMessage, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
-import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags } from '../_shared/qualification.ts';
+import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags, reclassifyConversationDepartment } from '../_shared/qualification.ts';
 import { loadRegions } from '../_shared/regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../_shared/anti-loop.ts';
 import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } from '../_shared/property.ts';
@@ -193,6 +193,13 @@ serve(async (req: Request) => {
             await saveQualificationData(supabase, tenant_id, phone_number, contact_id, merged);
             console.log(`📋 Triage qualification extracted:`, Object.keys(triageExtracted).filter(k => (triageExtracted as any)[k]).join(', '));
 
+            if (triageExtracted.detected_interest) {
+              await reclassifyConversationDepartment(
+                supabase, tenant_id, conversation_id, phone_number,
+                triageExtracted.detected_interest, conversation?.department_code
+              );
+            }
+
             // Sync tags ao C2S se já existe lead lá
             const { data: convRow } = await supabase
               .from('conversations')
@@ -369,6 +376,16 @@ serve(async (req: Request) => {
 
     if (Object.keys(extracted).length > 0) {
       await saveQualificationData(supabase, tenant_id, phone_number, contact_id, mergedQual);
+
+      // Se o cliente acabou de explicitar finalidade (venda/locação) e ela diverge
+      // do department_code atual da conversa, realinha. Evita conversa criada como
+      // 'vendas' atender um lead de locação (ou vice-versa).
+      if (extracted.detected_interest) {
+        await reclassifyConversationDepartment(
+          supabase, tenant_id, conversation_id, phone_number,
+          extracted.detected_interest, conversation?.department_code
+        );
+      }
 
       // Auto-tag contact based on qualification data
       const autoTags = generateTagsFromQualification(mergedQual);

@@ -20,6 +20,18 @@ interface ContactRow {
   name: string | null;
   crm_archive_reason: string | null;
   crm_property_ref: string | null;
+  department_code: string | null;
+  crm_natureza: string | null;
+}
+
+// Resolve departamento da conversa com base no contexto C2S do contato.
+// Evita criar conversas de rewarm como 'vendas' quando o lead original é de locação.
+function resolveDepartmentFromContact(contact: ContactRow): string | null {
+  if (contact.department_code) return contact.department_code;
+  const nat = (contact.crm_natureza || '').toLowerCase();
+  if (nat.includes('aluguel') || nat.includes('loca') || nat.includes('temporada')) return 'locacao';
+  if (nat.includes('compra') || nat.includes('venda')) return 'vendas';
+  return null;
 }
 
 async function pickTemplate(supabase: any, tenant_id: string): Promise<string | null> {
@@ -79,7 +91,7 @@ async function processTenant(supabase: any, tenant: any) {
 
   const { data: eligible } = await supabase
     .from('contacts')
-    .select('id, tenant_id, phone, name, crm_archive_reason, crm_property_ref')
+    .select('id, tenant_id, phone, name, crm_archive_reason, crm_property_ref, department_code, crm_natureza')
     .eq('tenant_id', tenant.id)
     .eq('reactivation_attempts', 0)
     .not('reactivation_scheduled_at', 'is', null)
@@ -102,19 +114,24 @@ async function processTenant(supabase: any, tenant: any) {
       .eq('status', 'active')
       .maybeSingle();
 
+    const dept = resolveDepartmentFromContact(contact);
+
     if (existingConv?.id) {
       conversationId = existingConv.id;
     } else {
+      const insertPayload: any = {
+        tenant_id: contact.tenant_id,
+        phone_number: contact.phone,
+        contact_id: contact.id,
+        status: 'active',
+        source: 'rewarm_archived',
+        last_message_at: new Date().toISOString(),
+      };
+      if (dept) insertPayload.department_code = dept;
+
       const { data: newConv } = await supabase
         .from('conversations')
-        .insert({
-          tenant_id: contact.tenant_id,
-          phone_number: contact.phone,
-          contact_id: contact.id,
-          status: 'active',
-          source: 'rewarm_archived',
-          last_message_at: new Date().toISOString(),
-        })
+        .insert(insertPayload)
         .select('id')
         .single();
       conversationId = newConv?.id || null;

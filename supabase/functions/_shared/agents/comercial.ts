@@ -3,7 +3,7 @@
 // Focused prompt (~1.2K tokens), property search + CRM handoff tools.
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
-import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces, executeDepartmentTransfer } from './tool-executors.ts';
+import { executePropertySearch, executePropertyByCode, executeLeadHandoff, executeGetNearbyPlaces, executeDepartmentTransfer } from './tool-executors.ts';
 import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
@@ -38,6 +38,22 @@ ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}.`
     conversationSource: ctx.conversationSource,
   });
   if (firstTurnCtx) sections.push(firstTurnCtx);
+
+  // Portal lead — imóvel pré-selecionado (Canal Pro ZAP / VivaReal / OLX)
+  // O código do imóvel É a qualificação. Tem que responder SOBRE aquele imóvel antes de qualquer triagem.
+  if (ctx.portalPropertyCode && !ctx.toolsExecuted?.includes('buscar_imovel_por_codigo')) {
+    sections.push(`<portal-lead-priority>
+⚠️ ATENÇÃO — LEAD VEIO DE PORTAL COM IMÓVEL ESPECÍFICO
+O cliente se interessou pelo imóvel de código **${ctx.portalPropertyCode}** no portal (ZAP/VivaReal/OLX).
+
+REGRA OBRIGATÓRIA:
+1. SUA PRÓXIMA AÇÃO deve ser chamar a tool \`buscar_imovel_por_codigo({codigo: "${ctx.portalPropertyCode}"})\`.
+2. NÃO faça triagem genérica ("é pra morar ou investir?", "qual seu orçamento?") antes de apresentar esse imóvel.
+3. NÃO chame \`buscar_imoveis\` (busca semântica) nesse primeiro momento — o cliente já escolheu um.
+4. Depois que a tool retornar e o imóvel for apresentado, aí sim pergunte se ele quer visitar, tirar dúvidas sobre condomínio/financiamento, ou ver outras opções parecidas.
+5. Se o cliente demonstrar interesse real (quer visitar, falar com corretor, agendar), chame \`enviar_lead_c2s\` com \`codigo_imovel="${ctx.portalPropertyCode}"\`.
+</portal-lead-priority>`);
+  }
 
   // Module menu — tells the LLM which modules are available
   const moduleList = modules.map(mod => {
@@ -320,6 +336,23 @@ function getComercialTools(ctx: AgentContext): any[] {
     {
       type: "function",
       function: {
+        name: "buscar_imovel_por_codigo",
+        description: "Consulta um imóvel específico pelo código (external_id). USE PRIMEIRO quando o cliente mencionar um código de imóvel (ex: '56617'), ou quando o contexto do lead já trouxer um código do portal (ZAP/VivaReal/OLX). Essa tool pula o gate de qualificação — o código É a qualificação. Retorna dados + envia foto/detalhes ao cliente automaticamente.",
+        parameters: {
+          type: "object",
+          properties: {
+            codigo: {
+              type: "string",
+              description: "Código (external_id) do imóvel. Ex: '56617'. Aceita o código com ou sem prefixo."
+            },
+          },
+          required: ["codigo"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
         name: "buscar_imoveis",
         description: "Busca imóveis no catálogo interno usando busca semântica inteligente. Use quando o cliente tiver informado características ou regiões desejadas.",
         parameters: {
@@ -496,6 +529,7 @@ export const comercialAgent: AgentModule = {
 
   async executeToolCall(ctx: AgentContext, toolName: string, args: any): Promise<string> {
     console.log(`🔧 [Comercial] Executing tool: ${toolName}`, args);
+    if (toolName === 'buscar_imovel_por_codigo') return await executePropertyByCode(ctx, args);
     if (toolName === 'buscar_imoveis') return await executePropertySearch(ctx, args);
     if (toolName === 'enviar_lead_c2s') return await executeLeadHandoff(ctx, args);
     if (toolName === 'buscar_pontos_de_interesse_proximos') return await executeGetNearbyPlaces(ctx, args);

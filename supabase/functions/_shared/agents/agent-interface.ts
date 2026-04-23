@@ -41,6 +41,7 @@ export interface AgentContext {
   contactType?: 'lead' | 'proprietario' | 'inquilino' | null; // Sprint 6.1: admin usa pra adaptar tom
   activeTicket?: ActiveTicketContext | null; // Sprint 6.1: admin usa pra saber se já tem ticket aberto + contexto do operador
   activeUpdateEntry?: ActiveUpdateEntryContext | null; // Sprint 6.2: setor atualização — contexto do imóvel sendo verificado
+  portalPropertyCode?: string | null;     // Canal Pro ZAP / VivaReal / OLX — código do imóvel que veio pré-selecionado no lead
   supabase: any;
 }
 

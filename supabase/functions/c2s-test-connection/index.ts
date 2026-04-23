@@ -19,7 +19,7 @@ serve(async (req: Request) => {
     const res = await fetch(`${baseUrl}/tags`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${api_key}`,
+        'Authentication': `Bearer ${api_key}`,
         'Content-Type': 'application/json',
       },
     });

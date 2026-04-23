@@ -285,7 +285,7 @@ serve(async (req: Request) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.api_key}`,
+            'Authentication': `Bearer ${config.api_key}`,
           },
           body: JSON.stringify(c2sPayload),
         });
@@ -366,8 +366,8 @@ serve(async (req: Request) => {
         tenant_id,
         phone_number: phone,
         triage_stage: 'completed',
-        department: department,
         is_ai_active: true,
+        portal_property_code: property_code || null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
 

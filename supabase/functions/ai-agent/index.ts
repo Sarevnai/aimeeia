@@ -642,6 +642,8 @@ serve(async (req: Request) => {
         activeTicket,
         // Sprint 6.2 — Setor atualização
         activeUpdateEntry,
+        // Canal Pro ZAP / VivaReal / OLX — imóvel pré-selecionado no lead
+        portalPropertyCode: (state as any)?.portal_property_code || null,
       };
 
       let systemPrompt = agent.buildSystemPrompt(ctx);

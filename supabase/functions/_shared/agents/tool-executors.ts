@@ -706,6 +706,113 @@ export async function executePropertySearch(
   }
 }
 
+// ========== PROPERTY BY CODE (portal leads) ==========
+// Lookup direto por external_id. Uso prioritário quando o lead veio do portal
+// com um código de imóvel específico (ZAP, VivaReal, OLX). Não passa por gate
+// de qualificação — o código É a qualificação.
+export async function executePropertyByCode(
+  ctx: AgentContext,
+  args: { codigo: string }
+): Promise<string> {
+  try {
+    const code = String(args.codigo || '').trim();
+    if (!code) return '[SISTEMA] Código do imóvel não informado.';
+
+    const { data: prop, error } = await ctx.supabase
+      .from('properties')
+      .select('*')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('external_id', code)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ executePropertyByCode error:', error);
+      return '[SISTEMA] Erro ao consultar o imóvel. Tente novamente.';
+    }
+    if (!prop) {
+      return `[SISTEMA] O imóvel de código ${code} não foi encontrado no nosso catálogo (pode ter sido vendido, desativado ou o código pode estar incorreto). Informe isso ao cliente de forma honesta e ofereça buscar alternativas parecidas, perguntando preferências (bairro, quartos, orçamento).`;
+    }
+
+    // Build PropertyResult
+    const websiteBase = (ctx.aiConfig as any)?.website_url?.replace(/\/$/, '') || '';
+    const formatted: PropertyResult = {
+      codigo: prop.external_id,
+      tipo: prop.type || 'Imóvel',
+      bairro: prop.neighborhood || 'Região',
+      cidade: prop.city || ctx.tenant.city,
+      preco: prop.price,
+      preco_formatado: prop.price ? formatCurrency(prop.price) : null,
+      quartos: prop.bedrooms,
+      suites: prop.suites || null,
+      vagas: prop.parking_spots || null,
+      area_util: prop.useful_area || null,
+      link: prop.url || (websiteBase && prop.external_id ? `${websiteBase}/imovel/${prop.external_id}` : ''),
+      foto_destaque: prop.images && prop.images.length > 0 ? prop.images[0] : null,
+      descricao: prop.description,
+      valor_condominio: prop.condo_fee || null,
+    };
+
+    // Persist em pending_properties pra enviar_lead_c2s usar depois
+    // + marca shown_property_ids + limpa portal_property_code (já foi atendido)
+    const { data: prevState } = await ctx.supabase
+      .from('conversation_states')
+      .select('shown_property_ids')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('phone_number', ctx.phoneNumber)
+      .maybeSingle();
+    const shownIds: string[] = Array.from(new Set([...(prevState?.shown_property_ids || []), formatted.codigo].filter(Boolean)));
+
+    await ctx.supabase
+      .from('conversation_states')
+      .upsert({
+        tenant_id: ctx.tenantId,
+        phone_number: ctx.phoneNumber,
+        pending_properties: [formatted],
+        current_property_index: 0,
+        awaiting_property_feedback: true,
+        shown_property_ids: shownIds,
+        portal_property_code: null, // Já atendido — não fire a regra de novo
+        last_property_shown_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,phone_number' });
+
+    // Enviar foto + caption no WhatsApp
+    const agentName = (ctx.aiConfig as any)?.agent_name || 'Aimee';
+    const precoStr = formatted.preco_formatado || (formatted.preco ? formatCurrency(formatted.preco) : 'Sob consulta');
+    const captionLines = [
+      `*${agentName}*`,
+      '',
+      `🏠 *${formatted.tipo} no ${formatted.bairro}*`,
+      `Código: ${formatted.codigo}`,
+      formatted.quartos ? `Quartos: ${formatted.quartos}${formatted.suites ? ` (${formatted.suites} suíte${formatted.suites > 1 ? 's' : ''})` : ''}` : null,
+      formatted.area_util ? `Área útil: ${formatted.area_util}m²` : null,
+      formatted.vagas ? `Vagas: ${formatted.vagas}` : null,
+      `Valor: ${precoStr}`,
+      formatted.valor_condominio && formatted.valor_condominio > 1 ? `Condomínio: ${formatCurrency(formatted.valor_condominio)}` : null,
+      formatted.link ? `\n${formatted.link}` : null,
+    ].filter(Boolean).join('\n');
+
+    const isSimulation = ctx.phoneNumber.startsWith('SIM-');
+    if (!isSimulation) {
+      if (formatted.foto_destaque) {
+        const imgRes = await sendWhatsAppImage(ctx.phoneNumber, formatted.foto_destaque, captionLines, ctx.tenant);
+        if (!imgRes.success) {
+          await sendWhatsAppMessage(ctx.phoneNumber, captionLines, ctx.tenant);
+        }
+      } else {
+        await sendWhatsAppMessage(ctx.phoneNumber, captionLines, ctx.tenant);
+      }
+    }
+
+    // Hint pro LLM responder consciente
+    return `[SISTEMA] Imóvel ${formatted.codigo} encontrado e apresentado ao cliente (foto + detalhes já enviados no WhatsApp). Dados: ${formatted.tipo}, ${formatted.quartos || '?'} quartos, ${formatted.area_util || '?'}m², ${formatted.bairro}/${formatted.cidade}, ${precoStr}. NÃO repita os dados — complemente: pergunte se o cliente quer visitar, se quer saber sobre condomínio/financiamento, ou se tem alguma dúvida. Use tom consultivo. Se o cliente demonstrar interesse real (quer visitar/falar com corretor), chame enviar_lead_c2s com codigo_imovel=${formatted.codigo}.`;
+
+  } catch (error) {
+    console.error('❌ executePropertyByCode exception:', error);
+    return '[SISTEMA] Falha inesperada ao consultar o imóvel.';
+  }
+}
+
 // ========== LEAD HANDOFF (C2S CRM) ==========
 // ========== GOOGLE MAPS POI SEARCH ==========
 

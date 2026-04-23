@@ -372,7 +372,7 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.api_key}`,
+        'Authentication': `Bearer ${config.api_key}`,
       },
       body: JSON.stringify(payload),
     });

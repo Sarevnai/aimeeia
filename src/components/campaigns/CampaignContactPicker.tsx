@@ -489,13 +489,14 @@ const CampaignContactPicker: React.FC<Props> = ({ tenantId, selectedIds, onChang
           </p>
         </div>
       ) : (
-        <div className="rounded-lg border border-border bg-background overflow-hidden">
+        <div className="rounded-lg border border-border bg-background" style={{ height: 420 }}>
           <List
             rowComponent={Row}
             rowCount={filtered.length}
             rowHeight={60}
             rowProps={{ items: filtered, selectedIds, toggleOne } as RowProps}
-            style={{ height: 360 }}
+            defaultHeight={420}
+            style={{ height: '100%', width: '100%' }}
           />
         </div>
       )}

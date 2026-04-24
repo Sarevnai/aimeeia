@@ -320,7 +320,7 @@ const AdminNewCampaignSheet: React.FC<Props> = ({ open, onOpenChange, onCreated,
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col">
+            <SheetContent side="right" className="w-full sm:max-w-4xl p-0 flex flex-col">
                 <SheetHeader className="px-6 pt-6 pb-4 border-b border-border">
                     <SheetTitle className="font-display flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">

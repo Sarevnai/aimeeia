@@ -12,6 +12,61 @@ import { SkillConfig, StructuredConfig, AiModule } from '../types.ts';
 import { resolveContactNameForPrompt } from '../utils.ts';
 import { runPreCompletionChecks } from './pre-completion-check.ts';
 
+// ========== LOCAÇÃO-SPECIFIC GUIDANCE ==========
+// Disparado APENAS quando department === 'locacao'.
+// Cobre o fluxo "engaja primeiro" (Sprint v1, 2026-04-24):
+// 1. engajamento (imóvel match) → 2. prova de valor (busca) →
+// 3. trigger interesse → 4. finalização leve (renda + pets + move-in date)
+// → 5. agendar visita / handoff
+// NÃO menciona garantias (seguro fiança / CredPago / fiador / título de capitalização) —
+// essas só entram pós-visita (Sprint v2).
+function buildLocacaoSpecificGuidance(ctx: AgentContext): string {
+  if (ctx.department !== 'locacao') return '';
+
+  const qd = ctx.qualificationData;
+  const hasIncome = !!qd?.detected_income_monthly;
+  const hasPetsAnswered = typeof qd?.detected_has_pets === 'boolean';
+  const hasMoveIn = !!qd?.detected_move_in_date;
+
+  const finalizacaoStatus = [
+    `${hasIncome ? '✅' : '⏳'} renda mensal aproximada`,
+    `${hasPetsAnswered ? '✅' : '⏳'} pets (sim/não + tipo)`,
+    `${hasMoveIn ? '✅' : '⏳'} data alvo de mudança`,
+  ].join(' | ');
+
+  return `<locacao-fluxo>
+ATENDIMENTO DE LOCAÇÃO — FLUXO ESPECÍFICO
+
+Você está atendendo um lead de locação. O fluxo segue 4 momentos. NÃO pule etapas, NÃO interrogue.
+
+**MOMENTO 1 — ENGAJAMENTO (qualificação básica do imóvel)**
+Descobrir naturalmente, em conversa: bairro/região, tipo de imóvel, quantos quartos, faixa de orçamento mensal. Uma pergunta por vez, leve. NÃO peça renda, NÃO pergunte sobre pets, NÃO pergunte data exata aqui.
+
+**MOMENTO 2 — PROVA DE VALOR (busca)**
+Quando tiver finalidade + tipo + (orçamento ou bairro), chame buscar_imoveis. Apresente 1-2 opções com dados concretos.
+
+**MOMENTO 3 — TRIGGER DE INTERESSE**
+Sinais que indicam lead quente: "gostei", "quero ver", "quando posso visitar", "tem mais fotos", "qual o valor exato do condomínio", "como faço pra alugar". Quando isso acontecer, vá pro Momento 4 ANTES de marcar visita ou fazer handoff.
+
+**MOMENTO 4 — FINALIZAÇÃO (3 perguntas leves antes do handoff)**
+Status atual: ${finalizacaoStatus}
+
+Faça as perguntas que ainda faltam, UMA POR VEZ, de forma natural — NÃO em lista, NÃO como formulário. Exemplos de phrasing natural:
+
+- Renda: "Pra eu mirar imóveis dentro do que cabe pro seu bolso, qual sua renda mensal aproximada? (não precisa ser exata)"
+- Pets: "Você tem algum pet? Tem imóveis que aceitam, outros não — só pra eu já filtrar."
+- Move-in: "Tem uma data alvo pra mudança? Tipo: precisa estar morando até quando?"
+
+Quando os 3 estiverem coletados, chame enviar_lead_c2s passando no campo motivo um resumo: "Lead qualificado pra locação — renda R$ X/mês, [tem/não tem] pets [tipo], mudança até DD/MM. Quer agendar visita."
+
+**O QUE NÃO FAZER NA LOCAÇÃO (regra explícita)**
+- NÃO mencione fiador, seguro fiança, CredPago, título de capitalização, garantia. Essa conversa só acontece pós-visita com o corretor.
+- Se o cliente perguntar "como funciona a garantia?" / "preciso de fiador?", responda: "Boa pergunta! A gente tem várias opções de garantia (seguro fiança, fiador, cartão, título de capitalização) e o corretor te explica direitinho na visita qual encaixa pro seu perfil. Por enquanto, vamos focar em achar o imóvel certo, beleza?"
+- NÃO peça documentos (RG, CPF, comprovante de renda) — isso é o corretor que pede.
+- NÃO comprometa contrato ("posso garantir o aluguel", "fechado", "te aprovamos") — só o corretor fecha.
+</locacao-fluxo>`;
+}
+
 // ========== MODULE-BASED PROMPT ==========
 
 function buildModularPrompt(ctx: AgentContext, modules: AiModule[]): string {
@@ -98,6 +153,10 @@ ${activeModule.prompt_instructions}
 
   const behaviorInstr = buildBehaviorInstructionsLocal(ctx);
   if (behaviorInstr) sections.push(behaviorInstr);
+
+  // Locação v1: fluxo específico (engaja primeiro, sem garantia)
+  const locacaoGuidance = buildLocacaoSpecificGuidance(ctx);
+  if (locacaoGuidance) sections.push(locacaoGuidance);
 
   if (config.custom_instructions) {
     sections.push(`<custom_instructions>\n${config.custom_instructions}\n</custom_instructions>`);
@@ -197,7 +256,7 @@ REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
 REGRAS:
 - Pergunte UMA informação por vez, de forma natural
 - Siga a regra de idioma da seção <idioma>, espelhando o idioma do cliente. Máximo 3 parágrafos.
-${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}\n\n${buildMultilingualDirective()}`;
+${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${buildLocacaoSpecificGuidance(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}\n\n${buildMultilingualDirective()}`;
 }
 
 function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig): string {
@@ -298,6 +357,10 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
 
   const behaviorInstr = buildBehaviorInstructionsLocal(ctx);
   if (behaviorInstr) sections.push(behaviorInstr);
+
+  // Locação v1: fluxo específico (engaja primeiro, sem garantia)
+  const locacaoGuidance = buildLocacaoSpecificGuidance(ctx);
+  if (locacaoGuidance) sections.push(locacaoGuidance);
 
   if (config.custom_instructions) {
     sections.push(`\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`);

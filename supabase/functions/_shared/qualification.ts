@@ -124,6 +124,33 @@ export function extractQualificationFromText(
     sources.detected_timeline = 'client_explicit';
   }
 
+  // Locação v1: renda mensal aproximada
+  const income = detectIncomeMonthly(lower, lastAiMessage);
+  if (income && income !== currentData?.detected_income_monthly) {
+    extracted.detected_income_monthly = income;
+    sources.detected_income_monthly = 'client_explicit';
+  }
+
+  // Locação v1: pets (sim/não + tipo)
+  const pets = detectPets(lower);
+  if (pets && (pets.has_pets !== currentData?.detected_has_pets || (pets.pet_type && pets.pet_type !== currentData?.detected_pet_type))) {
+    if (typeof pets.has_pets === 'boolean') {
+      extracted.detected_has_pets = pets.has_pets;
+      sources.detected_has_pets = 'client_explicit';
+    }
+    if (pets.pet_type) {
+      extracted.detected_pet_type = pets.pet_type;
+      sources.detected_pet_type = 'client_explicit';
+    }
+  }
+
+  // Locação v1: data alvo de mudança (ISO)
+  const moveIn = detectMoveInDate(lower);
+  if (moveIn && moveIn !== currentData?.detected_move_in_date) {
+    extracted.detected_move_in_date = moveIn;
+    sources.detected_move_in_date = 'client_explicit';
+  }
+
   if (Object.keys(sources).length > 0) {
     extracted.field_sources = sources;
   }
@@ -163,6 +190,10 @@ export function mergeQualificationData(
   if (extracted.detected_budget_max) merged.detected_budget_max = extracted.detected_budget_max;
   if (extracted.detected_interest) merged.detected_interest = extracted.detected_interest;
   if (extracted.detected_timeline) merged.detected_timeline = extracted.detected_timeline;
+  if (extracted.detected_income_monthly) merged.detected_income_monthly = extracted.detected_income_monthly;
+  if (typeof extracted.detected_has_pets === 'boolean') merged.detected_has_pets = extracted.detected_has_pets;
+  if (extracted.detected_pet_type) merged.detected_pet_type = extracted.detected_pet_type;
+  if (extracted.detected_move_in_date) merged.detected_move_in_date = extracted.detected_move_in_date;
 
   if (extracted.field_sources) {
     Object.assign(currentSources, extracted.field_sources);
@@ -250,6 +281,10 @@ export async function saveQualificationData(
     detected_budget_max: data.detected_budget_max || null,
     detected_interest: data.detected_interest || null,
     detected_timeline: data.detected_timeline || null,
+    detected_income_monthly: data.detected_income_monthly ?? null,
+    detected_has_pets: typeof data.detected_has_pets === 'boolean' ? data.detected_has_pets : null,
+    detected_pet_type: data.detected_pet_type || null,
+    detected_move_in_date: data.detected_move_in_date || null,
     qualification_score: freshScore,
     field_sources: data.field_sources || {},
     updated_at: new Date().toISOString(),
@@ -623,6 +658,10 @@ function countAnswered(data: QualificationData): number {
   if (data.detected_budget_max) count++;
   if (data.detected_interest) count++;
   if (data.detected_timeline) count++;
+  // Locação v1: campos pré-visita contam quando preenchidos
+  if (data.detected_income_monthly) count++;
+  if (typeof data.detected_has_pets === 'boolean') count++;
+  if (data.detected_move_in_date) count++;
   return count;
 }
 
@@ -731,6 +770,163 @@ export async function syncContactTags(
     console.error(`⚠️ Failed to sync tags for contact ${contactId}:`, err);
     // Non-blocking: tag sync failure should not break the conversation
   }
+}
+
+// ===== Locação v1: detectors específicos =====
+
+// Renda mensal aproximada (R$/mês). Tolera "ganho 5k", "renda de 6 mil", "uns 8 mil por mês",
+// "salário 4500", "tiro 7k mensais", "minha renda é uns 5,5 mil". Só extrai quando há
+// CONTEXTO de renda — número solto não vira renda (já é budget/aluguel).
+function detectIncomeMonthly(lower: string, lastAiMessage?: string | null): number | null {
+  const incomeContext = /\b(renda|sal[aá]rio|gan(?:ho|hamos|ha)|recebo|tiro|fa[cç]o|fatur[oa]|ganhar|recebimento|fonte\s+de\s+renda|por\s+m[eê]s|mensais|mensal)\b/i;
+  const aiAskedIncome = lastAiMessage && /\b(renda|sal[aá]rio|ganha|por\s+m[eê]s|mensais?|fatur[oa])\b/i.test(lastAiMessage);
+
+  if (!incomeContext.test(lower) && !aiAskedIncome) return null;
+
+  const patterns = [
+    /([\d.,]+)\s*(?:mil|k)\s*(?:reais)?\b/i,
+    /r\$\s*([\d.,]+)\s*(?:mil|k)?/i,
+    /([\d.,]+)\s*reais\b/i,
+    /\b([\d.,]+)\b/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    if (match) {
+      let raw = match[1].replace(/\./g, '').replace(',', '.');
+      let num = parseFloat(raw);
+      if (isNaN(num)) continue;
+      // "X mil" / "Xk" → multiplica
+      const matchedSlice = lower.slice(match.index || 0, (match.index || 0) + match[0].length + 5);
+      if (/mil|k\b/i.test(matchedSlice)) {
+        if (num < 1000) num *= 1000;
+      }
+      // Renda razoável: entre R$ 800 (CLT mínimo+) e R$ 200k/mês (alto padrão)
+      if (num >= 800 && num <= 200_000) return num;
+    }
+  }
+  return null;
+}
+
+// Pets: extrai sim/não + tipo. Cobre "tenho cachorro", "moramos com 2 gatos",
+// "não tenho pet", "sem animais", "tenho um shih tzu", "cachorro grande".
+function detectPets(lower: string): { has_pets?: boolean; pet_type?: string } | null {
+  // Negativo explícito
+  if (/\bn[aã]o\s+(tenho|temos|possu[oi]|moro\s+com)\s+(animal|animais|pet|cachorro|gato|bicho)\b/i.test(lower)) {
+    return { has_pets: false };
+  }
+  if (/\bsem\s+(animal|animais|pet|bicho|cachorro|gato)\b/i.test(lower)) {
+    return { has_pets: false };
+  }
+
+  // Positivo + tipo
+  const result: { has_pets?: boolean; pet_type?: string } = {};
+  const types: string[] = [];
+
+  if (/\b(cachorr[oa]s?|c[aã]es?|dog|doguinho|vira-?lata|filhote)\b/i.test(lower)) {
+    types.push('cachorro');
+    result.has_pets = true;
+  }
+  if (/\bgat[oa]s?\b/i.test(lower)) {
+    types.push('gato');
+    result.has_pets = true;
+  }
+  if (/\b(p[aá]ssar[oa]s?|cal[oó]psita|periquito|papagaio)\b/i.test(lower)) {
+    types.push('pássaro');
+    result.has_pets = true;
+  }
+  if (/\b(coelh[oa]s?|h[aá]mster|porquinho.da.[ií]ndia|f[uú]ret)\b/i.test(lower)) {
+    types.push('roedor/exótico');
+    result.has_pets = true;
+  }
+
+  // Modificador de tamanho pra cachorro
+  if (types.includes('cachorro')) {
+    if (/\bgrande\b/i.test(lower)) result.pet_type = 'cachorro grande';
+    else if (/\b(pequen[oa]|pequenin[oa]|porte\s+pequeno)\b/i.test(lower)) result.pet_type = 'cachorro pequeno';
+    else if (/\b(m[eé]dio|porte\s+m[eé]dio)\b/i.test(lower)) result.pet_type = 'cachorro médio';
+  }
+
+  if (types.length > 0 && !result.pet_type) {
+    result.pet_type = types.join(', ');
+  }
+
+  // Positivo genérico
+  if (typeof result.has_pets !== 'boolean') {
+    if (/\b(tenho|temos|possu[oi]|moro\s+com|mor[oa]mos\s+com|tenho\s+um\s+pet)\b.{0,30}\b(pet|animal|bicho|animais)\b/i.test(lower)) {
+      result.has_pets = true;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+// Move-in date: extrai data alvo de mudança em ISO YYYY-MM-DD.
+// Cobre: "preciso mudar até 30/05", "mudança em maio", "quero entrar dia 15", "mês que vem",
+// "começo de junho", "fim do mês", "antes do casamento" (este último ignorado).
+function detectMoveInDate(lower: string): string | null {
+  // Tem que ter contexto de mudança/entrada/disponibilidade
+  const moveContext = /\b(mudar|mudan[cç]a|entrar|me\s+mudo|nos\s+mudamos|pra\s+morar|come[cç]ar\s+a\s+morar|disponibilidade|dispon[ií]vel|chave|entrega\s+das?\s+chaves?)\b/i;
+  if (!moveContext.test(lower)) return null;
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12
+
+  // Padrão DD/MM/YYYY ou DD/MM
+  const fullDate = lower.match(/\b(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{2,4}))?\b/);
+  if (fullDate) {
+    const day = parseInt(fullDate[1]);
+    const month = parseInt(fullDate[2]);
+    let year = fullDate[3] ? parseInt(fullDate[3]) : currentYear;
+    if (year < 100) year += 2000;
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= currentYear && year <= currentYear + 2) {
+      // Se o mês já passou neste ano e não veio ano explícito, assumir próximo ano
+      if (!fullDate[3] && month < currentMonth) year = currentYear + 1;
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  // Mês por nome
+  const months: Record<string, number> = {
+    'janeiro': 1, 'fevereiro': 2, 'mar[cç]o': 3, 'abril': 4, 'maio': 5, 'junho': 6,
+    'julho': 7, 'agosto': 8, 'setembro': 9, 'outubro': 10, 'novembro': 11, 'dezembro': 12,
+  };
+  for (const [name, monthNum] of Object.entries(months)) {
+    if (new RegExp(`\\b${name}\\b`, 'i').test(lower)) {
+      let year = currentYear;
+      if (monthNum < currentMonth) year = currentYear + 1;
+      // Padrão de dia: "dia 15 de maio", "15 de maio"
+      const dayMatch = lower.match(new RegExp(`(?:dia\\s+)?(\\d{1,2})\\s*(?:de\\s+)?${name}`, 'i'));
+      let day = dayMatch ? parseInt(dayMatch[1]) : 1; // default dia 1
+      if (day < 1 || day > 31) day = 1;
+      // Modificadores: "começo/início", "meio", "fim/final"
+      if (!dayMatch) {
+        if (/\b(in[ií]cio|come[cç]o)\s+(?:de\s+)?(?:[a-zçãé]+|m[eê]s)/i.test(lower)) day = 5;
+        else if (/\bmeio\s+(?:de\s+)?(?:[a-zçãé]+|m[eê]s)/i.test(lower)) day = 15;
+        else if (/\b(fim|final)\s+(?:de\s+)?(?:[a-zçãé]+|m[eê]s)/i.test(lower)) day = 28;
+      }
+      return `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  // Relativo: "mês que vem", "próximo mês", "esse mês", "mês seguinte"
+  if (/\b(m[eê]s\s+que\s+vem|pr[oó]ximo\s+m[eê]s|m[eê]s\s+seguinte)\b/i.test(lower)) {
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`;
+  }
+  if (/\b(esse\s+m[eê]s|este\s+m[eê]s|ainda\s+esse\s+m[eê]s)\b/i.test(lower)) {
+    return `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(Math.min(28, now.getDate() + 7)).padStart(2, '0')}`;
+  }
+  if (/\b(daqui\s+a\s+(\d+)\s*(?:meses|m[eê]s))\b/i.test(lower)) {
+    const m = lower.match(/daqui\s+a\s+(\d+)\s*(?:meses|m[eê]s)/i);
+    if (m) {
+      const future = new Date(now.getFullYear(), now.getMonth() + parseInt(m[1]), 1);
+      return `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-01`;
+    }
+  }
+
+  return null;
 }
 
 // C3: Detecta prazo de decisão/compra do cliente

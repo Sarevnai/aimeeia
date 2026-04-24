@@ -126,6 +126,34 @@ const SCENARIOS: Scenario[] = [
       { message: 'Quero saber a multa e o que precisa pra eu sair HOJE.', expect_action: 'handoff' },
     ],
   },
+
+  // ========== LOCAÇÃO — Sprint v1 ==========
+
+  {
+    // Persona Júlia: 28 anos, divorciada, 2 filhos, 1 cachorro pequeno, CLT R$ 6.5k.
+    // Precisa mudar até 30/05/2026 (urgente, fim de contrato atual).
+    // Busca: apto 2-3q em Trindade ou Santa Mônica, R$ 2.5-3.5k/mês.
+    //
+    // Valida (Sprint Locação v1):
+    // 1. Detecção de locacao via "alugar" / "alugando"
+    // 2. Engajamento sem perguntar renda/pets/data antes da busca
+    // 3. Busca filtrada por preço e bairro (heurística <50k = locação)
+    // 4. Após mostrar imóvel, captura renda + pets + move-in date NATURALMENTE
+    // 5. NÃO menciona garantia/fiador/seguro (post-visita só)
+    // 6. Handoff com qualification_data completa (income, has_pets, pet_type, move_in_date)
+    name: 'Locação L1 — Júlia (família + pet, mudança urgente)',
+    department: 'locacao',
+    min_score: 8.0,
+    turns: [
+      { message: 'Oi, tô procurando um apartamento pra alugar' },
+      { message: 'Ideal seria 2 ou 3 quartos, na Trindade ou Santa Mônica' },
+      { message: 'Faixa de uns 2500 a 3500 por mês' },
+      { message: 'Pode buscar sim, tô precisando ver opções' },
+      { message: 'Esse primeiro me interessou, quero visitar. Como faço?' },
+      { message: 'Minha renda é uns 6500 por mês, CLT' },
+      { message: 'Tenho um cachorro pequeno, tudo bem? E preciso me mudar até 30/05', expect_action: 'handoff' },
+    ],
+  },
 ];
 
 serve(async (req) => {

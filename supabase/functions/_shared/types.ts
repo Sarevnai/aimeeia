@@ -112,6 +112,11 @@ export interface QualificationData {
   detected_budget_max?: number | null;
   detected_interest?: string | null;
   detected_timeline?: string | null; // C3: "0-3m", "3-6m", "6m+"
+  // Locação v1: campos pré-visita específicos de aluguel
+  detected_income_monthly?: number | null;
+  detected_has_pets?: boolean | null;
+  detected_pet_type?: string | null;
+  detected_move_in_date?: string | null; // ISO date YYYY-MM-DD
   qualification_score?: number;
   questions_answered?: number;
   field_sources?: Record<string, 'client_explicit' | 'inferred'>;
@@ -124,6 +129,10 @@ export interface ExtractedQualificationData {
   detected_budget_max?: number;
   detected_interest?: string;
   detected_timeline?: string; // C3: "0-3m", "3-6m", "6m+"
+  detected_income_monthly?: number;
+  detected_has_pets?: boolean;
+  detected_pet_type?: string;
+  detected_move_in_date?: string;
   field_sources?: Record<string, 'client_explicit'>;
 }
 

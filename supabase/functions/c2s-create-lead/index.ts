@@ -327,6 +327,13 @@ function formatCurrencyBR(value: number | string | null | undefined): string | n
   return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 });
 }
 
+function formatDateBR(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 function buildLeadBody(leadData: any): string {
   const qualification = leadData.qualification || {};
   const lines: string[] = [];
@@ -350,6 +357,20 @@ function buildLeadBody(leadData: any): string {
   }
   if (qualification.detected_bedrooms) {
     perfilItems.push(`Quartos: ${qualification.detected_bedrooms}`);
+  }
+  // Locação v1: campos pré-visita
+  if (qualification.detected_income_monthly) {
+    perfilItems.push(`Renda mensal aprox.: ${formatCurrencyBR(qualification.detected_income_monthly)}`);
+  }
+  if (typeof qualification.detected_has_pets === 'boolean') {
+    if (qualification.detected_has_pets) {
+      perfilItems.push(`Pets: Sim${qualification.detected_pet_type ? ` (${qualification.detected_pet_type})` : ''}`);
+    } else {
+      perfilItems.push(`Pets: Não`);
+    }
+  }
+  if (qualification.detected_move_in_date) {
+    perfilItems.push(`Data alvo de mudança: ${formatDateBR(qualification.detected_move_in_date)}`);
   }
   if (perfilItems.length > 0) {
     lines.push('📋 PERFIL DO CLIENTE');
@@ -404,6 +425,10 @@ async function sendToC2S(config: any, leadData: any): Promise<any> {
     }
     if (qualification.detected_neighborhood) {
       qualTags.push(`Bairro: ${qualification.detected_neighborhood}`);
+    }
+    // Locação v1: tag de pets é a mais útil pro corretor filtrar imóveis compatíveis
+    if (typeof qualification.detected_has_pets === 'boolean') {
+      qualTags.push(qualification.detected_has_pets ? 'Tem pets' : 'Sem pets');
     }
     const tags = [...configTags, ...qualTags];
 

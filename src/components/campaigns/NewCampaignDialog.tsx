@@ -5,12 +5,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, ArrowRight, ArrowLeft, Send, Search } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Loader2, ArrowRight, ArrowLeft, Send } from 'lucide-react';
+import CampaignContactPicker from '@/components/campaigns/CampaignContactPicker';
 
 interface Props {
   open: boolean;
@@ -25,14 +22,9 @@ interface Template {
   components: any;
 }
 
-interface Contact {
+interface DispatchContact {
   id: string;
-  name: string | null;
   phone: string;
-  department_code: string | null;
-  tags: string[] | null;
-  crm_status: string | null;
-  crm_archive_reason: string | null;
 }
 
 const DEPARTMENTS = [
@@ -40,30 +32,6 @@ const DEPARTMENTS = [
   { code: 'vendas', label: 'Vendas' },
   { code: 'administrativo', label: 'Administrativo' },
 ];
-
-const STATUS_OPTIONS = [
-  { value: 'all', label: 'Todos os status' },
-  { value: 'Novo', label: 'Novo' },
-  { value: 'Em negociação', label: 'Em negociação' },
-  { value: 'Negócio fechado', label: 'Negócio fechado' },
-  { value: 'Arquivado', label: 'Arquivado' },
-  { value: 'sem_status', label: 'Sem status' },
-] as const;
-
-const statusBadgeClass = (status: string | null): string => {
-  switch (status) {
-    case 'Novo':
-      return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
-    case 'Em negociação':
-      return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
-    case 'Negócio fechado':
-      return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
-    case 'Arquivado':
-      return 'bg-muted text-muted-foreground border-border';
-    default:
-      return 'bg-muted/50 text-muted-foreground border-border';
-  }
-};
 
 const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) => {
   const { tenantId } = useTenant();
@@ -78,13 +46,8 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
   const [templateId, setTemplateId] = useState('');
   const [templates, setTemplates] = useState<Template[]>([]);
 
-  // Step 2
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  // Step 2 (IDs only; picker owns the list)
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [contactSearch, setContactSearch] = useState('');
-  const [contactDeptFilter, setContactDeptFilter] = useState('all');
-  const [contactStatusFilter, setContactStatusFilter] = useState('all');
-  const [loadingContacts, setLoadingContacts] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -93,7 +56,6 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
       setDeptCode('');
       setTemplateId('');
       setSelected(new Set());
-      setContactSearch('');
       return;
     }
     if (tenantId) {
@@ -105,57 +67,6 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
         .then(({ data }) => setTemplates(data || []));
     }
   }, [open, tenantId]);
-
-  useEffect(() => {
-    if (step === 2 && tenantId) {
-      setLoadingContacts(true);
-      (async () => {
-        const PAGE = 1000;
-        const all: any[] = [];
-        for (let from = 0; ; from += PAGE) {
-          const { data } = await supabase
-            .from('contacts')
-            .select('id, name, phone, department_code, tags, crm_status, crm_archive_reason, phone_valid, quality_issues')
-            .eq('tenant_id', tenantId)
-            .neq('phone_valid', false)
-            .order('name')
-            .range(from, from + PAGE - 1);
-          if (!data || data.length === 0) break;
-          all.push(...data);
-          if (data.length < PAGE) break;
-        }
-        setContacts(all);
-        setLoadingContacts(false);
-      })();
-    }
-  }, [step, tenantId]);
-
-  const filteredContacts = contacts.filter((c) => {
-    const matchSearch = !contactSearch ||
-      (c.name || '').toLowerCase().includes(contactSearch.toLowerCase()) ||
-      c.phone.includes(contactSearch);
-    const matchDept = contactDeptFilter === 'all' || c.department_code === contactDeptFilter;
-    const matchStatus =
-      contactStatusFilter === 'all' ||
-      (contactStatusFilter === 'sem_status' ? !c.crm_status : c.crm_status === contactStatusFilter);
-    return matchSearch && matchDept && matchStatus;
-  });
-
-  const toggleContact = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    if (selected.size === filteredContacts.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(filteredContacts.map((c) => c.id)));
-    }
-  };
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
@@ -185,7 +96,16 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
       return;
     }
 
-    const selectedContacts = contacts.filter((c) => selected.has(c.id));
+    const idList = Array.from(selected);
+    const selectedContacts: DispatchContact[] = [];
+    const CHUNK = 500;
+    for (let i = 0; i < idList.length; i += CHUNK) {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id, phone')
+        .in('id', idList.slice(i, i + CHUNK));
+      if (data) selectedContacts.push(...(data as DispatchContact[]));
+    }
 
     // 2. Create campaign_results with status 'pending'
     const results = selectedContacts.map((c) => ({
@@ -296,86 +216,13 @@ const NewCampaignDialog: React.FC<Props> = ({ open, onOpenChange, onCreated }) =
             </div>
           )}
 
-          {step === 2 && (
+          {step === 2 && tenantId && (
             <div className="space-y-3 py-2">
-              <div className="flex flex-col sm:flex-row gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    value={contactSearch}
-                    onChange={(e) => setContactSearch(e.target.value)}
-                    placeholder="Buscar contato..."
-                    className="pl-9"
-                  />
-                </div>
-                <Select value={contactDeptFilter} onValueChange={setContactDeptFilter}>
-                  <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos deptos</SelectItem>
-                    {DEPARTMENTS.map((d) => (
-                      <SelectItem key={d.code} value={d.code}>{d.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={contactStatusFilter} onValueChange={setContactStatusFilter}>
-                  <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="Status do lead" /></SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center justify-between text-sm">
-                <button onClick={toggleAll} className="text-accent hover:underline">
-                  {selected.size === filteredContacts.length && filteredContacts.length > 0 ? 'Desmarcar todos' : 'Selecionar todos'}
-                </button>
-                <span className="text-muted-foreground">{selected.size} selecionado(s)</span>
-              </div>
-
-              {loadingContacts ? (
-                <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-accent" /></div>
-              ) : filteredContacts.length === 0 ? (
-                <p className="text-center py-8 text-muted-foreground text-sm">Nenhum contato encontrado.</p>
-              ) : (
-                <ScrollArea className="max-h-[40vh]">
-                  <div className="space-y-1">
-                    {filteredContacts.length > 200 && (
-                      <p className="text-[11px] text-muted-foreground px-1 pb-1 sticky top-0 bg-background/95 backdrop-blur z-10">
-                        Mostrando 200 de {filteredContacts.length} — use busca/filtro de status para refinar. <strong>Selecionar todos</strong> marca os {filteredContacts.length} filtrados.
-                      </p>
-                    )}
-                    {filteredContacts.slice(0, 200).map((c) => (
-                      <label
-                        key={c.id}
-                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-pointer"
-                      >
-                        <Checkbox
-                          checked={selected.has(c.id)}
-                          onCheckedChange={() => toggleContact(c.id)}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{c.name || 'Sem nome'}</p>
-                          <p className="text-xs text-muted-foreground">{c.phone}</p>
-                        </div>
-                        {c.crm_status && (
-                          <Badge
-                            variant="outline"
-                            className={cn('text-[10px] shrink-0 font-medium', statusBadgeClass(c.crm_status))}
-                            title={c.crm_archive_reason ? `Motivo: ${c.crm_archive_reason}` : undefined}
-                          >
-                            {c.crm_status}
-                          </Badge>
-                        )}
-                        {c.department_code && (
-                          <Badge variant="outline" className="text-xs">{c.department_code}</Badge>
-                        )}
-                      </label>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
+              <CampaignContactPicker
+                tenantId={tenantId}
+                selectedIds={selected}
+                onChange={setSelected}
+              />
             </div>
           )}
 

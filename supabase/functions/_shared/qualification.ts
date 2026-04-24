@@ -103,8 +103,17 @@ export function extractQualificationFromText(
   // tenta corrigir multiplicando por 1000 (ex: cliente digitou "1,5 k" querendo dizer
   // "1,5 milhão") antes de desistir. Se mesmo assim não encaixar, descarta pra
   // evitar persistir orçamento absurdo.
+  //
+  // Anti-contamination v2: se a mensagem é DOMINANTEMENTE sobre RENDA (palavras
+  // de renda/salário sem palavras de orçamento de imóvel) E já existe budget
+  // salvo, não mexe — protege budget=4500 de ser sobrescrito quando cliente
+  // diz "ganho 9k de renda".
+  const incomeContext = /\b(renda|sal[aá]rio|gan(?:ho|ha|hamos)|recebo|fatur[oa]|ganhar)\b/i.test(lower);
+  const budgetContext = /\b(or[cç]amento|alug(?:uel|o)|valor\s+(?:do\s+|de\s+|m[aá]ximo|mensal)|at[eé]|faixa|consigo\s+pagar|pago|teto|m[aá]ximo|cabe|pode\s+ser\s+at[eé])\b/i.test(lower);
+  const isPureIncomeMessage = incomeContext && !budgetContext && currentData?.detected_budget_max;
+
   const effectiveInterest = interest || currentData?.detected_interest || null;
-  let budget = detectBudget(lower);
+  let budget = isPureIncomeMessage ? null : detectBudget(lower);
   if (budget && effectiveInterest === 'venda' && budget < 50_000) {
     const rescued = budget * 1000;
     budget = (rescued >= 100_000 && rescued <= 50_000_000) ? rescued : null;
@@ -778,10 +787,18 @@ export async function syncContactTags(
 // "salário 4500", "tiro 7k mensais", "minha renda é uns 5,5 mil". Só extrai quando há
 // CONTEXTO de renda — número solto não vira renda (já é budget/aluguel).
 function detectIncomeMonthly(lower: string, lastAiMessage?: string | null): number | null {
-  const incomeContext = /\b(renda|sal[aá]rio|gan(?:ho|hamos|ha)|recebo|tiro|fa[cç]o|fatur[oa]|ganhar|recebimento|fonte\s+de\s+renda|por\s+m[eê]s|mensais|mensal)\b/i;
-  const aiAskedIncome = lastAiMessage && /\b(renda|sal[aá]rio|ganha|por\s+m[eê]s|mensais?|fatur[oa])\b/i.test(lastAiMessage);
+  // Palavras EXPLÍCITAS de renda — não inclui "por mês"/"mensal" sozinhos pra evitar
+  // confundir com valor de aluguel ("até 4500 por mês"). Income só dispara em contexto
+  // claro de renda/salário/CLT/PJ ou quando AI perguntou diretamente sobre renda.
+  const incomeContext = /\b(renda|sal[aá]rio|gan(?:ho|hamos|ha)|recebo|tiro|fatur[oa]|fonte\s+de\s+renda|clt|pj|aut[oô]nom[oa]|carteira\s+assinada|microempreend|mei|pessoa\s+jur[ií]dica|holerite|comprov(?:o|ar)\s+renda)\b/i;
+  const aiAskedIncome = lastAiMessage && /\b(renda|sal[aá]rio|ganha|fatur[oa]|comprov(?:a|ante).{0,15}renda|clt|pj)\b/i.test(lastAiMessage);
 
   if (!incomeContext.test(lower) && !aiAskedIncome) return null;
+
+  // Se a mensagem é PURAMENTE sobre aluguel (tem "aluguel"/"alug" + número + "mês"/"mensal" mas SEM
+  // termo de renda forte), descarta — protege contra falso positivo em "até 4500 por mês".
+  const isPureRentalMention = /\balug/i.test(lower) && !/\b(renda|sal[aá]rio|gan(?:ho|hamos|ha)|recebo|fatur[oa]|clt|pj)\b/i.test(lower);
+  if (isPureRentalMention) return null;
 
   const patterns = [
     /([\d.,]+)\s*(?:mil|k)\s*(?:reais)?\b/i,

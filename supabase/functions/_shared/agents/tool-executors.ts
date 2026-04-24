@@ -8,6 +8,71 @@ import { logActivity, formatCurrency } from '../utils.ts';
 import { ConversationMessage, PropertyResult } from '../types.ts';
 import { insertTrace, estimateTokens, estimateCost } from '../ai-call.ts';
 
+// ========== SHOWN PROPERTIES (CROSS-CONVERSATION MEMORY) ==========
+// Persiste em contacts.shown_property_codes os imóveis já apresentados ao lead,
+// de modo que uma nova conversa (rewarm, novo webhook) não repita os mesmos
+// imóveis. Complementa conversation_states.shown_property_ids (per-conversation).
+
+export async function getShownPropertyCodes(ctx: AgentContext): Promise<Set<string>> {
+  const codes = new Set<string>();
+  try {
+    if (ctx.contactId) {
+      const { data: contact } = await ctx.supabase
+        .from('contacts')
+        .select('shown_property_codes')
+        .eq('id', ctx.contactId)
+        .maybeSingle();
+      const arr = Array.isArray(contact?.shown_property_codes) ? contact.shown_property_codes : [];
+      for (const entry of arr) {
+        if (entry?.code) codes.add(String(entry.code));
+      }
+    }
+    const { data: state } = await ctx.supabase
+      .from('conversation_states')
+      .select('shown_property_ids')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('phone_number', ctx.phoneNumber)
+      .maybeSingle();
+    for (const c of (state?.shown_property_ids || []) as string[]) {
+      codes.add(String(c));
+    }
+  } catch (err) {
+    console.warn('⚠️ getShownPropertyCodes failed:', (err as Error).message);
+  }
+  return codes;
+}
+
+export async function recordShownProperty(ctx: AgentContext, code: string, reaction: 'interest' | 'declined' | 'no_response' | 'unknown' = 'unknown'): Promise<void> {
+  if (!ctx.contactId || !code) return;
+  try {
+    const { data: contact } = await ctx.supabase
+      .from('contacts')
+      .select('shown_property_codes')
+      .eq('id', ctx.contactId)
+      .maybeSingle();
+    const current = Array.isArray(contact?.shown_property_codes) ? contact.shown_property_codes : [];
+    // Se já tem esse code, atualiza reaction se melhor (interest > declined > unknown)
+    const idx = current.findIndex((e: any) => e?.code === code);
+    const entry = {
+      code,
+      shown_at: new Date().toISOString(),
+      reaction,
+      conversation_id: ctx.conversationId,
+    };
+    if (idx >= 0) {
+      current[idx] = { ...current[idx], ...entry };
+    } else {
+      current.push(entry);
+    }
+    await ctx.supabase
+      .from('contacts')
+      .update({ shown_property_codes: current, updated_at: new Date().toISOString() })
+      .eq('id', ctx.contactId);
+  } catch (err) {
+    console.warn('⚠️ recordShownProperty failed:', (err as Error).message);
+  }
+}
+
 // ========== PROPERTY CAPTION GENERATION (AI) ==========
 
 export async function generatePropertyCaption(
@@ -448,15 +513,9 @@ export async function executePropertySearch(
       valor_condominio: p.condo_fee || null,
     }));
 
-    // Filter out properties already shown to this lead
-    const { data: prevState } = await ctx.supabase
-      .from('conversation_states')
-      .select('shown_property_ids')
-      .eq('tenant_id', ctx.tenantId)
-      .eq('phone_number', ctx.phoneNumber)
-      .maybeSingle();
-
-    const shownIds = new Set((prevState?.shown_property_ids || []) as string[]);
+    // Filter out properties already shown to this lead — inclui cross-conversation
+    // (contacts.shown_property_codes), não só a conversa atual.
+    const shownIds = await getShownPropertyCodes(ctx);
     const formattedProperties = allFormattedProperties.filter(p => !shownIds.has(p.codigo));
 
     if (formattedProperties.length === 0) {
@@ -604,6 +663,9 @@ export async function executePropertySearch(
           last_property_shown_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }, { onConflict: 'tenant_id,phone_number' });
+
+      // Cross-conversation: persiste no contact pra não repetir em rewarm futuro
+      if (prop.codigo) await recordShownProperty(ctx, prop.codigo);
     }
 
     // C5: Persist lead qualification data — MERGE with existing data, never overwrite with null.
@@ -620,13 +682,17 @@ export async function executePropertySearch(
     // Use existing extracted qualification data as the source of truth, NOT tool call args
     const safeQual = ctx.qualificationData || existingQual || {};
 
+    // Bug: usar clientBudget como fallback persistia args.preco_max hallucinado pelo LLM
+    // como detected_budget_max permanente. Hoje confiamos APENAS no que veio do extractor
+    // (regex em qualification.ts), nunca em args do LLM. Se safeQual.detected_budget_max
+    // for null, mantém null — vai ser preenchido quando o cliente realmente disser.
     await ctx.supabase
       .from('lead_qualification')
       .upsert({
         tenant_id: ctx.tenantId,
         phone_number: ctx.phoneNumber,
         detected_property_type: safeQual.detected_property_type || null,
-        detected_budget_max: safeQual.detected_budget_max || clientBudget || null,
+        detected_budget_max: safeQual.detected_budget_max || null,
         detected_interest: safeQual.detected_interest || null,
         detected_neighborhood: safeQual.detected_neighborhood || null,
         detected_bedrooms: safeQual.detected_bedrooms || null,
@@ -776,6 +842,9 @@ export async function executePropertyByCode(
         last_property_shown_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,phone_number' });
+
+    // Cross-conversation: persiste no contact pra não repetir em rewarm futuro
+    if (formatted.codigo) await recordShownProperty(ctx, formatted.codigo);
 
     // Enviar foto + caption no WhatsApp
     const agentName = (ctx.aiConfig as any)?.agent_name || 'Aimee';

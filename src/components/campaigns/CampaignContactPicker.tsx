@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { List } from 'react-window';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -305,48 +304,17 @@ const CampaignContactPicker: React.FC<Props> = ({ tenantId, selectedIds, onChang
     tagsFilter.size +
     (dateRange?.from ? 1 : 0);
 
-  /* Virtualized row */
-  type RowProps = { items: PickerContact[]; selectedIds: Set<string>; toggleOne: (id: string) => void };
-  const Row = ({ index, style, items, selectedIds, toggleOne }: { index: number; style: React.CSSProperties } & RowProps) => {
-    const c = items[index];
-    if (!c) return null;
-    const checked = selectedIds.has(c.id);
-    return (
-      <div style={style} className="px-1">
-        <button
-          type="button"
-          onClick={() => toggleOne(c.id)}
-          className={cn(
-            'flex items-center gap-3 rounded-lg p-2.5 border text-left w-full h-full transition-colors',
-            checked ? 'border-primary/40 bg-primary/5' : 'border-transparent hover:bg-muted/30'
-          )}
-        >
-          <Checkbox checked={checked} className="shrink-0 pointer-events-none" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">{c.name || 'Sem nome'}</p>
-            <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
-              <Phone className="h-3 w-3 shrink-0" /> {c.phone}
-              {c.crm_neighborhood && <span className="truncate">· {c.crm_neighborhood}</span>}
-            </p>
-          </div>
-          {c.crm_natureza && (
-            <Badge variant="outline" className="text-[10px] shrink-0 hidden md:inline-flex">
-              {c.crm_natureza}
-            </Badge>
-          )}
-          {c.crm_status && (
-            <Badge
-              variant="outline"
-              className={cn('text-[10px] shrink-0 font-medium', statusBadgeClass(c.crm_status))}
-              title={c.crm_archive_reason ? `Motivo: ${c.crm_archive_reason}` : undefined}
-            >
-              {c.crm_status}
-            </Badge>
-          )}
-        </button>
-      </div>
-    );
-  };
+  /* Windowed rendering — render only the rows in the scroll viewport.
+     Avoids react-window v2 sizing quirks while keeping 6k+ rows smooth. */
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const ROW_H = 60;
+  const VIEWPORT_H = 420;
+  const OVERSCAN = 6;
+  const totalHeight = filtered.length * ROW_H;
+  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const endIdx = Math.min(filtered.length, Math.ceil((scrollTop + VIEWPORT_H) / ROW_H) + OVERSCAN);
+  const visibleRows = filtered.slice(startIdx, endIdx);
 
   return (
     <div className="space-y-3">
@@ -489,15 +457,56 @@ const CampaignContactPicker: React.FC<Props> = ({ tenantId, selectedIds, onChang
           </p>
         </div>
       ) : (
-        <div className="rounded-lg border border-border bg-background" style={{ height: 420 }}>
-          <List
-            rowComponent={Row}
-            rowCount={filtered.length}
-            rowHeight={60}
-            rowProps={{ items: filtered, selectedIds, toggleOne } as RowProps}
-            defaultHeight={420}
-            style={{ height: '100%', width: '100%' }}
-          />
+        <div
+          ref={scrollRef}
+          onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+          className="rounded-lg border border-border bg-background overflow-auto"
+          style={{ height: VIEWPORT_H }}
+        >
+          <div style={{ height: totalHeight, position: 'relative' }}>
+            {visibleRows.map((c, i) => {
+              const checked = selectedIds.has(c.id);
+              const top = (startIdx + i) * ROW_H;
+              return (
+                <div
+                  key={c.id}
+                  style={{ position: 'absolute', top, left: 0, right: 0, height: ROW_H, padding: '2px 4px' }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleOne(c.id)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg p-2.5 border text-left w-full h-full transition-colors',
+                      checked ? 'border-primary/40 bg-primary/5' : 'border-transparent hover:bg-muted/30'
+                    )}
+                  >
+                    <Checkbox checked={checked} className="shrink-0 pointer-events-none" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{c.name || 'Sem nome'}</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
+                        <Phone className="h-3 w-3 shrink-0" /> {c.phone}
+                        {c.crm_neighborhood && <span className="truncate">· {c.crm_neighborhood}</span>}
+                      </p>
+                    </div>
+                    {c.crm_natureza && (
+                      <Badge variant="outline" className="text-[10px] shrink-0 hidden md:inline-flex">
+                        {c.crm_natureza}
+                      </Badge>
+                    )}
+                    {c.crm_status && (
+                      <Badge
+                        variant="outline"
+                        className={cn('text-[10px] shrink-0 font-medium', statusBadgeClass(c.crm_status))}
+                        title={c.crm_archive_reason ? `Motivo: ${c.crm_archive_reason}` : undefined}
+                      >
+                        {c.crm_status}
+                      </Badge>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

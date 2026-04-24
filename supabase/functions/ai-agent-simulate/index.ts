@@ -91,6 +91,13 @@ serve(async (req: Request) => {
         .eq('tenant_id', tenant_id)
         .eq('phone_number', simPhone);
 
+      // Clear lead_qualification to prevent persona state leaking across simulation runs
+      await supabase
+        .from('lead_qualification')
+        .delete()
+        .eq('tenant_id', tenant_id)
+        .eq('phone_number', simPhone);
+
       // Reset contact name to 'Cliente' so previous persona name doesn't carry over
       await supabase
         .from('contacts')

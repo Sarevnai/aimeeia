@@ -12,6 +12,53 @@ import { SkillConfig, StructuredConfig, AiModule } from '../types.ts';
 import { resolveContactNameForPrompt } from '../utils.ts';
 import { runPreCompletionChecks } from './pre-completion-check.ts';
 
+// ========== LOCAÇÃO FLOOR REJECTION (OVERRIDE) ==========
+// Quando o cliente informa orçamento abaixo do piso comercial do tenant,
+// retorna um bloco OVERRIDE que deve ir no TOPO do prompt — anula phases/diretivas.
+function buildLocacaoFloorRejection(ctx: AgentContext): string {
+  if (ctx.department !== 'locacao') return '';
+  const minRentalBudget = ctx.tenant?.min_rental_budget;
+  const clientBudget = ctx.qualificationData?.detected_budget_max ? Number(ctx.qualificationData.detected_budget_max) : null;
+  if (!minRentalBudget || !clientBudget) return '';
+  if (clientBudget >= Number(minRentalBudget)) return '';
+
+  const minFmt = Number(minRentalBudget).toLocaleString('pt-BR');
+  const clientFmt = clientBudget.toLocaleString('pt-BR');
+
+  return `<override-rejeicao-piso priority="MAXIMA">
+🚨 OVERRIDE OBRIGATÓRIO — IGNORE TODAS AS FASES E DIRETIVAS DE QUALIFICAÇÃO/BUSCA/HANDOFF ABAIXO 🚨
+
+CONTEXTO: A ${ctx.tenant.company_name} só trabalha com locação a partir de R$ ${minFmt}/mês.
+O cliente informou orçamento de R$ ${clientFmt}/mês — ABAIXO DO PISO COMERCIAL.
+
+ESTE É UM CASO DE REJEIÇÃO GENTIL. NADA DAS FASES NORMAIS DE QUALIFICAÇÃO SE APLICA AQUI.
+
+INSTRUÇÕES IMPERATIVAS (substituem qualquer outra orientação no prompt):
+
+1. ❌ **PROIBIDO chamar buscar_imoveis** — não temos imóveis pra essa faixa.
+2. ❌ **PROIBIDO continuar coletando dados** (renda, pets, mudança, bairro, tipo). Esses dados NÃO importam mais.
+3. ❌ **PROIBIDO chamar enviar_lead_c2s** sem necessidade — só fazer handoff se cliente PEDIR atendimento humano após a sua resposta de rejeição.
+4. ✅ **OBRIGATÓRIO responder agora com gentileza e fechar a conversa**, com este conteúdo essencial (você pode adaptar palavras mas DEVE manter os 4 pontos):
+   a. Agradecer o contato e reconhecer o esforço da pessoa
+   b. Explicar com transparência que a ${ctx.tenant.company_name} trabalha com locações a partir de R$ ${minFmt}/mês
+   c. Ser honesta: dizer que não tem imóveis no valor dela, sem prometer "vou tentar achar algo"
+   d. Indicar caminho real: portais ZAP Imóveis, OLX, QuintoAndar onde ela encontra direto com proprietário ou imobiliárias dessa faixa
+   e. Desejar boa sorte de coração
+
+EXEMPLO DE RESPOSTA APROPRIADA (use como referência de TOM, adapte às palavras dela):
+
+"Oi! Primeiro, te agradeço muito pelo contato e quero ser super transparente com você: aqui na ${ctx.tenant.company_name} a gente trabalha com locação a partir de R$ ${minFmt}/mês, então pelo orçamento que você mencionou eu não vou ter imóvel pra te oferecer nesse momento. Prefiro te falar isso agora a te deixar esperando uma busca que não vai dar em nada — seu tempo é precioso, ainda mais com essa urgência aí.
+
+Pra essa faixa de aluguel, o caminho que costumo indicar é dar uma boa olhada nos portais como ZAP Imóveis, OLX e QuintoAndar. Lá você acha bastante opção direta com proprietário ou imobiliárias que atendem essa faixa. Vale também perguntar em grupos de bairro no Facebook — muita gente anuncia por lá.
+
+Te desejo MUITO sucesso nessa busca, viu? 🏡 Qualquer coisa, fica à vontade pra voltar."
+
+5. SE o cliente questionar, pedir exceção, ou pedir pra falar com humano após sua resposta: aí sim, com classe e empatia, chame enviar_lead_c2s com motivo "cliente abaixo do piso (R$ ${clientFmt}/mês) pediu atendimento humano".
+
+ESTE OVERRIDE TEM PRIORIDADE ABSOLUTA. Volte a obedecer as fases normais SOMENTE se o cliente atualizar o orçamento pra valor >= R$ ${minFmt}/mês.
+</override-rejeicao-piso>`;
+}
+
 // ========== LOCAÇÃO-SPECIFIC GUIDANCE ==========
 // Disparado APENAS quando department === 'locacao'.
 // Cobre o fluxo "engaja primeiro" (Sprint v1, 2026-04-24):
@@ -27,9 +74,6 @@ function buildLocacaoSpecificGuidance(ctx: AgentContext): string {
   const hasIncome = !!qd?.detected_income_monthly;
   const hasPetsAnswered = typeof qd?.detected_has_pets === 'boolean';
   const hasMoveIn = !!qd?.detected_move_in_date;
-  const minRentalBudget = ctx.tenant?.min_rental_budget;
-  const clientBudget = qd?.detected_budget_max ? Number(qd.detected_budget_max) : null;
-  const belowFloor = !!(minRentalBudget && clientBudget && clientBudget < Number(minRentalBudget));
 
   const finalizacaoStatus = [
     `${hasIncome ? '✅' : '⏳'} renda mensal aproximada`,
@@ -37,25 +81,7 @@ function buildLocacaoSpecificGuidance(ctx: AgentContext): string {
     `${hasMoveIn ? '✅' : '⏳'} data alvo de mudança`,
   ].join(' | ');
 
-  // Se piso configurado e cliente abaixo, instrução é clara: recusar com gentileza, NÃO qualificar
-  const rejectionBlock = (minRentalBudget && belowFloor) ? `
-
-⚠️ **REJEIÇÃO POR PISO MÍNIMO** ⚠️
-A ${ctx.tenant.company_name} trabalha com locações **a partir de R$ ${Number(minRentalBudget).toLocaleString('pt-BR')}/mês**.
-O cliente informou orçamento de R$ ${clientBudget!.toLocaleString('pt-BR')}/mês — está abaixo do piso.
-
-REGRAS OBRIGATÓRIAS:
-1. **NÃO chame buscar_imoveis** — não temos imóveis pra esse perfil.
-2. **NÃO continue qualificando** (renda, pets, mudança não importam aqui).
-3. **NÃO faça handoff pra C2S** — não é lead pra equipe comercial.
-4. **Responda com gentileza e empatia**: agradeça o contato, explique de forma humana e sem julgamento que a empresa atua em outra faixa, e ofereça um caminho. Sugestão de phrasing:
-
-"Oi! Agradeço muito o contato. Te conto com transparência: aqui na ${ctx.tenant.company_name} a gente trabalha com locação a partir de R$ ${Number(minRentalBudget).toLocaleString('pt-BR')}/mês, então não temos imóveis no valor que cabe pra você nesse momento. Não quero te fazer perder tempo aqui esperando uma busca que não vai trazer resultado. Pra essa faixa, costumo recomendar que você dê uma olhada nos portais ZAP, OLX e QuintoAndar — lá você encontra muita opção direta com proprietário ou imobiliárias que atendem essa faixa. Te desejo MUITO sucesso na busca! 🏡✨"
-
-5. Se o cliente insistir / pedir uma exceção / questionar: mantenha o tom gentil mas seja firme — o piso é política comercial. Se ele ficar irritado ou pedir falar com humano, aí sim chame enviar_lead_c2s com motivo "cliente abaixo do piso pedindo atendimento humano".
-` : '';
-
-  return `<locacao-fluxo>${rejectionBlock}
+  return `<locacao-fluxo>
 ATENDIMENTO DE LOCAÇÃO — FLUXO ESPECÍFICO
 
 Você está atendendo um lead de locação. O fluxo segue 4 momentos. NÃO pule etapas, NÃO interrogue.
@@ -114,6 +140,10 @@ ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}.`
     conversationSource: ctx.conversationSource,
   });
   if (firstTurnCtx) sections.push(firstTurnCtx);
+
+  // Locação floor rejection — OVERRIDE absoluto, vem ANTES de portal/módulo/contexto
+  const floorReject = buildLocacaoFloorRejection(ctx);
+  if (floorReject) sections.push(floorReject);
 
   // Portal lead — imóvel pré-selecionado (Canal Pro ZAP / VivaReal / OLX)
   // O código do imóvel É a qualificação. Enquanto o código estiver setado, Aimee só fala DESSE imóvel.
@@ -277,7 +307,7 @@ REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
 REGRAS:
 - Pergunte UMA informação por vez, de forma natural
 - Siga a regra de idioma da seção <idioma>, espelhando o idioma do cliente. Máximo 3 parágrafos.
-${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${buildLocacaoSpecificGuidance(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}\n\n${buildMultilingualDirective()}`;
+${buildLocacaoFloorRejection(ctx)}${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${buildLocacaoSpecificGuidance(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}\n\n${buildMultilingualDirective()}`;
 }
 
 function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig): string {
@@ -299,6 +329,10 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
   };
 
   const sections: string[] = [];
+
+  // OVERRIDE — locação floor rejection (vem ANTES de tudo se aplicável)
+  const floorReject = buildLocacaoFloorRejection(ctx);
+  if (floorReject) sections.push(floorReject);
 
   // Identity
   sections.push(`# IDENTIDADE E PAPEL`);

@@ -190,7 +190,7 @@ serve(async (req: Request) => {
           const triageExtracted = extractQualificationFromText(message_body, qualData || {}, regions);
           if (Object.keys(triageExtracted).length > 0) {
             const merged = mergeQualificationData(qualData, triageExtracted);
-            await saveQualificationData(supabase, tenant_id, phone_number, contact_id, merged);
+            await saveQualificationData(supabase, tenant_id, phone_number, contact_id, merged, conversation_id);
             console.log(`📋 Triage qualification extracted:`, Object.keys(triageExtracted).filter(k => (triageExtracted as any)[k]).join(', '));
 
             if (triageExtracted.detected_interest) {
@@ -390,7 +390,7 @@ serve(async (req: Request) => {
     }
 
     if (Object.keys(extracted).length > 0) {
-      await saveQualificationData(supabase, tenant_id, phone_number, contact_id, mergedQual);
+      await saveQualificationData(supabase, tenant_id, phone_number, contact_id, mergedQual, conversation_id);
 
       // Se o cliente acabou de explicitar finalidade (venda/locação) e ela diverge
       // do department_code atual da conversa, realinha. Evita conversa criada como

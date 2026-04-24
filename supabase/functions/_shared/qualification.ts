@@ -89,18 +89,32 @@ export function extractQualificationFromText(
     sources.detected_bedrooms = 'client_explicit';
   }
 
-  // Budget detection
-  const budget = detectBudget(lower);
-  if (budget && budget !== currentData?.detected_budget_max) {
-    extracted.detected_budget_max = budget;
-    sources.detected_budget_max = 'client_explicit';
-  }
-
   // Interest detection — always check, allow correction
+  // NOTE: moved before budget so sanity check can use the freshly detected interest.
   const interest = detectInterest(lower);
   if (interest && interest !== currentData?.detected_interest) {
     extracted.detected_interest = interest;
     sources.detected_interest = 'client_explicit';
+  }
+
+  // Budget detection (sanity: interest vs faixa)
+  // Em FLN não existe venda de imóvel < R$ 50k; também não existe aluguel > R$ 50k/mês
+  // na prática. Se o número detectado cair fora da faixa esperada pra finalidade,
+  // tenta corrigir multiplicando por 1000 (ex: cliente digitou "1,5 k" querendo dizer
+  // "1,5 milhão") antes de desistir. Se mesmo assim não encaixar, descarta pra
+  // evitar persistir orçamento absurdo.
+  const effectiveInterest = interest || currentData?.detected_interest || null;
+  let budget = detectBudget(lower);
+  if (budget && effectiveInterest === 'venda' && budget < 50_000) {
+    const rescued = budget * 1000;
+    budget = (rescued >= 100_000 && rescued <= 50_000_000) ? rescued : null;
+  } else if (budget && effectiveInterest === 'locacao' && budget > 50_000) {
+    // Aluguel > 50k/mês é provavelmente valor de venda mal rotulado; descarta.
+    budget = null;
+  }
+  if (budget && budget !== currentData?.detected_budget_max) {
+    extracted.detected_budget_max = budget;
+    sources.detected_budget_max = 'client_explicit';
   }
 
   // C3: Timeline detection (prazo de decisão)
@@ -219,14 +233,15 @@ export async function saveQualificationData(
   tenantId: string,
   phoneNumber: string,
   contactId: string | null,
-  data: QualificationData
+  data: QualificationData,
+  conversationId?: string | null
 ) {
   // Always recalculate score before persisting
   const freshScore = calculateQualificationScore(data);
   data.qualification_score = freshScore;
 
   // Save to lead_qualification (unique constraint: tenant_id + phone_number)
-  const { error } = await supabase.from('lead_qualification').upsert({
+  const payload: Record<string, any> = {
     tenant_id: tenantId,
     phone_number: phoneNumber,
     detected_neighborhood: data.detected_neighborhood || null,
@@ -238,7 +253,10 @@ export async function saveQualificationData(
     qualification_score: freshScore,
     field_sources: data.field_sources || {},
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'tenant_id,phone_number' });
+  };
+  if (conversationId) payload.conversation_id = conversationId;
+
+  const { error } = await supabase.from('lead_qualification').upsert(payload, { onConflict: 'tenant_id,phone_number' });
 
   if (error) {
     console.error(`❌ saveQualificationData failed for ${phoneNumber}:`, error.message, error.details);
@@ -431,7 +449,9 @@ function detectNeighborhood(
 }
 
 function detectPropertyType(lower: string): string | null {
-  if (/apartamento|apto|ap\b/i.test(lower)) return 'apartamento';
+  // Bugfix: `ap\b` não casa "apt" (t é word char). Adicionar apt/apto/apê/apes/apês.
+  // Cobre também "aptos" e "apes" (plurais informais) + acentuações.
+  if (/\b(apartamentos?|aptos?|ap[êe]s?|apts?)\b/i.test(lower)) return 'apartamento';
   if (/\bcasa\b/i.test(lower)) return 'casa';
   if (/cobertura/i.test(lower)) return 'cobertura';
   if (/terreno|lote/i.test(lower)) return 'terreno';

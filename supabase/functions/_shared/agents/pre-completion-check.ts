@@ -78,15 +78,18 @@ export async function runPreCompletionChecks(
     .test(trimmedResponse) && trimmedResponse.length < 40;
   const endsMidClause = /[,;:]\s*$/.test(trimmedResponse) && trimmedResponse.length < 80;
 
-  if (isEmpty || looksLikeNakedGreeting || endsMidClause) {
+  // Pós-handoff: despedida curta ("Obrigada, até breve!") é esperada e NÃO é truncamento.
+  // Não aplicar fallback "me perdi aqui" porque o handoff já executou e reinvocaria a Aimee.
+  const handoffJustExecuted = ctx.toolsExecuted?.some(t =>
+    t === 'enviar_lead_c2s' || t === 'executar_handoff' || t === 'encaminhar_humano' || t === 'transferir_administrativo'
+  );
+
+  if ((isEmpty || looksLikeNakedGreeting || endsMidClause) && !handoffJustExecuted) {
     hasCritical = true;
     const reason = isEmpty ? 'vazia ou curta demais'
       : looksLikeNakedGreeting ? 'apenas saudação sem conteúdo (provável truncamento do LLM)'
       : 'termina em vírgula ou dois-pontos (provável corte mid-clause)';
     issues.push(`TRUNCATED_RESPONSE: ${reason} — "${trimmedResponse.slice(0, 60)}"`);
-    // Fallback neutro: caller vai mandar isso em vez da msg quebrada.
-    // Não simulamos continuidade porque não sabemos o que o LLM ia dizer —
-    // melhor pedir reformulação de forma honesta.
     sanitized = 'Desculpe, me perdi aqui. Pode repetir sua última mensagem que eu te respondo direitinho?';
   }
 

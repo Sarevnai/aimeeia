@@ -23,14 +23,17 @@ function normalize(text: string): string {
 // Phrases that signal explicit opt-out or strong disinterest.
 // Ordered from most specific to most generic.
 const OPT_OUT_PATTERNS: RegExp[] = [
-  /\b(retire|retira|retirar|remove|remova|remover|exclu[ai]|apagu?a[rs]?|descadastr|tira[rs]?)\b.{0,40}\b(contato|cadastro|lista|numero|numero|dados)\b/,
+  /\b(retire|retira|retirar|remove|remova|remover|exclu[ai]|exclua[rs]?|apagu?a[rs]?|descadastr|tira[rs]?)\b.{0,40}\b(contato|cadastro|lista|numero|numero|dados)\b/,
   /\bn(a|ã)o.{0,15}(me.{0,10})?(mande|envi|contat|procure|ligue|escrev|manda|envia|procura|liga|escreve)\b/,
-  /\b(parem?|pare)\b.{0,25}\b(mandar|enviar|escrever|contat|liga)/,
+  /\b(parem?|pare)\b.{0,30}\b(mandar|enviar|escrever|contat|liga|manda|envia|me\s+mand)/,
   /\bnunca mais\b.{0,30}\b(mande|envi|contat|procur|lig|escrev)/,
   /\bsa(i|í)r\b.{0,25}\blista/,
-  /\bn(a|ã)o (tenho|quero)\s+(mais\s+)?interesse/,
+  /\bn(a|ã)o (tenho|quero|estou|to|tô)\s+(mais\s+)?interesse/,
   /\bsem\s+interesse\b/,
   /\bn(a|ã)o me interessa(r|)\b/,
+  /\bn(a|ã)o\s+quero\b(?!\s+(mais\s+)?(ver|saber|conversar\s+com\s+voc))/,
+  /\bn(a|ã)o\s+est(a|á|ou|ô|o)\s+mais\b/,
+  /\bj(a|á)\s+(consegui|resolvi|comprei|aluguei|fechei|achei|encontrei)\b/,
   /\bpor favor.{0,20}n(a|ã)o.{0,15}(mande|envi|contat|lig)/,
   /\bmudan(c|ç)a de planos\b/,
   /\bdesisti\b/,

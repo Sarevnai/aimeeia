@@ -823,11 +823,11 @@ function detectPets(lower: string): { has_pets?: boolean; pet_type?: string } | 
   const result: { has_pets?: boolean; pet_type?: string } = {};
   const types: string[] = [];
 
-  if (/\b(cachorr[oa]s?|c[aã]es?|dog|doguinho|vira-?lata|filhote)\b/i.test(lower)) {
+  if (/\b(cachorr(?:o|a|os|as|inh[oa]s?)|c[aã]es?|dog|doguinho|vira-?lata|filhote|pet|cachorrinh[oa]s?|cachorr[oa]\s+pequen[oa]|lhasa|poodle|shih.?tzu|labrador|golden|bulldog|pinscher|spitz|maltes|yorkshire|chihuahua|dachshund|salsicha|pug|husky|pastor|border\s+collie|dálmata|dalmata|pitbull|boxer|rottweiler|beagle)\b/i.test(lower)) {
     types.push('cachorro');
     result.has_pets = true;
   }
-  if (/\bgat[oa]s?\b/i.test(lower)) {
+  if (/\b(gat[oa]s?|gatinh[oa]s?|felin[oa]s?|persa|siames[ae])\b/i.test(lower)) {
     types.push('gato');
     result.has_pets = true;
   }

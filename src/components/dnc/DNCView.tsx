@@ -5,10 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertTriangle, BanIcon, Bot, Search, Loader2, ChevronLeft, ChevronRight,
-  PhoneOff, MessageCircleX, RotateCcw,
+  PhoneOff, MessageCircleX, RotateCcw, Trash2,
 } from 'lucide-react';
 
 interface DncContact {
@@ -65,6 +66,9 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
   const [page, setPage] = useState(1);
   const [unmarkTarget, setUnmarkTarget] = useState<DncContact | null>(null);
   const [unmarking, setUnmarking] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -116,6 +120,43 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
     rows.forEach((r) => r.last_conversation_source && set.add(r.last_conversation_source));
     return Array.from(set).sort();
   }, [rows]);
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const togglePage = () => {
+    const pageIds = paged.map((r) => r.contact_id);
+    const allSelected = pageIds.every((id) => selected.has(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selected.size === 0) return;
+    setDeleting(true);
+    try {
+      const ids = Array.from(selected);
+      const { error } = await supabase.from('contacts').delete().in('id', ids);
+      if (error) throw error;
+      toast({ title: 'Contatos excluídos', description: `${ids.length} contato(s) removido(s) permanentemente.` });
+      setSelected(new Set());
+      setConfirmDelete(false);
+      await loadData();
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Erro ao excluir', description: err.message || 'Falha ao excluir contatos.' });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleUnmark = async () => {
     if (!unmarkTarget) return;
@@ -224,6 +265,23 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
         </Select>
       </div>
 
+      {canManage && selected.size > 0 && (
+        <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3">
+          <span className="text-sm text-foreground">
+            {selected.size} contato(s) selecionado(s)
+          </span>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+              Limpar
+            </Button>
+            <Button variant="destructive" size="sm" className="gap-1" onClick={() => setConfirmDelete(true)}>
+              <Trash2 className="h-3.5 w-3.5" />
+              Excluir selecionados
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         {filtered.length === 0 ? (
           <div className="p-10 text-center text-sm text-muted-foreground flex flex-col items-center gap-2">
@@ -236,6 +294,15 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
               <table className="w-full text-sm">
                 <thead className="bg-muted/40 border-b border-border">
                   <tr className="text-left text-xs text-muted-foreground">
+                    {canManage && (
+                      <th className="px-4 py-2 font-medium w-10">
+                        <Checkbox
+                          checked={paged.length > 0 && paged.every((r) => selected.has(r.contact_id))}
+                          onCheckedChange={togglePage}
+                          aria-label="Selecionar página"
+                        />
+                      </th>
+                    )}
                     <th className="px-4 py-2 font-medium">Contato</th>
                     <th className="px-4 py-2 font-medium">Motivo</th>
                     <th className="px-4 py-2 font-medium">Fonte</th>
@@ -250,6 +317,15 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
                     const rs = REASON_LABEL[r.dnc_reason || ''] || REASON_LABEL.manual;
                     return (
                       <tr key={r.contact_id} className="hover:bg-muted/20">
+                        {canManage && (
+                          <td className="px-4 py-3">
+                            <Checkbox
+                              checked={selected.has(r.contact_id)}
+                              onCheckedChange={() => toggleOne(r.contact_id)}
+                              aria-label={`Selecionar ${r.name || r.phone}`}
+                            />
+                          </td>
+                        )}
                         <td className="px-4 py-3">
                           <div className="font-medium text-foreground">{r.name || 'Sem nome'}</div>
                           <div className="text-xs text-muted-foreground">{r.phone}</div>
@@ -316,6 +392,27 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
           </>
         )}
       </div>
+
+      <Dialog open={confirmDelete} onOpenChange={(o) => !o && !deleting && setConfirmDelete(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir {selected.size} contato(s) permanentemente?</DialogTitle>
+            <DialogDescription>
+              Esta ação <span className="font-medium text-destructive">não pode ser desfeita</span>.
+              Os contatos serão removidos da base junto com suas conversas e histórico relacionado.
+              A exclusão acontece apenas na Aimee — o C2S não possui endpoint de exclusão via API,
+              então o registro no CRM precisa ser tratado separadamente.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleting}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={deleting}>
+              {deleting && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+              Excluir permanentemente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!unmarkTarget} onOpenChange={(o) => !o && setUnmarkTarget(null)}>
         <DialogContent>

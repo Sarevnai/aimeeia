@@ -648,6 +648,49 @@ async function processInboundMessage(
     return { action: 'ai_paused_operator_took_over' };
   }
 
+  // 6.4 Burst debounce — aguarda rajada de mensagens assentar antes de invocar ai-agent.
+  // Usuário costuma mandar 2-3 bolhas seguidas ("Bom dia" + "Já comprei um imóvel").
+  // Sem isso, a 1ª webhook já dispara LLM com a 1ª mensagem e, quando a 2ª chega com
+  // opt-out, o DNC é setado MAS a resposta da 1ª (já em voo) aterrissa depois, leakando
+  // triagem pra contato que pediu pra sair. Caso real: Alexandre Schaffer, 2026-04-24.
+  const DEBOUNCE_MS = 3500;
+  const debounceStartTs = new Date().toISOString();
+  await new Promise((resolve) => setTimeout(resolve, DEBOUNCE_MS));
+
+  // Se outro inbound chegou durante o debounce, esse webhook é stale — deixa o mais
+  // recente dirigir a resposta (ele também vai debouncar e convergir).
+  const { data: newerInbound } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', conversation.id)
+    .eq('direction', 'inbound')
+    .gt('created_at', debounceStartTs)
+    .limit(1)
+    .maybeSingle();
+
+  if (newerInbound) {
+    console.log(`⏱️ Burst debounce: inbound mais novo existe, webhook stale. Abortando.`);
+    return { action: 'debounced_superseded' };
+  }
+
+  // Re-check DNC/status pós-debounce — webhook concorrente pode ter flagado opt-out
+  // enquanto dormíamos. Fecha o TOCTOU window que deixou a triagem vazar pro Alexandre.
+  const { data: freshContact } = await supabase
+    .from('contacts')
+    .select('dnc')
+    .eq('id', contact.id)
+    .maybeSingle();
+  const { data: freshConv } = await supabase
+    .from('conversations')
+    .select('status')
+    .eq('id', conversation.id)
+    .maybeSingle();
+
+  if (freshContact?.dnc || freshConv?.status === 'closed') {
+    console.log(`🚫 Pós-debounce: dnc=${freshContact?.dnc} status=${freshConv?.status}, ai-agent skipado.`);
+    return { action: 'debounced_dnc_post_check' };
+  }
+
   // 6.5 MC-4: Debounce — if AI is already processing a message for this conversation,
   // skip invoking the agent. The current message is already saved (step 4) and will
   // be included in the conversation history when the agent reads it.

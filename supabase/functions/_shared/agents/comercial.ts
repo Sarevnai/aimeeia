@@ -27,6 +27,9 @@ function buildLocacaoSpecificGuidance(ctx: AgentContext): string {
   const hasIncome = !!qd?.detected_income_monthly;
   const hasPetsAnswered = typeof qd?.detected_has_pets === 'boolean';
   const hasMoveIn = !!qd?.detected_move_in_date;
+  const minRentalBudget = ctx.tenant?.min_rental_budget;
+  const clientBudget = qd?.detected_budget_max ? Number(qd.detected_budget_max) : null;
+  const belowFloor = !!(minRentalBudget && clientBudget && clientBudget < Number(minRentalBudget));
 
   const finalizacaoStatus = [
     `${hasIncome ? '✅' : '⏳'} renda mensal aproximada`,
@@ -34,7 +37,25 @@ function buildLocacaoSpecificGuidance(ctx: AgentContext): string {
     `${hasMoveIn ? '✅' : '⏳'} data alvo de mudança`,
   ].join(' | ');
 
-  return `<locacao-fluxo>
+  // Se piso configurado e cliente abaixo, instrução é clara: recusar com gentileza, NÃO qualificar
+  const rejectionBlock = (minRentalBudget && belowFloor) ? `
+
+⚠️ **REJEIÇÃO POR PISO MÍNIMO** ⚠️
+A ${ctx.tenant.company_name} trabalha com locações **a partir de R$ ${Number(minRentalBudget).toLocaleString('pt-BR')}/mês**.
+O cliente informou orçamento de R$ ${clientBudget!.toLocaleString('pt-BR')}/mês — está abaixo do piso.
+
+REGRAS OBRIGATÓRIAS:
+1. **NÃO chame buscar_imoveis** — não temos imóveis pra esse perfil.
+2. **NÃO continue qualificando** (renda, pets, mudança não importam aqui).
+3. **NÃO faça handoff pra C2S** — não é lead pra equipe comercial.
+4. **Responda com gentileza e empatia**: agradeça o contato, explique de forma humana e sem julgamento que a empresa atua em outra faixa, e ofereça um caminho. Sugestão de phrasing:
+
+"Oi! Agradeço muito o contato. Te conto com transparência: aqui na ${ctx.tenant.company_name} a gente trabalha com locação a partir de R$ ${Number(minRentalBudget).toLocaleString('pt-BR')}/mês, então não temos imóveis no valor que cabe pra você nesse momento. Não quero te fazer perder tempo aqui esperando uma busca que não vai trazer resultado. Pra essa faixa, costumo recomendar que você dê uma olhada nos portais ZAP, OLX e QuintoAndar — lá você encontra muita opção direta com proprietário ou imobiliárias que atendem essa faixa. Te desejo MUITO sucesso na busca! 🏡✨"
+
+5. Se o cliente insistir / pedir uma exceção / questionar: mantenha o tom gentil mas seja firme — o piso é política comercial. Se ele ficar irritado ou pedir falar com humano, aí sim chame enviar_lead_c2s com motivo "cliente abaixo do piso pedindo atendimento humano".
+` : '';
+
+  return `<locacao-fluxo>${rejectionBlock}
 ATENDIMENTO DE LOCAÇÃO — FLUXO ESPECÍFICO
 
 Você está atendendo um lead de locação. O fluxo segue 4 momentos. NÃO pule etapas, NÃO interrogue.

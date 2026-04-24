@@ -23,6 +23,7 @@ export interface Tenant {
   waba_id: string | null;
   theme_config: Record<string, any>;
   is_active: boolean;
+  min_rental_budget?: number | null;
 }
 
 // ========== REGION (from DB, not hardcoded) ==========

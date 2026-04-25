@@ -107,21 +107,26 @@ const OperatorDashboard: React.FC = () => {
       setActiveConvs(enriched);
 
       // Handoffs this month (conversations where I took over)
+      // Bug fix 2026-04-25: actor_id pode ser profiles.id ou auth.user_id (histórico).
+      // Aceita ambos via .or() pra contar corretamente após a normalização do ChatPage.
+      const actorIds = [profile?.id, user.id].filter(Boolean) as string[];
+      const actorOrFilter = actorIds.map(id => `actor_id.eq.${id}`).join(',');
       const { count: handoffs } = await supabase
         .from('conversation_events')
         .select('id', { count: 'exact', head: true })
         .eq('tenant_id', tenantId)
-        .eq('actor_id', user.id)
+        .or(actorOrFilter)
         .eq('event_type', 'operator_joined')
         .gte('created_at', monthStart);
       setHandoffCount(handoffs || 0);
 
       // Total messages I sent this month
+      const senderOrFilter = actorIds.map(id => `sender_id.eq.${id}`).join(',');
       const { count: msgs } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .eq('tenant_id', tenantId)
-        .eq('sender_id', user.id)
+        .or(senderOrFilter)
         .eq('sender_type', 'operator')
         .gte('created_at', monthStart);
       setTotalMessages(msgs || 0);
@@ -129,7 +134,7 @@ const OperatorDashboard: React.FC = () => {
       setLoading(false);
     };
     fetchAll();
-  }, [tenantId, user?.id, myBrokerId]);
+  }, [tenantId, user?.id, profile?.id, myBrokerId]);
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();

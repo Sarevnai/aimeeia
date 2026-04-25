@@ -192,12 +192,14 @@ serve(async (req: Request) => {
 
       // Fallback plantão local — se C2S não resolveu broker, pega próximo do round-robin
       if (!assignedBrokerId) {
+        // BUG FIX 2026-04-25: coluna é 'active', não 'is_active'.
+        // O filtro errado fazia a query falhar silenciosamente — plantão NUNCA selecionava broker.
         const { data: dutyBroker } = await supabase
           .from('brokers')
           .select('id, c2s_seller_id, full_name')
           .eq('tenant_id', tenant_id)
           .eq('on_duty', true)
-          .eq('is_active', true)
+          .eq('active', true)
           .order('last_assigned_at', { ascending: true, nullsFirst: true })
           .limit(1)
           .maybeSingle();

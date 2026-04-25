@@ -253,18 +253,34 @@ const ChatPage: React.FC = () => {
   // re-fetch a cada 15s. Para automaticamente quando o Realtime volta.
   usePollingFallback(refetchMessages);
 
-  // Resolve operator name when convState changes
+  // Resolve operator name when convState changes.
+  // Bug fix 2026-04-25: operator_id pode ter sido salvo historicamente como auth.user_id
+  // (handleTakeover antes do fix) OU como profiles.id (handleTransfer + handleTakeover novo).
+  // Tenta os dois em cascade: primeiro profiles.id, depois profiles.user_id.
   useEffect(() => {
     if (!convState?.operator_id) {
       setOperatorName(null);
       return;
     }
-    supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', convState.operator_id)
-      .single()
-      .then(({ data }) => setOperatorName(data?.full_name || null));
+    const resolve = async () => {
+      const opId = convState.operator_id!;
+      const { data: byId } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', opId)
+        .maybeSingle();
+      if (byId?.full_name) {
+        setOperatorName(byId.full_name);
+        return;
+      }
+      const { data: byUserId } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('user_id', opId)
+        .maybeSingle();
+      setOperatorName(byUserId?.full_name || null);
+    };
+    resolve();
   }, [convState?.operator_id]);
 
   // Resolve sender names for operator messages
@@ -390,6 +406,9 @@ const ChatPage: React.FC = () => {
     if (!conversation || !tenantId || !user) return;
     const myName = profile?.full_name || 'Operador';
     const takeoverAt = new Date().toISOString();
+    // Bug fix 2026-04-25: padronizar operator_id como profiles.id pra alinhar com handleTransfer
+    // e com a resolução de operatorName (que agora aceita ambos como fallback).
+    const myOperatorId = profile?.id || user.id;
 
     // Bug 22/04: 77 de 79 conversas ativas da Smolka não têm row em
     // conversation_states (IA roda por default se não houver). O .update()
@@ -402,7 +421,7 @@ const ChatPage: React.FC = () => {
         tenant_id: tenantId,
         phone_number: conversation.phone_number,
         is_ai_active: false,
-        operator_id: user.id,
+        operator_id: myOperatorId,
         operator_takeover_at: takeoverAt,
         updated_at: takeoverAt,
       }, { onConflict: 'tenant_id,phone_number' });
@@ -415,7 +434,7 @@ const ChatPage: React.FC = () => {
       body: `Operador ${myName} assumiu a conversa`,
       sender_type: 'system',
       event_type: 'operator_joined',
-      sender_id: user.id,
+      sender_id: myOperatorId,
     });
 
     // Record event in audit log
@@ -423,7 +442,7 @@ const ChatPage: React.FC = () => {
       tenant_id: tenantId,
       conversation_id: id,
       event_type: 'operator_joined',
-      actor_id: user.id,
+      actor_id: myOperatorId,
     });
 
     // Bug 22/04: se prev é null (77/79 conversas sem row), o ternary
@@ -446,7 +465,7 @@ const ChatPage: React.FC = () => {
         updated_at: takeoverAt,
       } as ConversationState),
       is_ai_active: false,
-      operator_id: user.id,
+      operator_id: myOperatorId,
       operator_takeover_at: takeoverAt,
     }));
     setOperatorName(myName);
@@ -456,6 +475,7 @@ const ChatPage: React.FC = () => {
     if (!conversation || !tenantId || !user) return;
     const myName = profile?.full_name || 'Operador';
     const resumedAt = new Date().toISOString();
+    const myOperatorId = profile?.id || user.id;
 
     // Mesmo motivo do handleTakeover: upsert cria row se não houver.
     await supabase
@@ -477,7 +497,7 @@ const ChatPage: React.FC = () => {
       body: `Operador ${myName} devolveu a conversa para a IA`,
       sender_type: 'system',
       event_type: 'ai_resumed',
-      sender_id: user.id,
+      sender_id: myOperatorId,
     });
 
     // Record event in audit log
@@ -485,7 +505,7 @@ const ChatPage: React.FC = () => {
       tenant_id: tenantId,
       conversation_id: id,
       event_type: 'ai_resumed',
-      actor_id: user.id,
+      actor_id: myOperatorId,
     });
 
     setConvState((prev) => ({
@@ -515,6 +535,7 @@ const ChatPage: React.FC = () => {
     if (!conversation || !tenantId || !user) return;
     const myName = profile?.full_name || 'Operador';
     const targetName = targetOperator.full_name || 'Operador';
+    const myOperatorId = profile?.id || user.id;
 
     // Insert "operator left" system message
     await supabase.from('messages').insert({
@@ -524,7 +545,7 @@ const ChatPage: React.FC = () => {
       body: `Operador ${myName} saiu da conversa`,
       sender_type: 'system',
       event_type: 'operator_left',
-      sender_id: user.id,
+      sender_id: myOperatorId,
     });
 
     // Upsert para garantir row — ver handleTakeover pra explicação.
@@ -551,12 +572,12 @@ const ChatPage: React.FC = () => {
       sender_id: targetOperator.id,
     });
 
-    // Record transfer event
+    // Record transfer event (actor_id em profiles.id pra alinhar com OperatorDashboard)
     await supabase.from('conversation_events').insert({
       tenant_id: tenantId,
       conversation_id: id,
       event_type: 'transfer',
-      actor_id: user.id,
+      actor_id: myOperatorId,
       target_id: targetOperator.id,
     });
 
@@ -655,7 +676,7 @@ const ChatPage: React.FC = () => {
           tenant_id: tenantId,
           conversation_id: id,
           broker_id: brokerId,
-          operator_id: user.id,
+          operator_id: profile?.id || user.id,
         },
       });
 
@@ -686,7 +707,7 @@ const ChatPage: React.FC = () => {
           updated_at: nowIso,
         } as ConversationState),
         is_ai_active: false,
-        operator_id: user.id,
+        operator_id: profile?.id || user.id,
         operator_takeover_at: nowIso,
       }));
       setOperatorName(myFullName);

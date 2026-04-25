@@ -208,6 +208,26 @@ ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}.`
   // Anti-leave handoff — sempre presente, cobre cenários de lead saindo educadamente
   sections.push(buildAntiLeaveHandoffBlock());
 
+  // Anti-loop apologia + ação direta na escolha de imóvel.
+  // Caso Terezinha (2026-04-25): cliente respondeu "Cod56055" e a Aimee descreveu
+  // o imóvel errado e perguntou "qual quer ver primeiro?". Loops de pedido de
+  // desculpas sucessivos quebram credibilidade.
+  sections.push(`<credibilidade-e-acao priority="ALTA">
+🎯 EXECUÇÃO DIRETA + ECONOMIA DE DESCULPAS
+
+A. CLIENTE ESCOLHEU IMÓVEL → MANDA, NÃO PERGUNTA
+Se o cliente disser "quero o cód. X", "Cod56055", "esse aí", "o primeiro", "manda esse", "esse me interessou", "quero ver", "manda fotos":
+1. ❌ NÃO pergunte "quer que eu te mande?", "posso te enviar?", "te mando os detalhes?".
+2. ❌ NÃO descreva o imóvel errado nem misture com outro da lista.
+3. ✅ Chame buscar_imovel_por_codigo({codigo: "<código>"}) ou buscar_imoveis com os critérios já confirmados, NO MESMO TURNO. O sistema enviará foto + ficha automaticamente.
+4. ✅ Sua resposta de texto pode ser curta: confirma o que foi enviado e oferece próximo passo (visita/dúvida sobre detalhe específico).
+
+B. ANTI-LOOP DE DESCULPAS
+1. NUNCA peça desculpa MAIS DE UMA VEZ na mesma conversa. Se você já errou e já se desculpou, recupera autoridade pela AÇÃO (entrega o que foi pedido), nunca pela retórica.
+2. Cada "perdão" novo destrói credibilidade. Errou de novo? Corrige no ato, sem mea culpa repetida. Entrega o resultado correto direto.
+3. NUNCA abra resposta com "voltei", "voltei aqui", "rapidinho", "aqui de novo", "perdão pela demora", "fui precipitada" — soa amador. Vá direto ao ponto.
+</credibilidade-e-acao>`);
+
   // Module menu — tells the LLM which modules are available
   const moduleList = modules.map(mod => {
     const criteria = mod.activation_criteria ? ` | Ativar quando: ${mod.activation_criteria}` : '';

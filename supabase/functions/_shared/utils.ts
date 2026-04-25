@@ -63,6 +63,37 @@ export function stripDashes(text: string): { sanitized: string; count: number } 
   return { sanitized, count };
 }
 
+// Tour virtual (YouTube/Vimeo) NUNCA pode ir pro cliente. O Vista CRM expõe
+// `raw_data.TourVirtual` em propriedades, e o LLM pode resolver pulá-lo no texto
+// se for instruído OU compor mensagem manual com o link. Caso Terezinha
+// (2026-04-25): operador acrescentou link de tour virtual de YouTube em
+// retomada manual. Decisão Ian: NUNCA, EM HIPÓTESE ALGUMA, mostrar tour virtual.
+// Sanitizador roda como segunda camada após o prompt.
+const TOUR_PATTERNS: RegExp[] = [
+  /\bhttps?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|m\.youtube\.com)\/\S+/gi,
+  /\bhttps?:\/\/(?:www\.)?vimeo\.com\/\S+/gi,
+  /\bhttps?:\/\/\S*tourvirtual\S*/gi,
+  /\bhttps?:\/\/\S*matterport\.com\/\S+/gi,
+  /\bhttps?:\/\/\S*kuula\.co\/\S+/gi,
+  /\bhttps?:\/\/\S*my\.matterport\.\S+/gi,
+];
+
+export function stripTourLinks(text: string): { sanitized: string; count: number } {
+  let count = 0;
+  let sanitized = text;
+  for (const pat of TOUR_PATTERNS) {
+    sanitized = sanitized.replace(pat, () => { count++; return ''; });
+  }
+  if (count === 0) return { sanitized: text, count: 0 };
+  // Limpa label órfão tipo "Tour virtual: " que sobrou sem URL
+  sanitized = sanitized
+    .replace(/\b(tour\s+virtual|v[ií]deo\s+do\s+im[oó]vel|v[ií]deo\s+tour|tour\s+360)\s*[:.\-–—]?\s*$/gim, '')
+    .replace(/^\s*(tour\s+virtual|v[ií]deo\s+do\s+im[oó]vel|v[ií]deo\s+tour|tour\s+360)\s*[:.\-–—]?\s*$/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return { sanitized, count };
+}
+
 /**
  * Format string to WhatsApp Markdown syntax.
  * Converts **bold** to *bold*, and headers to bold text.

@@ -6,7 +6,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
 import { sendWhatsAppMessage, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { Tenant } from '../_shared/types.ts';
-import { stripDashes } from '../_shared/utils.ts';
+import { stripDashes, stripTourLinks } from '../_shared/utils.ts';
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -27,10 +27,16 @@ serve(async (req: Request) => {
     // sanitized.
     let message = rawMessage as string;
     if (sender_type === 'ai') {
-      const { sanitized, count } = stripDashes(message);
-      if (count > 0) {
-        console.log(`✂️  send-wa-message: removed ${count} travessão(ões) from ai message`);
-        message = sanitized;
+      const dashResult = stripDashes(message);
+      if (dashResult.count > 0) {
+        console.log(`✂️  send-wa-message: removed ${dashResult.count} travessão(ões) from ai message`);
+        message = dashResult.sanitized;
+      }
+      // Tour virtual NUNCA vai pro cliente (decisão Ian, caso Terezinha 2026-04-25).
+      const tourResult = stripTourLinks(message);
+      if (tourResult.count > 0) {
+        console.log(`🚫 send-wa-message: blocked ${tourResult.count} tour link(s) from ai message`);
+        message = tourResult.sanitized;
       }
     }
 

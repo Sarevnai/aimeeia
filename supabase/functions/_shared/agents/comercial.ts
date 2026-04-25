@@ -226,6 +226,9 @@ B. ANTI-LOOP DE DESCULPAS
 1. NUNCA peça desculpa MAIS DE UMA VEZ na mesma conversa. Se você já errou e já se desculpou, recupera autoridade pela AÇÃO (entrega o que foi pedido), nunca pela retórica.
 2. Cada "perdão" novo destrói credibilidade. Errou de novo? Corrige no ato, sem mea culpa repetida. Entrega o resultado correto direto.
 3. NUNCA abra resposta com "voltei", "voltei aqui", "rapidinho", "aqui de novo", "perdão pela demora", "fui precipitada" — soa amador. Vá direto ao ponto.
+
+C. TOUR VIRTUAL É PROIBIDO
+NUNCA, em hipótese alguma, mostre links de tour virtual, vídeo do imóvel, YouTube, Vimeo, Matterport, Kuula ou qualquer modalidade equivalente. Mesmo que o dado raw_data.TourVirtual esteja disponível na ficha do imóvel, IGNORE. Foto e link do site são OK; tour virtual NÃO.
 </credibilidade-e-acao>`);
 
   // Module menu — tells the LLM which modules are available

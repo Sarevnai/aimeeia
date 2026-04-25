@@ -4,7 +4,7 @@
 // No extra LLM call — purely deterministic checks.
 
 import { AgentContext } from './agent-interface.ts';
-import { stripDashes } from '../utils.ts';
+import { stripDashes, stripTourLinks } from '../utils.ts';
 
 export interface PreCheckResult {
   passed: boolean;
@@ -191,6 +191,15 @@ export async function runPreCompletionChecks(
   if (dashResult.count > 0) {
     sanitized = dashResult.sanitized;
     issues.push(`STYLE_DASH_REMOVED: ${dashResult.count} travessão(ões) substituído(s) por pontuação natural`);
+  }
+
+  // 4e. Tour virtual NUNCA pode ir pro cliente (decisão Ian, caso Terezinha
+  // 2026-04-25). YouTube/Vimeo/Matterport/etc. são bloqueados em qualquer
+  // resposta da Aimee.
+  const tourResult = stripTourLinks(sanitized);
+  if (tourResult.count > 0) {
+    sanitized = tourResult.sanitized;
+    issues.push(`STYLE_TOUR_LINKS_REMOVED: ${tourResult.count} link(s) de tour virtual removido(s)`);
   }
 
   // 5. Qualified lead without search offer

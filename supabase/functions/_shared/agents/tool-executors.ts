@@ -271,13 +271,6 @@ export async function executePropertySearch(
   ctx: AgentContext,
   args: any
 ): Promise<string> {
-  // DEBUG: insert into _debug_log (no constraints, RLS disabled)
-  try {
-    await ctx.supabase.from('_debug_log').insert({
-      source: 'executePropertySearch:start',
-      data: { args, qual: ctx.qualificationData, dept: ctx.department, conv_id: ctx.conversationId, tenant: ctx.tenantId },
-    });
-  } catch (e) { /* swallow */ }
   try {
     // Fix E (v2): Gate — rejeitar busca se qualificação mínima não atingida.
     // Regra: OBRIGATÓRIO ter pelo menos BAIRRO ou BUDGET do cliente.
@@ -414,41 +407,12 @@ export async function executePropertySearch(
       error = fallbackResult.error;
     }
 
-    if (usedFallback) {
-      console.log(`📋 Usando fallback SQL puro (sem similaridade semântica). Retornou ${properties?.length || 0} imóveis.`);
-    }
-
-    console.log(`🔍 RPC match_properties returned ${properties?.length || 0} | rpcFinalidade=${rpcFinalidade} | bairro=${args.bairro} | quartos=${args.quartos} | searchBudget=${searchBudget}`);
+    console.log(`🔍 Property search ${usedFallback ? '(SQL fallback)' : '(vector)'} retornou ${properties?.length || 0} | finalidade=${rpcFinalidade} | bairro=${args.bairro} | quartos=${args.quartos} | budget=${searchBudget}`);
 
     if (error) {
-      console.error('❌ Property search vector error:', error);
-      // DEBUG: inject error in conversation_events for retrieval
-      try {
-        await ctx.supabase.from('conversation_events').insert({
-          tenant_id: ctx.tenantId,
-          conversation_id: ctx.conversationId,
-          event_type: 'rpc_error_debug',
-          metadata: { error_message: error.message, error_code: error.code, args, searchBudget, rpcFinalidade },
-        });
-      } catch {}
+      console.error('❌ Property search error:', error);
       return 'Não consegui buscar imóveis no nosso catálogo inteligente no momento. Tente novamente em instantes.';
     }
-
-    // DEBUG: dump RPC result count + first record
-    try {
-      await ctx.supabase.from('_debug_log').insert({
-        source: 'executePropertySearch:rpc_result',
-        data: {
-          rpc_count: properties?.length || 0,
-          first: properties?.[0] || null,
-          args_bairro: args.bairro,
-          args_tipo: args.tipo_imovel,
-          args_quartos: args.quartos,
-          search_budget: searchBudget,
-          rpc_finalidade: rpcFinalidade,
-        },
-      });
-    } catch {}
 
     // C2: Filtrar imóveis sem preço válido — "sob consulta" não existe no sistema
     let validProperties = (properties || []).filter((p: any) => p.price && p.price > 1);
@@ -606,8 +570,6 @@ export async function executePropertySearch(
     // (contacts.shown_property_codes), não só a conversa atual.
     const shownIds = await getShownPropertyCodes(ctx);
     const formattedProperties = allFormattedProperties.filter(p => !shownIds.has(p.codigo));
-
-    console.log(`🔍 [DEBUG-FINAL] allFormatted=${allFormattedProperties.length}, alreadyShown=${shownIds.size}, toSend=${formattedProperties.length}`);
 
     if (formattedProperties.length === 0) {
       return 'Já te mostrei todas as opções que encontrei com esses critérios. Quer que eu amplie a busca para bairros vizinhos ou ajuste algum filtro?';

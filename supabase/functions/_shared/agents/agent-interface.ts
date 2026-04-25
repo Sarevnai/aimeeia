@@ -36,13 +36,26 @@ export interface AgentContext {
   _loopDetected?: boolean;                // Set by postProcess to signal loop to caller
   _qualChangedThisTurn?: boolean;         // Fix B: true when qualification data was extracted this turn
   _moduleChangedThisTurn?: boolean;       // Fix B: true when module changed this turn
+  _leadLeavingPolitely?: boolean;         // VendasPortalFix: true quando cliente está saindo educadamente — bloqueia MC-5 auto-handoff
   simulate?: boolean;                      // F4: true in simulator — skip WhatsApp/CRM side effects
   isFirstTurn?: boolean;                   // True when conversationHistory is empty — agent should self-introduce + respond to intent in the same turn
   contactType?: 'lead' | 'proprietario' | 'inquilino' | null; // Sprint 6.1: admin usa pra adaptar tom
   activeTicket?: ActiveTicketContext | null; // Sprint 6.1: admin usa pra saber se já tem ticket aberto + contexto do operador
   activeUpdateEntry?: ActiveUpdateEntryContext | null; // Sprint 6.2: setor atualização — contexto do imóvel sendo verificado
   portalPropertyCode?: string | null;     // Canal Pro ZAP / VivaReal / OLX — código do imóvel que veio pré-selecionado no lead
+  // Camada 3 de memória: narrativa gerada por lead-memory-updater, injetada no
+  // system prompt como contexto extra quando existe. Pode estar vazio.
+  leadMemory?: LeadMemory | null;
   supabase: any;
+}
+
+export interface LeadMemory {
+  narrative: string;
+  key_facts: string[];
+  concerns: string[];
+  closed_loops: string[];
+  generated_at: string;
+  model: string;
 }
 
 // Sprint 6.2 — contexto da entry ativa na fila de atualização (setor atualização)

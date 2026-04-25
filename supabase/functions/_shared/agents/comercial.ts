@@ -4,13 +4,68 @@
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executePropertyByCode, executeLeadHandoff, executeGetNearbyPlaces, executeDepartmentTransfer } from './tool-executors.ts';
-import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
+import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective, buildHumanStyleDirective } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
 import { isQualificationComplete } from '../qualification.ts';
 import { SkillConfig, StructuredConfig, AiModule } from '../types.ts';
 import { resolveContactNameForPrompt } from '../utils.ts';
 import { runPreCompletionChecks } from './pre-completion-check.ts';
+
+// ========== PORTAL-LEAD PRIORITY (REUSABLE) ==========
+// Usado em TODOS os priorities (Modular, Structured, Legacy) quando portalPropertyCode existe.
+// ANTES: só era injetado em Priority 0 (Modular) — Rafael Moraes caiu em Priority 1 (Structured)
+// e o flow perdeu todas as regras de portal-lead → AI fez triagem genérica ignorando perguntas.
+function buildPortalLeadPriorityBlock(ctx: AgentContext): string {
+  if (!ctx.portalPropertyCode) return '';
+  const alreadyShown = ctx.toolsExecuted?.includes('buscar_imovel_por_codigo');
+  return `<portal-lead-priority priority="MAXIMA">
+⚠️ LEAD VEIO DE PORTAL COM IMÓVEL ESPECÍFICO — CÓDIGO **${ctx.portalPropertyCode}**
+O cliente veio do ZAP/VivaReal/OLX interessado NESSE imóvel. Toda a conversa gira em torno dele.
+ESTAS REGRAS TÊM PRECEDÊNCIA SOBRE QUALQUER FASE DE ANAMNESE/TRIAGEM DEFINIDA NO structured_config.
+
+REGRAS OBRIGATÓRIAS (ordem de prioridade):
+
+1. ${alreadyShown ? '(✓ imóvel já apresentado nessa conversa)' : `SE AINDA NÃO APRESENTOU: sua PRIMEIRA AÇÃO é chamar \`buscar_imovel_por_codigo({codigo: "${ctx.portalPropertyCode}"})\`. Isso envia foto + ficha ao cliente. NÃO faça triagem nem pergunte orçamento/bairro/finalidade antes. NÃO pergunte "é pra morar ou investir?" — o cliente já escolheu o imóvel.`}
+
+2. **PROIBIDO chamar \`buscar_imoveis\`** enquanto o cliente não REJEITAR explicitamente esse imóvel. Sinais de rejeição que liberam a busca de alternativas: "não gostei", "quero outro", "outra opção", "não é isso que eu quero", "muito caro pra mim", "muito pequeno", "prefiro em outro bairro". Sem sinal claro, NÃO ofereça nem busque outros.
+
+3. **Responda perguntas SOBRE ESSE imóvel** usando os dados já disponíveis na conversa (quartos, área, preço, condomínio, localização, piscina, descrição). Se faltar algum dado específico (ex.: regulamento do condomínio), diga que vai confirmar com o corretor — mas RESPONDA a parte que você sabe antes de transferir pro corretor.
+
+4. **NÃO transforme perguntas do cliente em triagem genérica.** Ex: se ele perguntar "aceita financiamento?", responda sobre financiamento desse imóvel, NÃO pergunte "é pra morar ou investir?". Se ele perguntar "tem piscina?", responda sobre a piscina, NÃO mude de assunto.
+
+5. **Fluxo natural**: apresenta imóvel → tira dúvidas pontuais (condomínio, financiamento, visita, piscina, documentação) → coleta dados de finalização (forma pgto, entrada, FGTS, prazo) → quando cliente demonstrar interesse real (quer visitar, agendar, falar com corretor), chame \`enviar_lead_c2s\` com \`codigo_imovel="${ctx.portalPropertyCode}"\` e \`titulo_imovel\` descritivo + dossier completo.
+
+6. Só se o cliente REJEITAR o imóvel explicitamente, aí sim: 1) reconheça a rejeição com empatia, 2) faça triagem rápida (bairro alternativo, quartos, orçamento), 3) chame \`buscar_imoveis\` com os novos critérios.
+</portal-lead-priority>`;
+}
+
+// ========== ANTI-LEAVE HANDOFF (REUSABLE) ==========
+// Bloqueia AI de forçar handoff quando cliente está saindo educadamente.
+// Evita falsos-positivos como o caso Welington Sampaio (2026-04-24) — lead disse
+// "não está mais procurando" e a AI mesmo assim chamou enviar_lead_c2s, colocando
+// o cliente como "Em negociação" no C2S e gerando DNC.
+function buildAntiLeaveHandoffBlock(): string {
+  return `<anti-leave-handoff priority="ALTA">
+🛑 LEAD SAINDO EDUCADAMENTE — NÃO FORCE HANDOFF
+
+Sinais claros de que o cliente está SAINDO (não é lead quente):
+- "já comprei" / "já aluguei" / "já resolvi" / "já encontrei"
+- "não preciso mais" / "não estou mais procurando" / "não estou mais interessado"
+- "era só isso" / "era só pra saber" / "obrigado, era só pra confirmar"
+- Responde apenas "Não" / "Nao" a uma pergunta de abertura SEM demonstrar qualquer outro interesse
+- "tira da lista" / "não quero receber" / "pode me remover"
+
+QUANDO detectar QUALQUER desses sinais:
+1. ❌ NÃO chame enviar_lead_c2s
+2. ❌ NÃO prometa que "um corretor vai entrar em contato"
+3. ❌ NÃO insista com mais perguntas de qualificação
+4. ✅ Acolha com classe, deseje sucesso, deixe a porta aberta: "Que bom que resolveu! Se um dia precisar, é só chamar."
+5. ✅ A conversa termina aí — sem handoff, sem follow-up pushy.
+
+IMPORTANTE: cliente que sai educadamente hoje pode voltar amanhã ou indicar alguém. Tratar ele como lead quente e empurrar pro CRM é anti-ético e vira DNC.
+</anti-leave-handoff>`;
+}
 
 // ========== LOCAÇÃO FLOOR REJECTION (OVERRIDE) ==========
 // Quando o cliente informa orçamento abaixo do piso comercial do tenant,
@@ -147,27 +202,11 @@ ${config.use_customer_name && contactName ? `Chame o cliente de ${contactName}.`
 
   // Portal lead — imóvel pré-selecionado (Canal Pro ZAP / VivaReal / OLX)
   // O código do imóvel É a qualificação. Enquanto o código estiver setado, Aimee só fala DESSE imóvel.
-  if (ctx.portalPropertyCode) {
-    const alreadyShown = ctx.toolsExecuted?.includes('buscar_imovel_por_codigo');
-    sections.push(`<portal-lead-priority>
-⚠️ LEAD VEIO DE PORTAL COM IMÓVEL ESPECÍFICO — CÓDIGO **${ctx.portalPropertyCode}**
-O cliente veio do ZAP/VivaReal/OLX interessado NESSE imóvel. Toda a conversa gira em torno dele.
+  const portalBlockModular = buildPortalLeadPriorityBlock(ctx);
+  if (portalBlockModular) sections.push(portalBlockModular);
 
-REGRAS OBRIGATÓRIAS (ordem de prioridade):
-
-1. ${alreadyShown ? '(✓ imóvel já apresentado nessa conversa)' : `SE AINDA NÃO APRESENTOU: sua PRIMEIRA AÇÃO é chamar \`buscar_imovel_por_codigo({codigo: "${ctx.portalPropertyCode}"})\`. Isso envia foto + ficha ao cliente. NÃO faça triagem nem pergunte orçamento/bairro antes.`}
-
-2. **PROIBIDO chamar \`buscar_imoveis\`** enquanto o cliente não REJEITAR explicitamente esse imóvel. Sinais de rejeição que liberam a busca de alternativas: "não gostei", "quero outro", "outra opção", "não é isso que eu quero", "muito caro pra mim", "muito pequeno", "prefiro em outro bairro". Sem sinal claro, NÃO ofereça nem busque outros.
-
-3. **Responda perguntas SOBRE ESSE imóvel** usando os dados já disponíveis na conversa (quartos, área, preço, condomínio, localização, piscina, descrição). Se faltar algum dado específico (ex.: regulamento do condomínio), diga que vai confirmar com o corretor.
-
-4. **NÃO transforme perguntas do cliente em triagem genérica.** Ex: se ele perguntar "aceita financiamento?", responda sobre financiamento desse imóvel, NÃO pergunte "é pra morar ou investir?".
-
-5. **Fluxo natural**: apresenta imóvel → tira dúvidas pontuais (condomínio, financiamento, visita, piscina, documentação) → quando cliente demonstrar interesse real (quer visitar, agendar, falar com corretor), chame \`enviar_lead_c2s\` com \`codigo_imovel="${ctx.portalPropertyCode}"\` e \`titulo_imovel\` descritivo.
-
-6. Só se o cliente REJEITAR o imóvel explicitamente, aí sim: 1) reconheça a rejeição com empatia, 2) faça triagem rápida (bairro alternativo, quartos, orçamento), 3) chame \`buscar_imoveis\` com os novos critérios.
-</portal-lead-priority>`);
-  }
+  // Anti-leave handoff — sempre presente, cobre cenários de lead saindo educadamente
+  sections.push(buildAntiLeaveHandoffBlock());
 
   // Module menu — tells the LLM which modules are available
   const moduleList = modules.map(mod => {
@@ -221,6 +260,7 @@ ${activeModule.prompt_instructions}
   sections.push(buildAdminTransferRule());
   sections.push(buildPostHandoffFollowup());
   sections.push(buildMultilingualDirective());
+  sections.push(buildHumanStyleDirective());
 
   // Fix J1: Guardrails anti-reasoning-leak — OBRIGATÓRIO no final do prompt
   sections.push(`<formato-resposta>
@@ -307,7 +347,7 @@ REGRA CRÍTICA — QUANDO BUSCAR IMÓVEIS:
 REGRAS:
 - Pergunte UMA informação por vez, de forma natural
 - Siga a regra de idioma da seção <idioma>, espelhando o idioma do cliente. Máximo 3 parágrafos.
-${buildLocacaoFloorRejection(ctx)}${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${buildLocacaoSpecificGuidance(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}\n\n${buildMultilingualDirective()}`;
+${buildLocacaoFloorRejection(ctx)}${buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn)}${ctx.isReturningLead ? buildReturningLeadContext(ctx.previousQualificationData) : ''}${generateRegionKnowledge(regions)}${buildBehaviorInstructionsLocal(ctx)}${buildLocacaoSpecificGuidance(ctx)}${config.custom_instructions ? `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}` : ''}${buildAdminTransferRule()}${buildPostHandoffFollowup()}\n\n${buildMultilingualDirective()}\n\n${buildHumanStyleDirective()}`;
 }
 
 function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig): string {
@@ -334,6 +374,14 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
   const floorReject = buildLocacaoFloorRejection(ctx);
   if (floorReject) sections.push(floorReject);
 
+  // Portal-lead priority — precedência sobre phases de anamnese/triagem
+  // (antes faltava aqui, Rafael Moraes caiu nessa regra ausente e a AI fez triagem genérica)
+  const portalBlockStructured = buildPortalLeadPriorityBlock(ctx);
+  if (portalBlockStructured) sections.push(portalBlockStructured);
+
+  // Anti-leave handoff — cobre cenários de cliente saindo educadamente (ex: Welington)
+  sections.push(buildAntiLeaveHandoffBlock());
+
   // Identity
   sections.push(`# IDENTIDADE E PAPEL`);
   sections.push(replaceVars(sc.role.identity));
@@ -352,11 +400,26 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
     });
   }
 
-  // Phases (2-4)
+  // Phases (2-5)
+  // Em portal-lead (portalPropertyCode presente): PULAR Fase 2 Anamnese — o código É a qualificação.
+  // Evita o bug do Rafael Moraes, onde a Fase 2 fez a AI perguntar "é pra morar ou investir?"
+  // quando o cliente já tinha escolhido o imóvel específico.
   if (sc.phases?.length > 0) {
+    const isPortalLead = !!ctx.portalPropertyCode;
+    const phasesToRender = isPortalLead
+      ? sc.phases.filter((p: any) => {
+          const name = String(p.name || '').toLowerCase();
+          return !name.includes('anamnese'); // remove Anamnese em portal-lead
+        })
+      : sc.phases;
+
     sections.push(`\n# FASES DA CONVERSA`);
-    sections.push(`(Fase 1 já foi concluída pelo sistema — o nome e departamento já foram coletados.)`);
-    sc.phases.forEach(phase => {
+    if (isPortalLead) {
+      sections.push(`(Fase 1 e Fase 2 de Anamnese já estão cobertas pelo portal-lead — o código do imóvel É a qualificação. Comece direto da Curadoria focada naquele imóvel.)`);
+    } else {
+      sections.push(`(Fase 1 já foi concluída pelo sistema — o nome e departamento já foram coletados.)`);
+    }
+    phasesToRender.forEach((phase: any) => {
       sections.push(`\n## Fase ${phase.phase_number}: ${phase.name}`);
       sections.push(`**Objetivo:** ${phase.objective}`);
       sections.push(replaceVars(phase.instructions));
@@ -441,6 +504,10 @@ function buildLegacyDirectivePrompt(ctx: AgentContext): string {
   prompt = prompt.replaceAll('{{COMPANY_NAME}}', tenant.company_name);
   prompt = prompt.replaceAll('{{CITY}}', tenant.city);
   prompt = prompt.replaceAll('{{CONTACT_NAME}}', resolveContactNameForPrompt(contactName));
+  // Portal-lead e anti-leave handoff: aplicáveis mesmo no legacy directive.
+  const portalLegacy = buildPortalLeadPriorityBlock(ctx);
+  if (portalLegacy) prompt = portalLegacy + '\n\n' + prompt;
+  prompt = buildAntiLeaveHandoffBlock() + '\n\n' + prompt;
   prompt += buildContextSummary(qualData, contactName, ctx.phoneNumber, ctx._qualChangedThisTurn);
   if (ctx.isReturningLead) prompt += buildReturningLeadContext(ctx.previousQualificationData);
   prompt += generateRegionKnowledge(regions);
@@ -451,6 +518,7 @@ function buildLegacyDirectivePrompt(ctx: AgentContext): string {
   prompt += buildAdminTransferRule();
   prompt += buildPostHandoffFollowup();
   prompt += '\n\n' + buildMultilingualDirective();
+  prompt += '\n\n' + buildHumanStyleDirective();
   return prompt;
 }
 
@@ -666,7 +734,9 @@ export const comercialAgent: AgentModule = {
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
     // Pre-completion verification (Harness Engineering pattern)
     const preCheck = await runPreCompletionChecks(ctx, ctx.userMessage || '', aiResponse);
-    let finalResponse = preCheck.hasCriticalIssue ? preCheck.sanitizedResponse : aiResponse;
+    // Sempre usa sanitizedResponse — pega sanitizações não-críticas como remoção de travessão,
+    // metadata leak, e padrões internos. Quando não há mudança, sanitizedResponse === aiResponse.
+    let finalResponse = preCheck.sanitizedResponse;
 
     // Strip chain-of-thought blocks that LLM may leak to client (safety net)
     // Covers: <análise>, <anise>, <anamnese>, <invoke>, <parameter>, <tool_call>, etc.
@@ -709,12 +779,22 @@ export const comercialAgent: AgentModule = {
 
     await updateAntiLoopState(ctx.supabase, ctx.tenantId, ctx.phoneNumber, finalResponse);
 
+    // ====== ANTI-LEAVE GUARD (Sprint VendasPortalFix) ======
+    // Detecta cliente saindo educadamente e bloqueia handoff falso-positivo
+    // Caso Welington Sampaio (2026-04-24): lead disse "Não está mais, obrigado" e
+    // MC-5 auto-handoff disparou mesmo assim → virou DNC + "Em negociação" no C2S.
+    const isLeadLeavingPolitely = detectLeadLeavingPolitely(ctx.userMessage || '');
+    if (isLeadLeavingPolitely) {
+      console.log('🛑 [Comercial] Anti-leave guard: cliente saindo educadamente, bloqueando qualquer handoff automático.');
+      ctx._leadLeavingPolitely = true;
+    }
+
     // MC-5: Detect handoff promise without actual tool call
     const handoffPromiseRegex = /\b(corretor|consultor|especialista|atendente).{0,30}(contato|entrar em contato|vai te ligar|ligar|chamar)|encaminhei|transferi|atendimento humano/i;
     const promisedHandoff = handoffPromiseRegex.test(finalResponse);
     const actuallyCalledC2S = (ctx.toolsExecuted || []).includes('enviar_lead_c2s');
 
-    if (promisedHandoff && !actuallyCalledC2S) {
+    if (promisedHandoff && !actuallyCalledC2S && !isLeadLeavingPolitely) {
       console.warn('⚠️ MC-5: Agent promised handoff but did NOT call enviar_lead_c2s. Auto-triggering.');
       try {
         const dossierLines = [
@@ -730,8 +810,39 @@ export const comercialAgent: AgentModule = {
       } catch (err) {
         console.error('❌ MC-5 auto-handoff failed:', err);
       }
+    } else if (promisedHandoff && !actuallyCalledC2S && isLeadLeavingPolitely) {
+      console.warn('🛑 MC-5 BLOCKED: cliente saindo educadamente — NÃO disparar handoff automático apesar da promessa na resposta.');
     }
 
     return finalResponse;
   },
 };
+
+// ========== ANTI-LEAVE DETECTION (POST-PROCESS GUARD) ==========
+// Detecta se a mensagem do cliente é um sinal claro de saída.
+// Usado em postProcess pra bloquear MC-5 auto-handoff.
+function detectLeadLeavingPolitely(userMessage: string): boolean {
+  if (!userMessage) return false;
+  const msg = userMessage.toLowerCase().trim();
+  // Curta "Não" isolado só conta como saindo quando é a mensagem inteira (primeiro-turno)
+  if (msg === 'não' || msg === 'nao' || msg === 'n') return true;
+
+  const leavingPatterns = [
+    /\bj[áa]\s+comprei\b/i,
+    /\bj[áa]\s+aluguei\b/i,
+    /\bj[áa]\s+resolvi\b/i,
+    /\bj[áa]\s+encontrei\b/i,
+    /\bj[áa]\s+achei\b/i,
+    /\bj[áa]\s+fechei\b/i,
+    /\bn[ãa]o\s+(?:estou|tô|to)\s+mais/i,
+    /\bn[ãa]o\s+preciso\s+mais/i,
+    /\bn[ãa]o\s+est[áa]\s+mais\b/i,
+    /\bera\s+s[óo]\s+(?:isso|pra\s+(?:saber|confirmar))\b/i,
+    /\btira(?:r)?\s+(?:da|do)\s+(?:lista|cadastro)\b/i,
+    /\bn[ãa]o\s+quero\s+receber\b/i,
+    /\bpode\s+me\s+remover\b/i,
+    /\bremover?\s+(?:meu\s+)?contato\b/i,
+    /\bparar?\s+de\s+(?:me\s+)?mandar\b/i,
+  ];
+  return leavingPatterns.some(re => re.test(userMessage));
+}

@@ -11,7 +11,7 @@ import {
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
 import { AiModule } from '../types.ts';
 import { resolveContactNameForPrompt } from '../utils.ts';
-import { buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
+import { buildFirstTurnContext, buildMultilingualDirective, buildHumanStyleDirective } from '../prompts.ts';
 
 // ========== MODULE-BASED PROMPT ==========
 
@@ -64,6 +64,7 @@ ${activeModule.prompt_instructions}
   }
 
   sections.push(buildMultilingualDirective());
+  sections.push(buildHumanStyleDirective());
 
   return sections.join('\n\n');
 }
@@ -159,6 +160,7 @@ function buildAdminPrompt(ctx: AgentContext): string {
       prompt += `\n📌 INSTRUÇÕES ESPECIAIS:\n${config.custom_instructions}`;
     }
     prompt += '\n\n' + buildMultilingualDirective();
+  prompt += '\n\n' + buildHumanStyleDirective();
     return prompt;
   }
 

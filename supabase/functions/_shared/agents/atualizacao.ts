@@ -12,7 +12,7 @@ import {
   executeAtualizacaoHandoff,
 } from './tool-executors.ts';
 import { isRepetitiveMessage, updateAntiLoopState } from '../anti-loop.ts';
-import { buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
+import { buildFirstTurnContext, buildMultilingualDirective, buildHumanStyleDirective } from '../prompts.ts';
 
 // ========== SYSTEM PROMPT ==========
 
@@ -157,7 +157,9 @@ Checklist antes de enviar:
 Proprietário não é cliente de venda. É parceiro de negócio. Seja breve, respeitoso, resolutivo.
 </lembrete-final>
 
-${buildMultilingualDirective()}`;
+${buildMultilingualDirective()}
+
+${buildHumanStyleDirective()}`;
 }
 
 // ========== TOOLS ==========

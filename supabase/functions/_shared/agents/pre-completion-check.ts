@@ -183,6 +183,24 @@ export async function runPreCompletionChecks(
     pat.lastIndex = 0;
   }
 
+  // 4d. Naturalização: travessão é marca de texto IA. Brasileiro em WhatsApp não usa.
+  // Substitui em-dash (—) e en-dash (–) por pontuação natural baseada no contexto.
+  // Mantém hífen normal (-) em palavras compostas tipo "ex-marido", "bem-vindo".
+  const dashCount = (sanitized.match(/[—–]/g) || []).length;
+  if (dashCount > 0) {
+    sanitized = sanitized
+      // Espaço-travessão-espaço seguido de letra minúscula → vírgula
+      .replace(/\s+[—–]\s+([a-záàâãéêíóôõúç])/gi, ', $1')
+      // Espaço-travessão-espaço seguido de letra maiúscula → ponto-final
+      .replace(/\s+[—–]\s+([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ])/g, '. $1')
+      // Travessão sem espaços (rara, "Smolka—Imóveis") → espaço
+      .replace(/[—–]/g, ' ')
+      // Limpa espaços duplos resultantes
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    issues.push(`STYLE_DASH_REMOVED: ${dashCount} travessão(ões) substituído(s) por pontuação natural`);
+  }
+
   // 5. Qualified lead without search offer
   const qualScore = ctx.qualificationData?.qualification_score || 0;
   const searchExecuted = ctx.toolsExecuted?.includes('buscar_imoveis');

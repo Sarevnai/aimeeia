@@ -4,7 +4,7 @@
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
 import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
-import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective } from '../prompts.ts';
+import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective, buildHumanStyleDirective } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
 import { isQualificationComplete, calculateQualificationScore } from '../qualification.ts';
@@ -300,6 +300,7 @@ FORMATO CORRETO: Apenas a mensagem que a cliente verá no WhatsApp. Curta, natur
 </formato-resposta>`);
 
   sections.push(buildMultilingualDirective());
+  sections.push(buildHumanStyleDirective());
 
   return sections.join('\n');
 }
@@ -557,6 +558,7 @@ Formato das respostas:
   sections.push(buildPostHandoffFollowup());
 
   sections.push(buildMultilingualDirective());
+  sections.push(buildHumanStyleDirective());
 
   return sections.join('\n');
 }
@@ -684,6 +686,7 @@ function buildStructuredRemarketingPrompt(ctx: AgentContext): string {
   sections.push(buildPostHandoffFollowup());
 
   sections.push(buildMultilingualDirective());
+  sections.push(buildHumanStyleDirective());
 
   return sections.join('\n');
 }
@@ -709,6 +712,7 @@ function buildLegacyRemarketingPrompt(ctx: AgentContext): string {
   }
   prompt += buildPostHandoffFollowup();
   prompt += '\n\n' + buildMultilingualDirective();
+  prompt += '\n\n' + buildHumanStyleDirective();
   return prompt;
 }
 
@@ -818,7 +822,8 @@ export const remarketingAgent: AgentModule = {
   async postProcess(ctx: AgentContext, aiResponse: string): Promise<string> {
     // Pre-completion verification (Harness Engineering pattern)
     const preCheck = await runPreCompletionChecks(ctx, ctx.userMessage || '', aiResponse);
-    let finalResponse = preCheck.hasCriticalIssue ? preCheck.sanitizedResponse : aiResponse;
+    // Sempre usa sanitizedResponse — pega sanitizações não-críticas como travessão e leaks
+    let finalResponse = preCheck.sanitizedResponse;
 
     // Strip chain-of-thought blocks that LLM may leak to client (safety net)
     // Covers: <análise>, <anise>, <anamnese>, <invoke>, <parameter>, <tool_call>, etc.

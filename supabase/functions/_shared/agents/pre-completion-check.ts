@@ -72,11 +72,18 @@ export async function runPreCompletionChecks(
   // de abertura sem corpo. Se o caller manda isso ao cliente, Smolka perde
   // credibilidade com um proprietário de 8 anos esperando resposta sobre
   // repasse atrasado. Agora bloqueamos como crítico com fallback seguro.
+  //
+  // Stress test 25/04 (Beatriz T6/T7): regra `endsMidClause` com threshold 80 chars
+  // estava sanitizando respostas curtas LEGÍTIMAS tipo "Não precisa de fiador, temos
+  // outras opções:" como se fossem truncamento. Lead idoso de pergunta substantiva
+  // perdia atendimento. Threshold reduzido pra 30 chars + safety net pra despedidas.
   const trimmedResponse = (aiResponse || '').trim();
   const isEmpty = trimmedResponse.length < 10;
   const looksLikeNakedGreeting = /^(ol[áa]|oi|bom\s+dia|boa\s+tarde|boa\s+noite|e\s+a[ií]|opa|prezad[oa]|sr\.?|sra\.?|senhor\s*a?)\s*[,.!?]?\s*[a-záàâãéêíóôõú\s.-]{2,40}\s*[!.]?\s*$/i
     .test(trimmedResponse) && trimmedResponse.length < 40;
-  const endsMidClause = /[,;:]\s*$/.test(trimmedResponse) && trimmedResponse.length < 80;
+  // Mid-clause REAL: termina em vírgula/dois-pontos E é muito curto (< 30 chars).
+  // Acima disso é provavelmente uma resposta legítima curta (ex: "Não, fiador não é obrigatório, temos outras opções:")
+  const endsMidClause = /[,;:]\s*$/.test(trimmedResponse) && trimmedResponse.length < 30;
 
   // Pós-handoff: despedida curta ("Obrigada, até breve!") é esperada e NÃO é truncamento.
   // Não aplicar fallback "me perdi aqui" porque o handoff já executou e reinvocaria a Aimee.
@@ -84,7 +91,11 @@ export async function runPreCompletionChecks(
     t === 'enviar_lead_c2s' || t === 'executar_handoff' || t === 'encaminhar_humano' || t === 'transferir_administrativo'
   );
 
-  if ((isEmpty || looksLikeNakedGreeting || endsMidClause) && !handoffJustExecuted) {
+  // Safety net: se cliente está se DESPEDINDO ("vou pensar", "ligo depois", "tchau", "obrigad"),
+  // resposta curta da Aimee é apropriada. Não substituir por fallback "me perdi aqui".
+  const userIsClosing = /\b(vou\s+pensar|ligo\s+(amanh|depois|outro)|tchau|valeu|obrigad[oa]|at[eé]\s+(mais|breve|logo)|fica\s+pra\s+pr[oó]xima|outra\s+hora|n[aã]o\s+tenho\s+pressa)\b/i.test(userMessage || '');
+
+  if ((isEmpty || looksLikeNakedGreeting || endsMidClause) && !handoffJustExecuted && !userIsClosing) {
     hasCritical = true;
     const reason = isEmpty ? 'vazia ou curta demais'
       : looksLikeNakedGreeting ? 'apenas saudação sem conteúdo (provável truncamento do LLM)'

@@ -93,6 +93,32 @@ describe('classifyInbound — DNC guardrail', () => {
     });
   });
 
+  // Categorial rejection: lead is rejecting an attribute (type/region/price),
+  // NOT the relationship. These MUST reach the AI agent so it can pivot the
+  // search. The Terezinha incident (2026-04-25, conversation 146bc4bc) was
+  // caused by "não quero Apartamento" being misclassified as opt_out.
+  describe('categorial rejection — must NOT trigger opt_out (Terezinha guard)', () => {
+    const categorialCases = [
+      'Boa opção mais nao quero Apartamento 😉',
+      'não quero apartamento',
+      'não quero apartamento, prefiro casa',
+      'não quero no Centro',
+      'não quero acima de 3 milhões',
+      'não quero gastar tanto',
+      'não quero esse, tem outro?',
+      'não me interessa esse aí, tem outro?',
+      'agora não, mas semana que vem podemos voltar',
+      'esse não, mas continua mandando opções',
+      'desisti desse imóvel, vamos pra próximo',
+      'não estou mais querendo apartamento, quero casa',
+      'sem interesse nesse aqui, tem outro?',
+    ];
+    it.each(categorialCases)('does NOT flag "%s" as opt_out (categorial)', (input) => {
+      const r = classifyInbound(input);
+      expect(r.reason).toBeNull();
+    });
+  });
+
   describe('audio transcription prefix is stripped', () => {
     it('matches opt-out inside transcribed audio', () => {
       const r = classifyInbound('[Transcrição de áudio]: Pode retirar meu contato da lista por favor');

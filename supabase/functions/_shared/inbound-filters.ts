@@ -22,21 +22,26 @@ function normalize(text: string): string {
 
 // Phrases that signal explicit opt-out or strong disinterest.
 // Ordered from most specific to most generic.
+//
+// IMPORTANT — categorial rejection ("não quero apartamento", "não quero no Centro",
+// "não quero acima de 3 milhões") MUST NOT trigger opt_out. Those mean the lead
+// wants to PIVOT the search, not leave. Patterns below only fire when the negation
+// targets the relationship itself (contato, lista, mensagem, atendimento, interesse).
 const OPT_OUT_PATTERNS: RegExp[] = [
   /\b(retire|retira|retirar|remove|remova|remover|exclu[ai]|exclua[rs]?|apagu?a[rs]?|descadastr|tira[rs]?)\b.{0,40}\b(contato|cadastro|lista|numero|numero|dados)\b/,
   /\bn(a|ã)o.{0,15}(me.{0,10})?(mande|envi|contat|procure|ligue|escrev|manda|envia|procura|liga|escreve)\b/,
   /\b(parem?|pare)\b.{0,30}\b(mandar|enviar|escrever|contat|liga|manda|envia|me\s+mand)/,
   /\bnunca mais\b.{0,30}\b(mande|envi|contat|procur|lig|escrev)/,
   /\bsa(i|í)r\b.{0,25}\blista/,
-  /\bn(a|ã)o (tenho|quero|estou|to|tô)\s+(mais\s+)?interesse/,
-  /\bsem\s+interesse\b/,
-  /\bn(a|ã)o me interessa(r|)\b/,
-  /\bn(a|ã)o\s+quero\b(?!\s+(mais\s+)?(ver|saber|conversar\s+com\s+voc))/,
-  /\bn(a|ã)o\s+est(a|á|ou|ô|o)\s+mais\b/,
+  /\bn(a|ã)o (tenho|quero|estou|to|tô)\s+(mais\s+)?interesse(?!\s+(em|por|no|na|nesse|nessa|neste|nesta|naquele|naquela|nele|nela|nisso)\b)/,
+  /\bsem\s+interesse(?!\s+(em|por|no|na|nesse|nessa|neste|nesta|naquele|naquela|nele|nela|nisso)\b)/,
+  /\bn(a|ã)o me interessa(r|)(?!\s+(esse|esta|este|isso|aquele|aquela|esses|essas)\b)/,
+  /\bn(a|ã)o\s+quero\s+(mais\s+)?(saber|receber|ser\s+contat|ouvir|atender|conversar|falar\s+com\s+voc|nada\s+disso|isso|nada)/,
+  /\bn(a|ã)o\s+est(a|á|ou|ô|o)\s+mais\s+(procurando|buscando|interess|atr(a|á)s|querendo\s+nada)/,
   /\bj(a|á)\s+(consegui|resolvi|comprei|aluguei|fechei|achei|encontrei)\b/,
   /\bpor favor.{0,20}n(a|ã)o.{0,15}(mande|envi|contat|lig)/,
   /\bmudan(c|ç)a de planos\b/,
-  /\bdesisti\b/,
+  /\bdesisti(?!\s+(de|do|da|desse|dessa|deste|desta|daquele|daquela|disso)\b)/,
 ];
 
 // Phrases that signal the sender is a real-estate professional pitching

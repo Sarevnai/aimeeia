@@ -238,6 +238,37 @@ serve(async (req: Request) => {
                 })
                 .eq('campaign_id', campaign_id)
                 .eq('contact_id', contact_id);
+
+            // Tag drift fix: campaigns of type 'remarketing' must tag the contact
+            // so loadRemarketingContext (Sprint 4) and dashboards see them.
+            // Before this, only contacts imported via LeadImportSheet got the tag,
+            // and 85% of remarketing-campaign contacts were invisible to filters.
+            const { data: campaignRow } = await supabase
+                .from('campaigns')
+                .select('campaign_type')
+                .eq('id', campaign_id)
+                .maybeSingle();
+
+            if (campaignRow?.campaign_type === 'remarketing') {
+                const { data: contactRow } = await supabase
+                    .from('contacts')
+                    .select('tags, channel_source')
+                    .eq('id', contact_id)
+                    .maybeSingle();
+
+                const currentTags: string[] = Array.isArray(contactRow?.tags) ? contactRow.tags : [];
+                const patch: Record<string, any> = {};
+                if (!currentTags.includes('remarketing_c2s')) {
+                    patch.tags = [...currentTags, 'remarketing_c2s'];
+                }
+                if (!contactRow?.channel_source) {
+                    patch.channel_source = 'remarketing_c2s';
+                }
+                if (Object.keys(patch).length > 0) {
+                    await supabase.from('contacts').update(patch).eq('id', contact_id);
+                    console.log(`🏷️  Tagged contact ${contact_id} as remarketing_c2s`);
+                }
+            }
         }
 
         // ── Update conversation last_message_at ──

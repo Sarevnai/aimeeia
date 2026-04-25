@@ -94,7 +94,12 @@ export async function runPreCompletionChecks(
 
   // Safety net: se cliente está se DESPEDINDO ("vou pensar", "ligo depois", "tchau", "obrigad"),
   // resposta curta da Aimee é apropriada. Não substituir por fallback "me perdi aqui".
-  const userIsClosing = /\b(vou\s+pensar|ligo\s+(amanh|depois|outro)|tchau|valeu|obrigad[oa]|at[eé]\s+(mais|breve|logo)|fica\s+pra\s+pr[oó]xima|outra\s+hora|n[aã]o\s+tenho\s+pressa)\b/i.test(userMessage || '');
+  // Caso Clelia 25/04: "Obrigado por esta procurando, mas a casa que procuro é pé na areia..."
+  // batia em obrigad[oa] e silenciava a Aimee. Polidez antes de uma correção/continuação
+  // ("mas|porém|só que|na verdade") NÃO é despedida — não pode ativar a safety net.
+  const userClosingMatch = /\b(vou\s+pensar|ligo\s+(amanh|depois|outro)|tchau|valeu|obrigad[oa]|at[eé]\s+(mais|breve|logo)|fica\s+pra\s+pr[oó]xima|outra\s+hora|n[aã]o\s+tenho\s+pressa)\b/i.test(userMessage || '');
+  const userHasContinuation = /\b(mas|por[eé]m|contudo|todavia|entretanto|s[oó]\s+que|na\s+verdade|por[eé]m)\b/i.test(userMessage || '');
+  const userIsClosing = userClosingMatch && !userHasContinuation;
 
   if ((isEmpty || looksLikeNakedGreeting || endsMidClause) && !handoffJustExecuted && !userIsClosing) {
     hasCritical = true;

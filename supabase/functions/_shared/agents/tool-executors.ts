@@ -680,14 +680,33 @@ export async function executePropertySearch(
       const imgResult = await sendWhatsAppImage(ctx.phoneNumber, prop.foto_destaque, caption, ctx.tenant);
       if (imgResult.success) {
         sentCount = 1;
+        // Caso Clelia 25/04: card ia pro WhatsApp do cliente mas sumia do painel —
+        // sendWhatsAppImage não persiste, então o operador via só a 2ª mensagem do LLM
+        // sem foto/link. Mesmo padrão do executePropertyByCode (mais abaixo).
+        await saveOutboundMessage(
+          ctx.supabase, ctx.tenantId, ctx.conversationId, ctx.phoneNumber,
+          caption, imgResult.messageId, 'vendas', 'image', prop.foto_destaque,
+        );
       } else {
         console.warn(`⚠️ Image send failed for property ${prop.codigo}, falling back to text`);
         const textResult = await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
         sentCount = textResult?.success ? 1 : 0;
+        if (sentCount > 0) {
+          await saveOutboundMessage(
+            ctx.supabase, ctx.tenantId, ctx.conversationId, ctx.phoneNumber,
+            caption, textResult?.messageId, 'vendas',
+          );
+        }
       }
     } else {
       const textResult = await sendMsg(ctx.phoneNumber, caption, ctx.tenant);
       sentCount = textResult?.success ? 1 : 0;
+      if (sentCount > 0) {
+        await saveOutboundMessage(
+          ctx.supabase, ctx.tenantId, ctx.conversationId, ctx.phoneNumber,
+          caption, textResult?.messageId, 'vendas',
+        );
+      }
     }
 
     console.log(`📤 Property sent: ${sentCount}/1 delivered | ${formattedProperties.length - 1} remaining in queue`);

@@ -139,6 +139,10 @@ serve(async (req: Request) => {
     let assignedBrokerId: string | null = null;
 
     if (c2sConfig?.setting_value?.api_url && c2sConfig?.setting_value?.api_key) {
+      // Build link direto pra conversa na Aimee (corretor abre via C2S)
+      const panelBase = (tenant as any).panel_base_url || 'https://app.aimee.ia';
+      const aimeeConversationLink = conversation_id ? `${panelBase}/chat/${conversation_id}` : null;
+
       // Send to C2S
       c2sResult = await sendToC2S(c2sConfig.setting_value, {
         name: contact?.name || 'Lead WhatsApp',
@@ -150,6 +154,7 @@ serve(async (req: Request) => {
         development_id: finalDevId,
         development_title: finalDevTitle,
         property_details: propertyDetails,
+        aimee_link: aimeeConversationLink, // link pro corretor abrir a conversa na Aimee
       });
       c2sSent = c2sResult && !c2sResult.error;
 
@@ -343,6 +348,14 @@ function buildLeadBody(leadData: any): string {
   // Header
   lines.push('━━━ LEAD QUALIFICADO VIA AIMEE.IA ━━━');
   lines.push('');
+
+  // Link pra acompanhar conversa na Aimee — pra o corretor responsável continuar o atendimento
+  if (leadData.aimee_link) {
+    lines.push('💬 ACOMPANHAR ATENDIMENTO');
+    lines.push(`  ${leadData.aimee_link}`);
+    lines.push('  (acesse pra ver toda a conversa e assumir quando quiser)');
+    lines.push('');
+  }
 
   // Perfil do cliente
   const perfilItems: string[] = [];

@@ -19,17 +19,25 @@ serve(async (req: Request) => {
   const supabase = getSupabaseClient();
 
   try {
-    const { tenant_id, dry_run = false, role = 'operator', department_code = 'vendas' } = await req.json().catch(() => ({}));
+    const { tenant_id, dry_run = false, role = 'operator', department_code = 'vendas', include_active_without_vista = false } = await req.json().catch(() => ({}));
     if (!tenant_id) return errorResponse('Missing tenant_id', 400);
 
-    // Eligible brokers: vista_codigo + email + C2S real seller (not vista-only placeholder)
-    const { data: brokers, error: bErr } = await supabase
+    // Eligible brokers: email + C2S real seller (not vista-only placeholder).
+    // Default: também exige vista_codigo (perfil "completo" Vista+C2S).
+    // Com include_active_without_vista=true: aceita active+sem profile_id mesmo sem Vista
+    // (caso de corretores ativos no C2S que ainda não foram cadastrados no Vista).
+    let q = supabase
       .from('brokers')
-      .select('id, full_name, email, phone, c2s_seller_id, c2s_is_master, vista_codigo, profile_id')
+      .select('id, full_name, email, phone, c2s_seller_id, c2s_is_master, vista_codigo, profile_id, active')
       .eq('tenant_id', tenant_id)
-      .not('vista_codigo', 'is', null)
       .not('email', 'is', null)
       .not('c2s_seller_id', 'like', 'vista-only:%');
+    if (!include_active_without_vista) {
+      q = q.not('vista_codigo', 'is', null);
+    } else {
+      q = q.eq('active', true);
+    }
+    const { data: brokers, error: bErr } = await q;
     if (bErr) throw new Error(`Query brokers failed: ${bErr.message}`);
 
     // Dedup by email: prefer c2s_is_master=true

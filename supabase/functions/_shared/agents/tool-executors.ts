@@ -271,6 +271,13 @@ export async function executePropertySearch(
   ctx: AgentContext,
   args: any
 ): Promise<string> {
+  // DEBUG: insert into _debug_log (no constraints, RLS disabled)
+  try {
+    await ctx.supabase.from('_debug_log').insert({
+      source: 'executePropertySearch:start',
+      data: { args, qual: ctx.qualificationData, dept: ctx.department, conv_id: ctx.conversationId, tenant: ctx.tenantId },
+    });
+  } catch (e) { /* swallow */ }
   try {
     // Fix E (v2): Gate — rejeitar busca se qualificação mínima não atingida.
     // Regra: OBRIGATÓRIO ter pelo menos BAIRRO ou BUDGET do cliente.
@@ -348,24 +355,100 @@ export async function executePropertySearch(
 
     console.log(`🔍 Buscando imóveis via vector search para: "${semanticQuery}" | Bairro: ${args.bairro || 'NENHUM'} | Tipo: ${args.tipo_imovel || 'NENHUM'} | Quartos: ${args.quartos || 'NENHUM'} | Finalidade: ${filterFinalidade || 'NENHUM'} | Budget cliente: ${clientBudget} → Busca: ${searchBudget}`);
 
-    const queryEmbedding = await generateEmbedding(semanticQuery);
+    // Bug fix: args.finalidade vem do LLM como 'venda'/'locacao' (transação), mas o filter_finalidade
+    // do RPC espera o mesmo formato. O nome confuso `finalidade_imovel` mistura com tipo de uso.
+    // Usa effectiveFinalidade que sempre tem o valor correto (venda/locacao).
+    const rpcFinalidade = (effectiveFinalidade === 'venda' || effectiveFinalidade === 'locacao') ? effectiveFinalidade : null;
 
-    const { data: properties, error } = await ctx.supabase.rpc('match_properties', {
-      query_embedding: queryEmbedding,
-      match_tenant_id: ctx.tenantId,
-      match_threshold: 0.2,
-      match_count: 5,
-      filter_max_price: searchBudget,
-      filter_tipo: args.tipo_imovel || null,
-      filter_neighborhood: args.bairro || null,
-      filter_bedrooms: args.quartos || null,
-      filter_finalidade: filterFinalidade,
-    });
+    // Tenta busca semântica via embedding. Se falhar (cap estourado, timeout, etc),
+    // ou retornar vazio, cai no fallback SQL puro (filtros estruturados sem similarity).
+    let properties: any[] | null = null;
+    let error: any = null;
+    let usedFallback = false;
+
+    try {
+      const queryEmbedding = await generateEmbedding(semanticQuery);
+      const result = await ctx.supabase.rpc('match_properties', {
+        query_embedding: queryEmbedding,
+        match_tenant_id: ctx.tenantId,
+        match_threshold: 0.05,
+        match_count: 5,
+        filter_max_price: searchBudget,
+        filter_tipo: args.tipo_imovel || null,
+        filter_neighborhood: args.bairro || null,
+        filter_bedrooms: args.quartos || null,
+        filter_finalidade: rpcFinalidade,
+      });
+      properties = result.data;
+      error = result.error;
+    } catch (embErr) {
+      console.warn(`⚠️ Embedding falhou, usando fallback SQL puro: ${embErr}`);
+      usedFallback = true;
+      const fallbackResult = await ctx.supabase.rpc('match_properties_no_embedding', {
+        match_tenant_id: ctx.tenantId,
+        match_count: 5,
+        filter_max_price: searchBudget,
+        filter_tipo: args.tipo_imovel || null,
+        filter_neighborhood: args.bairro || null,
+        filter_bedrooms: args.quartos || null,
+        filter_finalidade: rpcFinalidade,
+      });
+      properties = fallbackResult.data;
+      error = fallbackResult.error;
+    }
+
+    // Se RPC vetorial voltou vazia mas embedding rodou, tenta fallback SQL antes de desistir
+    if (!error && (!properties || properties.length === 0) && !usedFallback) {
+      console.log('🔄 RPC vetorial voltou vazia, tentando fallback SQL puro');
+      usedFallback = true;
+      const fallbackResult = await ctx.supabase.rpc('match_properties_no_embedding', {
+        match_tenant_id: ctx.tenantId,
+        match_count: 5,
+        filter_max_price: searchBudget,
+        filter_tipo: args.tipo_imovel || null,
+        filter_neighborhood: args.bairro || null,
+        filter_bedrooms: args.quartos || null,
+        filter_finalidade: rpcFinalidade,
+      });
+      properties = fallbackResult.data;
+      error = fallbackResult.error;
+    }
+
+    if (usedFallback) {
+      console.log(`📋 Usando fallback SQL puro (sem similaridade semântica). Retornou ${properties?.length || 0} imóveis.`);
+    }
+
+    console.log(`🔍 RPC match_properties returned ${properties?.length || 0} | rpcFinalidade=${rpcFinalidade} | bairro=${args.bairro} | quartos=${args.quartos} | searchBudget=${searchBudget}`);
 
     if (error) {
       console.error('❌ Property search vector error:', error);
+      // DEBUG: inject error in conversation_events for retrieval
+      try {
+        await ctx.supabase.from('conversation_events').insert({
+          tenant_id: ctx.tenantId,
+          conversation_id: ctx.conversationId,
+          event_type: 'rpc_error_debug',
+          metadata: { error_message: error.message, error_code: error.code, args, searchBudget, rpcFinalidade },
+        });
+      } catch {}
       return 'Não consegui buscar imóveis no nosso catálogo inteligente no momento. Tente novamente em instantes.';
     }
+
+    // DEBUG: dump RPC result count + first record
+    try {
+      await ctx.supabase.from('_debug_log').insert({
+        source: 'executePropertySearch:rpc_result',
+        data: {
+          rpc_count: properties?.length || 0,
+          first: properties?.[0] || null,
+          args_bairro: args.bairro,
+          args_tipo: args.tipo_imovel,
+          args_quartos: args.quartos,
+          search_budget: searchBudget,
+          rpc_finalidade: rpcFinalidade,
+        },
+      });
+    } catch {}
 
     // C2: Filtrar imóveis sem preço válido — "sob consulta" não existe no sistema
     let validProperties = (properties || []).filter((p: any) => p.price && p.price > 1);
@@ -392,15 +475,21 @@ export async function executePropertySearch(
     }
 
     // C9: Pós-filtro finalidade — se cliente quer comprar, remover prováveis aluguéis (preço < 50k)
-    // Se cliente quer alugar, remover prováveis vendas (preço > 50k)
-    // Se 'ambos', não filtrar por finalidade — mantém venda e locação juntos.
+    // Pós-filtro por finalidade — agora usa coluna estruturada `finalidade` (vinda da RPC)
+    // em vez da heurística antiga `price < 50k` (que falhava em locações de alto padrão).
+    // Para tenants com `min_rental_budget` configurado, também aplica o piso comercial aqui.
     const clientFinalidade = effectiveFinalidade;
     if (clientFinalidade && clientFinalidade !== 'ambos') {
       const beforeCount = validProperties.length;
       if (clientFinalidade === 'venda') {
-        validProperties = validProperties.filter((p: any) => p.price >= 50000);
+        validProperties = validProperties.filter((p: any) => !p.finalidade || p.finalidade === 'venda' || p.finalidade === 'ambos');
       } else if (clientFinalidade === 'locacao') {
-        validProperties = validProperties.filter((p: any) => p.price < 50000);
+        validProperties = validProperties.filter((p: any) => p.finalidade === 'locacao' || p.finalidade === 'ambos' || (!p.finalidade && Number(p.price) < 50000));
+        // Aplica piso de locação se configurado no tenant
+        const minRental = (ctx.tenant as any)?.min_rental_budget;
+        if (minRental && Number(minRental) > 0) {
+          validProperties = validProperties.filter((p: any) => Number(p.price) >= Number(minRental));
+        }
       }
       if (beforeCount !== validProperties.length) {
         console.log(`🔒 C9: Pós-filtro finalidade (${clientFinalidade}) removeu ${beforeCount - validProperties.length} imóvel(is) incompatível(is)`);
@@ -411,8 +500,8 @@ export async function executePropertySearch(
     // sinalizar qual tem e qual não tem para o hint guiar a resposta.
     let pivotNotice = '';
     if (clientFinalidade === 'ambos' && validProperties.length > 0) {
-      const vendaProps = validProperties.filter((p: any) => p.price >= 50000);
-      const locacaoProps = validProperties.filter((p: any) => p.price < 50000);
+      const vendaProps = validProperties.filter((p: any) => p.finalidade === 'venda' || p.finalidade === 'ambos' || (!p.finalidade && Number(p.price) >= 50000));
+      const locacaoProps = validProperties.filter((p: any) => p.finalidade === 'locacao' || p.finalidade === 'ambos' || (!p.finalidade && Number(p.price) < 50000));
       if (vendaProps.length > 0 && locacaoProps.length === 0) {
         pivotNotice = `\n\n⚠️ PIVOT OBRIGATÓRIO: O cliente pediu compra E locação, mas no ${args.bairro || 'bairro solicitado'} só encontramos opções para COMPRA. Você DEVE informar isso de forma natural e empática. Exemplo: "Devido à alta demanda, não temos apartamentos para locação no ${args.bairro || 'bairro'} nesse momento, mas como você também se interessa por compra, separei uma ótima opção!" NÃO pule essa explicação. Depois apresente o imóvel de venda. Se o cliente insistir que quer locação, sugira bairros vizinhos com disponibilidade (ex: Rio Tavares, Lagoa da Conceição, Ribeirão da Ilha).`;
         // Keep only venda properties
@@ -517,6 +606,8 @@ export async function executePropertySearch(
     // (contacts.shown_property_codes), não só a conversa atual.
     const shownIds = await getShownPropertyCodes(ctx);
     const formattedProperties = allFormattedProperties.filter(p => !shownIds.has(p.codigo));
+
+    console.log(`🔍 [DEBUG-FINAL] allFormatted=${allFormattedProperties.length}, alreadyShown=${shownIds.size}, toSend=${formattedProperties.length}`);
 
     if (formattedProperties.length === 0) {
       return 'Já te mostrei todas as opções que encontrei com esses critérios. Quer que eu amplie a busca para bairros vizinhos ou ajuste algum filtro?';

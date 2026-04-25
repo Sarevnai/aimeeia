@@ -325,6 +325,12 @@ serve(async (req: Request) => {
             }
           }
 
+          // Finalidade estruturada (venda/locacao/ambos) — derivada dos campos Vista
+          const finalidade = (priceVenda > 0 && priceLocacao > 0) ? 'ambos'
+            : (priceLocacao > 0) ? 'locacao'
+            : (priceVenda > 0) ? 'venda'
+            : null;
+
           allSyncedExternalIds.add(codigo);
           propertiesBatch.push({
             tenant_id,
@@ -333,6 +339,8 @@ serve(async (req: Request) => {
             neighborhood,
             title: titleText,
             price: isNaN(price) ? 0 : price,
+            price_rental: priceLocacao > 0 ? priceLocacao : null,
+            finalidade,
             bedrooms: isNaN(bedrooms) ? 0 : bedrooms,
             parking_spaces: isNaN(parkingSpaces) ? 0 : parkingSpaces,
             area: isNaN(area) ? 0 : area,

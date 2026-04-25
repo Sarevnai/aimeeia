@@ -205,10 +205,39 @@ async function syncTenant(supabase: any, tenant_id: string) {
           const { error } = await supabase.from('contacts').update(update).eq('id', existing.id);
           if (error) throw new Error(error.message);
           stats.updated++;
+
+          // Bug fix 2026-04-25: propagar c2s_lead_id + assigned_broker_id pra
+          // conversations ativas do contato. Antes só contacts era atualizado,
+          // então conversations.c2s_lead_id ficava null e a UI/RLS não conseguia
+          // mostrar a vinculação corretor-conversa.
+          await supabase
+            .from('conversations')
+            .update({
+              c2s_lead_id: lead.id,
+              assigned_broker_id: assignedBrokerId,
+            })
+            .eq('tenant_id', tenant_id)
+            .eq('contact_id', existing.id);
         } else {
-          const { error } = await supabase.from('contacts').insert(contactPayload);
+          const { data: inserted, error } = await supabase
+            .from('contacts')
+            .insert(contactPayload)
+            .select('id')
+            .single();
           if (error) throw new Error(error.message);
           stats.inserted++;
+
+          // Mesmo motivo do update: propagar pra conversations existentes do contato.
+          if (inserted?.id) {
+            await supabase
+              .from('conversations')
+              .update({
+                c2s_lead_id: lead.id,
+                assigned_broker_id: assignedBrokerId,
+              })
+              .eq('tenant_id', tenant_id)
+              .eq('contact_id', inserted.id);
+          }
         }
       } catch (err) {
         stats.errors++;

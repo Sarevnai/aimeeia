@@ -6,6 +6,7 @@ import { AIAgentConfig, AIBehaviorConfig, EssentialQuestion, ConversationMessage
 import { generateRegionKnowledge } from './regions.ts';
 import { Region } from './types.ts';
 import { formatCurrency, resolveContactNameForPrompt } from './utils.ts';
+import { loadCulturalProfiles, generateCulturalKnowledge } from './cultural-profiles.ts';
 
 // ========== FIRST TURN CONTEXT ==========
 // Injected into the system prompt when conversationHistory is empty so the agent
@@ -365,6 +366,30 @@ export async function buildSystemPrompt(
   isReturningLead?: boolean,
   previousQualificationData?: QualificationData | null
 ): Promise<string> {
+  // Wiki cultural: carrega perfis e gera bloco se houver sinais (nome/bairro/mensagens recentes)
+  let culturalBlock = '';
+  try {
+    const profiles = await loadCulturalProfiles(supabase, tenant.id);
+    if (profiles.length > 0) {
+      const recentMessages = (conversationHistory || [])
+        .slice(-6)
+        .filter(m => m.role === 'user')
+        .map(m => m.content || '');
+      const neighborhood =
+        (qualificationData as any)?.neighborhood ||
+        (Array.isArray((qualificationData as any)?.preferred_neighborhoods)
+          ? (qualificationData as any).preferred_neighborhoods.join(' ')
+          : '') || null;
+      culturalBlock = generateCulturalKnowledge(profiles, {
+        contactName,
+        neighborhood,
+        recentMessages,
+      });
+    }
+  } catch (e) {
+    console.error('⚠️ cultural profiles load failed:', e);
+  }
+
   // Priority 1: Check ai_directives table for custom prompt
   try {
     const directive = preloadedDirective ?? (await supabase
@@ -392,6 +417,7 @@ export async function buildSystemPrompt(
       }
       prompt += postHandoff;
       prompt += '\n\n' + multilingual;
+      if (culturalBlock) prompt += culturalBlock;
       return prompt;
     }
 
@@ -414,6 +440,7 @@ export async function buildSystemPrompt(
       }
       prompt += postHandoff;
       prompt += '\n\n' + multilingual;
+      if (culturalBlock) prompt += culturalBlock;
       return prompt;
     }
   } catch (e) {
@@ -429,10 +456,10 @@ export async function buildSystemPrompt(
   // C4: Contexto de lead retornante para built-in prompts
   const returningCtx = isReturningLead ? buildReturningLeadContext(previousQualificationData || null) : '';
   switch (department) {
-    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback;
-    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback;
-    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback;
-    default: return buildDefaultPrompt(config, tenant, contactName) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback;
+    case 'locacao': return buildLocacaoPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback + culturalBlock;
+    case 'vendas': return buildVendasPrompt(config, tenant, regions, contactName, qualificationData) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback + culturalBlock;
+    case 'administrativo': return buildAdminPrompt(config, tenant, contactName) + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback + culturalBlock;
+    default: return buildDefaultPrompt(config, tenant, contactName) + returningCtx + behaviorInstructions + remarketingInstructions + postHandoffFallback + multilingualFallback + culturalBlock;
   }
 }
 

@@ -859,6 +859,7 @@ export const remarketingAgent: AgentModule = {
     if (!ctx._loopDetected && isRepetitiveMessage(finalResponse, ctx.lastAiMessages, {
       qualChangedThisTurn: ctx._qualChangedThisTurn,
       moduleChangedThisTurn: ctx._moduleChangedThisTurn,
+      userMessage: ctx.userMessage,
     })) {
       console.log('🔄 [Remarketing] Repetition detected → rotating fallback');
       finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, true, ctx.qualificationData);

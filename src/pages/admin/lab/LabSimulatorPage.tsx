@@ -7,6 +7,7 @@ import { Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { SimuladorChat } from '@/components/lab/SimuladorChat';
 import SimuladorSidebar from '@/components/lab/SimuladorSidebar';
+import { SimulationHistoryDialog } from '@/components/lab/SimulationHistoryDialog';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 
@@ -217,6 +218,7 @@ export default function LabSimulatorPage() {
           <Badge variant="outline" className="text-xs">{selectedTenantName}</Badge>
         )}
         <div className="flex-1" />
+        {selectedTenantId && <SimulationHistoryDialog tenantId={selectedTenantId} />}
         <Button
           variant="ghost"
           size="sm"

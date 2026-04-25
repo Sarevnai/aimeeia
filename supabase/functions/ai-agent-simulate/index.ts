@@ -42,6 +42,7 @@ serve(async (req: Request) => {
       department,
       conversation_id: existingConvId,
       simulate_template,
+      portal_property_code, // VendasPortalFix: permite simular leads ZAP/VivaReal/OLX no AI Lab
     } = await req.json();
 
     if (!tenant_id || (!message_body && !simulate_template)) {
@@ -541,6 +542,7 @@ serve(async (req: Request) => {
       contactName,
       qualificationData: isReturningLead ? mergeQualificationData({}, extracted) : mergedQual,
       conversationHistory: history,
+      userMessage: message_body,
       isFirstTurn: (history?.length || 0) === 0,
       directive,
       structuredConfig,
@@ -553,6 +555,7 @@ serve(async (req: Request) => {
       toolsExecuted: [],
       activeModules: (activeModules as AiModule[]) || [],
       currentModuleSlug,
+      portalPropertyCode: portal_property_code || null, // VendasPortalFix: simular lead portal ZAP
       supabase,
       // Fix B: context flags for anti-loop
       _qualChangedThisTurn: Object.keys(extracted).length > 0,

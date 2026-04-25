@@ -382,12 +382,12 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
   // Anti-leave handoff — cobre cenários de cliente saindo educadamente (ex: Welington)
   sections.push(buildAntiLeaveHandoffBlock());
 
-  // Identity
+  // Identity (essence + not_allowed agora opcionais — config otimizado consolidou em identity)
   sections.push(`# IDENTIDADE E PAPEL`);
-  sections.push(replaceVars(sc.role.identity));
-  sections.push(`\n**Essência:** ${replaceVars(sc.role.essence)}`);
-  sections.push(`**Proposta de valor:** ${replaceVars(sc.role.value_proposition)}`);
-  if (sc.role.not_allowed?.length > 0) {
+  if (sc.role?.identity) sections.push(replaceVars(sc.role.identity));
+  if (sc.role?.essence) sections.push(`\n**Essência:** ${replaceVars(sc.role.essence)}`);
+  if (sc.role?.value_proposition) sections.push(`**Proposta de valor:** ${replaceVars(sc.role.value_proposition)}`);
+  if (sc.role?.not_allowed && sc.role.not_allowed.length > 0) {
     sections.push(`\n**Você NÃO é:**`);
     sc.role.not_allowed.forEach(item => sections.push(`- ${replaceVars(item)}`));
   }
@@ -430,10 +430,10 @@ function buildStructuredComercialPrompt(ctx: AgentContext, sc: StructuredConfig)
   // Handoff protocol
   if (sc.handoff) {
     sections.push(`\n# PROTOCOLO DE HANDOFF`);
-    sections.push(`- Máximo de ${sc.handoff.max_curation_rounds} rodadas de curadoria`);
-    sections.push(`- Máximo de ${sc.handoff.max_properties_per_round} imóveis por rodada`);
-    sections.push(`**Gatilho:** ${replaceVars(sc.handoff.handoff_trigger)}`);
-    sections.push(`**Mensagem de handoff:** ${replaceVars(sc.handoff.handoff_message)}`);
+    if (sc.handoff.max_curation_rounds) sections.push(`- Máximo de ${sc.handoff.max_curation_rounds} rodadas de curadoria`);
+    if (sc.handoff.max_properties_per_round) sections.push(`- Máximo de ${sc.handoff.max_properties_per_round} imóveis por rodada`);
+    if (sc.handoff.handoff_trigger) sections.push(`**Gatilho:** ${replaceVars(sc.handoff.handoff_trigger)}`);
+    if (sc.handoff.handoff_message) sections.push(`**Mensagem de handoff:** ${replaceVars(sc.handoff.handoff_message)}`);
     if (sc.handoff.dossier_fields?.length > 0) {
       sections.push(`\nAo fazer handoff, inclua no campo motivo:`);
       sc.handoff.dossier_fields.forEach(f => sections.push(`- ${f}`));
@@ -771,6 +771,7 @@ export const comercialAgent: AgentModule = {
     if (!ctx._loopDetected && isRepetitiveMessage(finalResponse, ctx.lastAiMessages, {
       qualChangedThisTurn: ctx._qualChangedThisTurn,
       moduleChangedThisTurn: ctx._moduleChangedThisTurn,
+      userMessage: ctx.userMessage,
     })) {
       console.log('🔄 [Comercial] Repetition detected → rotating fallback');
       finalResponse = getRotatingFallback(qualified, ctx.lastAiMessages, isRemarketing, ctx.qualificationData);

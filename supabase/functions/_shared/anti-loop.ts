@@ -208,7 +208,7 @@ export function isLoopingQuestion(
 export function isRepetitiveMessage(
   aiResponse: string,
   lastAiMessages: string[],
-  options?: { qualChangedThisTurn?: boolean; moduleChangedThisTurn?: boolean }
+  options?: { qualChangedThisTurn?: boolean; moduleChangedThisTurn?: boolean; userMessage?: string }
 ): boolean {
   if (!lastAiMessages || lastAiMessages.length === 0) return false;
 
@@ -221,6 +221,20 @@ export function isRepetitiveMessage(
   if (options?.moduleChangedThisTurn) {
     console.log('ℹ️ Anti-loop: SKIP — módulo mudou neste turno');
     return false;
+  }
+
+  // Stress test 25/04 (Beatriz T3 fiador): user fez pergunta substantiva e Aimee respondeu
+  // com info correta + frase de transição que ficou similar ao turno anterior. Anti-loop
+  // disparou e substituiu por fallback genérico — Beatriz não recebeu resposta sobre fiador.
+  // Skip anti-loop quando user fez pergunta direta (`?` no fim ou keyword interrogativa).
+  if (options?.userMessage) {
+    const um = options.userMessage.toLowerCase();
+    const userAskedQuestion = /\?\s*$/.test(um.trim()) ||
+      /\b(como|quando|por\s+que|porque|onde|qual|quais|preciso|devo|tenho\s+que|aceita|tem|posso|funciona|garantia|fiador|seguro|cartão)\b/.test(um);
+    if (userAskedQuestion) {
+      console.log('ℹ️ Anti-loop: SKIP — user fez pergunta direta, resposta substantiva permitida mesmo se similar');
+      return false;
+    }
   }
 
   // Never intercept responses with property details

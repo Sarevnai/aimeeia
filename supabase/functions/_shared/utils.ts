@@ -45,6 +45,24 @@ export function truncate(text: string, maxLength: number): string {
   return text.slice(0, maxLength - 3) + '...';
 }
 
+// Travessão (em-dash —, en-dash –) é marca registrada de texto IA. Brasileiro
+// em WhatsApp não usa. Sanitizador shared, usado tanto pelo pre-completion-check
+// (sai do LLM) quanto pelo send-wa-message direto (mensagem AI compostas por
+// fora do ai-agent). Mantém hífen normal (-) em palavras compostas como
+// "bem-vindo", "ex-marido". Commit a71b3cf locked the rule, e o caso Terezinha
+// (2026-04-25) mostrou que ela vazava por send-wa-message direto.
+export function stripDashes(text: string): { sanitized: string; count: number } {
+  const count = (text.match(/[—–]/g) || []).length;
+  if (count === 0) return { sanitized: text, count: 0 };
+  const sanitized = text
+    .replace(/\s+[—–]\s+([a-záàâãéêíóôõúç])/gi, ', $1')
+    .replace(/\s+[—–]\s+([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ])/g, '. $1')
+    .replace(/[—–]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return { sanitized, count };
+}
+
 /**
  * Format string to WhatsApp Markdown syntax.
  * Converts **bold** to *bold*, and headers to bold text.

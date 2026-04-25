@@ -6,6 +6,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
 import { sendWhatsAppMessage, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { Tenant } from '../_shared/types.ts';
+import { stripDashes } from '../_shared/utils.ts';
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -13,10 +14,24 @@ serve(async (req: Request) => {
   const supabase = getSupabaseClient();
 
   try {
-    const { tenant_id, phone_number, message, conversation_id, department_code, sender_type, sender_id, event_type, reply_to_id, reply_to_wa_id } = await req.json();
+    const { tenant_id, phone_number, message: rawMessage, conversation_id, department_code, sender_type, sender_id, event_type, reply_to_id, reply_to_wa_id } = await req.json();
 
-    if (!tenant_id || !phone_number || !message) {
+    if (!tenant_id || !phone_number || !rawMessage) {
       return errorResponse('Missing required fields', 400);
+    }
+
+    // Travessão guard: AI messages composed outside ai-agent (e.g. operator
+    // tooling, manual retomada) bypass pre-completion-check. Strip em/en-dash
+    // here so the rule from commit a71b3cf holds across all entry points.
+    // Operator manual messages keep their dashes — only sender_type='ai' is
+    // sanitized.
+    let message = rawMessage as string;
+    if (sender_type === 'ai') {
+      const { sanitized, count } = stripDashes(message);
+      if (count > 0) {
+        console.log(`✂️  send-wa-message: removed ${count} travessão(ões) from ai message`);
+        message = sanitized;
+      }
     }
 
     // Load tenant

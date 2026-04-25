@@ -62,6 +62,10 @@ serve(async (req: Request) => {
     const vistaByCodigo = new Map(vistaCorretores.map((v) => [String(v.Codigo), v]));
     const now = new Date().toISOString();
 
+    // BUG FIX 2026-04-25: NÃO sobrescrever 'active' no upsert.
+    // Antes: hardcoded `active: true` zerava o flag manual pra qualquer broker que
+    // o admin tinha desativado. Agora preserva o valor existente; novas rows herdam
+    // o default true da coluna. Deactivation explícita acontece logo abaixo.
     const rows = c2sSellers.map((s) => {
       const vista = s.external_id ? vistaByCodigo.get(String(s.external_id)) : null;
       return {
@@ -76,7 +80,6 @@ serve(async (req: Request) => {
         c2s_payload: s,
         vista_codigo: vista?.Codigo || null,
         vista_nome: vista?.Nome || null,
-        active: true,
         last_synced_c2s: now,
         last_synced_vista: vista ? now : null,
       };
@@ -110,6 +113,7 @@ serve(async (req: Request) => {
     }
 
     // 5) Insert Vista-only brokers (no C2S link yet) — generate synthetic c2s_seller_id placeholder
+    // Mesma regra: não tocar em 'active' no upsert (preserva valor manual).
     let vistaOnly = 0;
     for (const v of orphanVista) {
       const placeholder = `vista-only:${v.Codigo}`;
@@ -122,10 +126,25 @@ serve(async (req: Request) => {
         c2s_payload: null,
         vista_codigo: v.Codigo,
         vista_nome: v.Nome,
-        active: true,
         last_synced_vista: now,
       }, { onConflict: 'tenant_id,c2s_seller_id' });
       if (!error) vistaOnly++;
+    }
+
+    // 6) Deactivation: brokers que existiam no DB mas sumiram da resposta C2S devem
+    // ficar inativos automaticamente. Não toca em vista-only (placeholder começa com 'vista-only:').
+    const c2sSellerIds = c2sSellers.map((s) => s.id);
+    let deactivated = 0;
+    if (c2sSellerIds.length > 0) {
+      const { count: deactCount, error: deactErr } = await supabase
+        .from('brokers')
+        .update({ active: false, updated_at: now }, { count: 'exact' })
+        .eq('tenant_id', tenant_id)
+        .not('c2s_seller_id', 'like', 'vista-only:%')
+        .not('c2s_seller_id', 'in', `(${c2sSellerIds.map((id) => `"${id}"`).join(',')})`)
+        .eq('active', true);
+      if (deactErr) console.warn('⚠️ deactivation update failed:', deactErr.message);
+      else deactivated = deactCount || 0;
     }
 
     return jsonResponse({
@@ -134,6 +153,7 @@ serve(async (req: Request) => {
       vista_count: vistaCorretores.length,
       upserted_c2s: upserted,
       upserted_vista_only: vistaOnly,
+      deactivated_missing_from_c2s: deactivated,
       matched: rows.filter((r) => r.vista_codigo).length,
     });
 

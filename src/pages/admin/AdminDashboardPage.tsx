@@ -1,19 +1,28 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Building2,
     MessageSquare,
     Users,
     TrendingUp,
     AlertTriangle,
+    AlertOctagon,
     Crown,
     Loader2,
     Home,
+    ArrowRight,
 } from 'lucide-react';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
 import TenantStatusBadge from '@/components/admin/TenantStatusBadge';
 import type { TenantStatus } from '@/components/admin/TenantStatusBadge';
 import AIMetricsPanel from '@/components/admin/AIMetricsPanel';
 import { supabase } from '@/integrations/supabase/client';
+import {
+    computeTenantHealth,
+    HEALTH_CLASSES,
+    HEALTH_LABELS,
+    type TenantHealthLevel,
+} from '@/lib/tenant-health';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -35,6 +44,13 @@ interface Alert {
     count: number;
 }
 
+interface NeedsAttentionTenant {
+    id: string;
+    name: string;
+    level: TenantHealthLevel;
+    reasons: string[];
+}
+
 interface DashboardData {
     totalTenants: number;
     activeTenants: number;
@@ -46,6 +62,7 @@ interface DashboardData {
     topTenants: TopTenant[];
     conversationHistory: MonthStat[];
     alerts: Alert[];
+    needsAttention: NeedsAttentionTenant[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -66,6 +83,7 @@ function calcTrend(current: number, previous: number): number {
 // ── Component ────────────────────────────────────────────────────────
 
 const AdminDashboardPage: React.FC = () => {
+    const navigate = useNavigate();
     const [data, setData] = useState<DashboardData | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -81,6 +99,8 @@ const AdminDashboardPage: React.FC = () => {
             const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
             const lastMonthStart = startOfMonth(lastMonth);
 
+            const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+
             // Parallel queries
             const [
                 tenantsRes,
@@ -89,8 +109,12 @@ const AdminDashboardPage: React.FC = () => {
                 leadsThisMonthRes,
                 leadsLastMonthRes,
                 propertiesRes,
+                settingsRes,
+                agentConfigRes,
+                conv7dRes,
+                lastConvRes,
             ] = await Promise.all([
-                supabase.from('tenants').select('id, company_name, is_active, created_at'),
+                supabase.from('tenants').select('id, company_name, is_active, created_at, wa_phone_number_id'),
                 supabase.from('conversations').select('id, tenant_id', { count: 'exact' })
                     .gte('created_at', thisMonthStart),
                 supabase.from('conversations').select('id', { count: 'exact', head: true })
@@ -102,6 +126,10 @@ const AdminDashboardPage: React.FC = () => {
                     .gte('created_at', lastMonthStart)
                     .lt('created_at', thisMonthStart),
                 supabase.from('properties').select('id', { count: 'exact', head: true }),
+                supabase.from('system_settings').select('tenant_id, setting_key, setting_value'),
+                supabase.from('ai_agent_config').select('tenant_id, vista_integration_enabled'),
+                supabase.from('conversations').select('tenant_id').gte('created_at', sevenDaysAgo),
+                supabase.from('conversations').select('tenant_id, created_at').order('created_at', { ascending: false }).limit(2000),
             ]);
 
             const tenants = tenantsRes.data || [];
@@ -188,6 +216,53 @@ const AdminDashboardPage: React.FC = () => {
                 alerts.push({ type: 'info', message: 'Nenhum alerta no momento', count: 0 });
             }
 
+            // Needs Attention — health per tenant from real signals
+            const c2sByTenant = new Map<string, boolean>();
+            const canalProByTenant = new Map<string, boolean>();
+            for (const s of settingsRes.data || []) {
+                if (s.setting_key === 'c2s_config') {
+                    const v = s.setting_value as { api_key?: string } | null;
+                    if (v?.api_key) c2sByTenant.set(s.tenant_id, true);
+                } else if (s.setting_key === 'canal_pro_secret') {
+                    if (s.setting_value) canalProByTenant.set(s.tenant_id, true);
+                }
+            }
+            const vistaByTenant = new Map<string, boolean>();
+            for (const a of agentConfigRes.data || []) {
+                if (a.vista_integration_enabled) vistaByTenant.set(a.tenant_id, true);
+            }
+            const conv7dByTenant = new Map<string, number>();
+            for (const c of conv7dRes.data || []) {
+                conv7dByTenant.set(c.tenant_id, (conv7dByTenant.get(c.tenant_id) || 0) + 1);
+            }
+            const lastConvByTenant = new Map<string, string>();
+            for (const c of lastConvRes.data || []) {
+                if (!lastConvByTenant.has(c.tenant_id)) {
+                    lastConvByTenant.set(c.tenant_id, c.created_at);
+                }
+            }
+
+            const needsAttention: NeedsAttentionTenant[] = tenants
+                .map((t) => {
+                    const health = computeTenantHealth({
+                        isActive: t.is_active ?? true,
+                        hasWhatsApp: !!t.wa_phone_number_id,
+                        hasVista: vistaByTenant.get(t.id) === true,
+                        hasC2S: c2sByTenant.get(t.id) === true,
+                        hasCanalPro: canalProByTenant.get(t.id) === true,
+                        conversations7d: conv7dByTenant.get(t.id) || 0,
+                        lastConversationAt: lastConvByTenant.get(t.id) || null,
+                    });
+                    return {
+                        id: t.id,
+                        name: t.company_name || 'Sem nome',
+                        level: health.level,
+                        reasons: health.reasons,
+                    };
+                })
+                .filter((t) => t.level !== 'healthy')
+                .sort((a, b) => (a.level === 'critical' ? -1 : 1));
+
             setData({
                 totalTenants,
                 activeTenants,
@@ -199,6 +274,7 @@ const AdminDashboardPage: React.FC = () => {
                 topTenants,
                 conversationHistory,
                 alerts,
+                needsAttention,
             });
         } catch (err) {
             console.error('Error loading dashboard:', err);
@@ -276,6 +352,71 @@ const AdminDashboardPage: React.FC = () => {
                     accentColor="hsl(38 92% 50%)"
                 />
             </div>
+
+            {/* Needs Attention */}
+            {data.needsAttention.length > 0 && (
+                <div className="bg-card border border-border rounded-xl p-5">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10">
+                                <AlertOctagon className="h-4 w-4 text-amber-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-semibold text-foreground">Precisa atenção</h3>
+                                <p className="text-xs text-muted-foreground">
+                                    {data.needsAttention.length} tenant{data.needsAttention.length !== 1 ? 's' : ''} com problema detectado
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/admin/tenants')}
+                            className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1"
+                        >
+                            Ver todos <ArrowRight className="h-3 w-3" />
+                        </button>
+                    </div>
+                    <ul className="divide-y divide-border/60">
+                        {data.needsAttention.slice(0, 6).map((t) => (
+                            <li key={t.id}>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate(`/admin/tenants/${t.id}`)}
+                                    className="w-full flex items-start gap-3 py-3 text-left hover:bg-muted/30 -mx-1 px-1 rounded transition-colors"
+                                >
+                                    <span
+                                        className={`inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 border shrink-0 mt-0.5 ${HEALTH_CLASSES[t.level]}`}
+                                    >
+                                        {t.level === 'critical' ? (
+                                            <AlertOctagon className="h-3 w-3" />
+                                        ) : (
+                                            <AlertTriangle className="h-3 w-3" />
+                                        )}
+                                        {HEALTH_LABELS[t.level]}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-foreground truncate">{t.name}</p>
+                                        <p className="text-xs text-muted-foreground truncate">
+                                            {t.reasons.slice(0, 2).join(' • ')}
+                                            {t.reasons.length > 2 ? ` • +${t.reasons.length - 2}` : ''}
+                                        </p>
+                                    </div>
+                                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0 mt-1" />
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                    {data.needsAttention.length > 6 && (
+                        <button
+                            type="button"
+                            onClick={() => navigate('/admin/tenants')}
+                            className="w-full text-xs text-muted-foreground hover:text-primary mt-3 pt-3 border-t border-border/60"
+                        >
+                            +{data.needsAttention.length - 6} outros — abrir lista completa
+                        </button>
+                    )}
+                </div>
+            )}
 
             {/* Charts Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -797,6 +797,33 @@ ESTILO BRASILEIRO DE WHATSAPP — ESCREVA COMO HUMANO, NÃO COMO IA:
    - Não use "Espero que isso ajude!" no fim
    - Não use "Por gentileza" excessivamente — "por favor" basta
    - Mensagens curtas, naturais, como amigo te respondendo no WhatsApp
+
+❌ PROIBIDO: escrever valores monetários ou medidas POR EXTENSO.
+   Corretor sério escreve preço em número, igual aparece no anúncio. Por extenso é
+   marca de redação automática e dificulta o cliente comparar valores entre imóveis.
+
+   Exemplos do que NUNCA fazer:
+   - "três milhões e duzentos mil reais"        ❌
+   - "quatro milhões de reais"                   ❌
+   - "um milhão e seiscentos mil"                ❌
+   - "oitocentos mil reais"                      ❌
+   - "mil cento e quarenta metros quadrados"     ❌
+   - "setecentos e cinquenta metros quadrados"   ❌
+   - "dezoito metros e setenta e cinco"          ❌
+
+✅ USE NO LUGAR (formato numeral, igual ao card do imóvel):
+   - "R$ 3.200.000,00" ou "R$ 3,2 milhões" ou "R$ 3,2M"
+   - "R$ 4.000.000,00" ou "R$ 4 milhões" ou "R$ 4M"
+   - "R$ 1.600.000,00" ou "R$ 1,6 milhão" ou "R$ 1,6M"
+   - "R$ 800.000,00" ou "R$ 800 mil" ou "R$ 800k"
+   - "1.140 m²" ou "1140m²"
+   - "750 m²"
+   - "18,75 metros de frente"
+
+REGRA: se o cliente falou "1.6 milhões" ou "1,5 k", entenda mas ECOE de volta em
+formato numeral ("R$ 1.600.000" ou "R$ 1.500"). Mantenha consistência total entre
+o caption do card (que vem da busca) e a sua descrição. Cliente comparando preço
+não pode parar pra ler número por extenso.
 </estilo-humano>
 `.trim();
 }

@@ -6,7 +6,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseClient, corsHeaders, corsResponse, jsonResponse, errorResponse } from '../_shared/supabase.ts';
 import { sendWhatsAppMessage, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { Tenant } from '../_shared/types.ts';
-import { stripDashes, stripTourLinks } from '../_shared/utils.ts';
+import { stripDashes, stripTourLinks, numeralizeMonetaryAndMetric } from '../_shared/utils.ts';
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -37,6 +37,12 @@ serve(async (req: Request) => {
       if (tourResult.count > 0) {
         console.log(`🚫 send-wa-message: blocked ${tourResult.count} tour link(s) from ai message`);
         message = tourResult.sanitized;
+      }
+      // Valores monetários por extenso → numeral (caso Erick 2026-04-26).
+      const moneyResult = numeralizeMonetaryAndMetric(message);
+      if (moneyResult.count > 0) {
+        console.log(`💰 send-wa-message: numeralized ${moneyResult.count} monetary/metric value(s)`);
+        message = moneyResult.sanitized;
       }
     }
 

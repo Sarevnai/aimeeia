@@ -4,7 +4,7 @@
 // No extra LLM call — purely deterministic checks.
 
 import { AgentContext } from './agent-interface.ts';
-import { stripDashes, stripTourLinks } from '../utils.ts';
+import { stripDashes, stripTourLinks, numeralizeMonetaryAndMetric } from '../utils.ts';
 
 export interface PreCheckResult {
   passed: boolean;
@@ -205,6 +205,17 @@ export async function runPreCompletionChecks(
   if (tourResult.count > 0) {
     sanitized = tourResult.sanitized;
     issues.push(`STYLE_TOUR_LINKS_REMOVED: ${tourResult.count} link(s) de tour virtual removido(s)`);
+  }
+
+  // 4f. Valores monetários e medidas por extenso → numeral. Caso Erick
+  // (2026-04-26): caption do card "R$ 3.200.000,00" + descrição "três milhões
+  // e duzentos mil reais" na mesma mensagem é inconsistência de redação que
+  // dificulta cliente comparar preços e soa não-profissional. Regra primária
+  // tá no buildHumanStyleDirective; este é safety net determinístico.
+  const moneyResult = numeralizeMonetaryAndMetric(sanitized);
+  if (moneyResult.count > 0) {
+    sanitized = moneyResult.sanitized;
+    issues.push(`STYLE_MONEY_NUMERALIZED: ${moneyResult.count} valor(es) por extenso convertido(s) em numeral`);
   }
 
   // 5. Qualified lead without search offer

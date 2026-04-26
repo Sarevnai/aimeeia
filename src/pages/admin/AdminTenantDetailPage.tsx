@@ -33,6 +33,7 @@ import {
     Activity,
     Power,
     PlayCircle,
+    RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -83,6 +84,8 @@ interface TenantMetrics {
     leads_qualified_month: number;
     leads_qualified_last_month: number;
     last_conversation_at: string | null;
+    last_conversation_id: string | null;
+    open_campaigns_count: number;
 }
 
 interface TenantUser {
@@ -129,6 +132,8 @@ const AdminTenantDetailPage: React.FC = () => {
         leads_qualified_month: 0,
         leads_qualified_last_month: 0,
         last_conversation_at: null,
+        last_conversation_id: null,
+        open_campaigns_count: 0,
     });
     const [users, setUsers] = useState<TenantUser[]>([]);
     const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
@@ -190,12 +195,16 @@ const AdminTenantDetailPage: React.FC = () => {
     const [pauseConfirmOpen, setPauseConfirmOpen] = useState(false);
     const [pauseLoading, setPauseLoading] = useState(false);
 
+    // ── Refresh state ──────────────────────────────────────────────────
+    const [refreshing, setRefreshing] = useState(false);
+
     useEffect(() => {
         if (id) loadTenantData(id);
     }, [id]);
 
-    const loadTenantData = async (tenantId: string) => {
-        setLoading(true);
+    const loadTenantData = async (tenantId: string, isRefresh = false) => {
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
         try {
             // Load tenant basic data
             const { data: tenantData, error: tenantErr } = await supabase
@@ -206,7 +215,6 @@ const AdminTenantDetailPage: React.FC = () => {
 
             if (tenantErr || !tenantData) {
                 console.error('Error loading tenant:', tenantErr);
-                setLoading(false);
                 return;
             }
 
@@ -222,7 +230,7 @@ const AdminTenantDetailPage: React.FC = () => {
 
             const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000);
 
-            const [convNow, convPrev, conv7d, lastConv, contactCnt, qualTotal, qualNow, qualPrev] = await Promise.all([
+            const [convNow, convPrev, conv7d, lastConv, contactCnt, qualTotal, qualNow, qualPrev, openMktCampaigns, openUpdCampaigns] = await Promise.all([
                 supabase.from('conversations').select('id', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId).gte('created_at', monthStart.toISOString()),
                 supabase.from('conversations').select('id', { count: 'exact', head: true })
@@ -230,7 +238,7 @@ const AdminTenantDetailPage: React.FC = () => {
                     .lt('created_at', monthStart.toISOString()),
                 supabase.from('conversations').select('id', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId).gte('created_at', sevenDaysAgo.toISOString()),
-                supabase.from('conversations').select('created_at')
+                supabase.from('conversations').select('id, created_at')
                     .eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(1),
                 supabase.from('contacts').select('id', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId),
@@ -241,6 +249,10 @@ const AdminTenantDetailPage: React.FC = () => {
                 supabase.from('lead_qualification').select('id', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId).gte('created_at', lastMonthStart.toISOString())
                     .lt('created_at', monthStart.toISOString()),
+                supabase.from('campaigns').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId).neq('status', 'sent'),
+                supabase.from('owner_update_campaigns').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId).neq('status', 'completed'),
             ]);
 
             setMetrics({
@@ -252,6 +264,8 @@ const AdminTenantDetailPage: React.FC = () => {
                 leads_qualified_month: qualNow.count ?? 0,
                 leads_qualified_last_month: qualPrev.count ?? 0,
                 last_conversation_at: lastConv.data?.[0]?.created_at ?? null,
+                last_conversation_id: lastConv.data?.[0]?.id ?? null,
+                open_campaigns_count: (openMktCampaigns.count ?? 0) + (openUpdCampaigns.count ?? 0),
             });
 
             // Load users
@@ -412,6 +426,7 @@ const AdminTenantDetailPage: React.FC = () => {
             console.error('Error loading tenant detail:', error);
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     };
 
@@ -858,10 +873,23 @@ const AdminTenantDetailPage: React.FC = () => {
                                 {tenant.city}/{tenant.state} &bull; Criado em {new Date(tenant.created_at).toLocaleDateString('pt-BR')}
                             </p>
                             <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                    <Activity className="h-3 w-3" />
-                                    Última atividade: <strong className="text-foreground">{formatLastActivity(metrics.last_conversation_at)}</strong>
-                                </span>
+                                {metrics.last_conversation_id ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate(`/chat/${metrics.last_conversation_id}`)}
+                                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors group"
+                                        title="Abrir última conversa"
+                                    >
+                                        <Activity className="h-3 w-3" />
+                                        Última atividade: <strong className="text-foreground group-hover:text-primary">{formatLastActivity(metrics.last_conversation_at)}</strong>
+                                        <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                                    </button>
+                                ) : (
+                                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                        <Activity className="h-3 w-3" />
+                                        Última atividade: <strong className="text-foreground">{formatLastActivity(metrics.last_conversation_at)}</strong>
+                                    </span>
+                                )}
                                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                                     <MessageSquare className="h-3 w-3" />
                                     {metrics.conversations_7d} nos últimos 7d
@@ -874,6 +902,17 @@ const AdminTenantDetailPage: React.FC = () => {
                             </div>
                         </div>
                         <div className="shrink-0 flex items-center gap-2">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => id && loadTenantData(id, true)}
+                                disabled={refreshing}
+                                className="gap-1.5"
+                                title="Atualizar dados"
+                            >
+                                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                                <span className="hidden sm:inline">Atualizar</span>
+                            </Button>
                             {tenant.is_active ? (
                                 <Button
                                     size="sm"
@@ -903,15 +942,15 @@ const AdminTenantDetailPage: React.FC = () => {
                     <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 scrollbar-thin">
                         <TabsList className="bg-transparent h-auto p-0 gap-0 inline-flex w-max md:w-auto">
                             {[
-                                { value: 'overview', label: 'Visão Geral', icon: Building2 },
-                                { value: 'agent', label: 'Config IA', icon: Bot },
-                                { value: 'users', label: 'Usuários', icon: Users },
-                                { value: 'integrations', label: 'Integrações', icon: Plug },
-                                { value: 'conversations', label: 'Conversas', icon: MessageSquare },
-                                { value: 'contacts', label: 'Contatos', icon: BookUser },
-                                { value: 'dnc', label: 'DNC', icon: BanIcon },
-                                { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
-                                { value: 'templates', label: 'Templates', icon: FileText },
+                                { value: 'overview', label: 'Visão Geral', icon: Building2, count: undefined },
+                                { value: 'agent', label: 'Config IA', icon: Bot, count: undefined },
+                                { value: 'users', label: 'Usuários', icon: Users, count: users.length },
+                                { value: 'integrations', label: 'Integrações', icon: Plug, count: undefined },
+                                { value: 'conversations', label: 'Conversas', icon: MessageSquare, count: metrics.conversations_7d },
+                                { value: 'contacts', label: 'Contatos', icon: BookUser, count: metrics.contacts_total },
+                                { value: 'dnc', label: 'DNC', icon: BanIcon, count: undefined },
+                                { value: 'campaigns', label: 'Campanhas', icon: Megaphone, count: metrics.open_campaigns_count },
+                                { value: 'templates', label: 'Templates', icon: FileText, count: undefined },
                             ].map((tab) => (
                                 <TabsTrigger
                                     key={tab.value}
@@ -920,6 +959,12 @@ const AdminTenantDetailPage: React.FC = () => {
                                 >
                                     <tab.icon className="h-4 w-4 shrink-0" />
                                     <span className="hidden sm:inline">{tab.label}</span>
+                                    {tab.count !== undefined && tab.count > 0 && (
+                                        <span className="text-[10px] font-semibold rounded-full px-1.5 py-0 bg-muted text-muted-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary min-w-[18px] text-center"
+                                              data-active={activeTab === tab.value}>
+                                            {tab.count}
+                                        </span>
+                                    )}
                                 </TabsTrigger>
                             ))}
                         </TabsList>

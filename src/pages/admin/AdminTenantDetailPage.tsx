@@ -28,6 +28,11 @@ import {
     EyeOff,
     Save,
     BanIcon,
+    AlertTriangle,
+    AlertOctagon,
+    Activity,
+    Power,
+    PlayCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -36,10 +41,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import TenantStatusBadge from '@/components/admin/TenantStatusBadge';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import EmptyState from '@/components/EmptyState';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+    computeTenantHealth,
+    formatLastActivity,
+    HEALTH_CLASSES,
+    HEALTH_LABELS,
+} from '@/lib/tenant-health';
 import AdminNewCampaignSheet from '@/components/admin/AdminNewCampaignSheet';
 import AdminTemplatesTab from '@/components/admin/AdminTemplatesTab';
 import AdminContactsTab from '@/components/admin/AdminContactsTab';
@@ -66,10 +77,12 @@ interface TenantData {
 interface TenantMetrics {
     conversations_month: number;
     conversations_last_month: number;
+    conversations_7d: number;
     contacts_total: number;
     leads_qualified: number;
     leads_qualified_month: number;
     leads_qualified_last_month: number;
+    last_conversation_at: string | null;
 }
 
 interface TenantUser {
@@ -110,10 +123,12 @@ const AdminTenantDetailPage: React.FC = () => {
     const [metrics, setMetrics] = useState<TenantMetrics>({
         conversations_month: 0,
         conversations_last_month: 0,
+        conversations_7d: 0,
         contacts_total: 0,
         leads_qualified: 0,
         leads_qualified_month: 0,
         leads_qualified_last_month: 0,
+        last_conversation_at: null,
     });
     const [users, setUsers] = useState<TenantUser[]>([]);
     const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
@@ -171,6 +186,10 @@ const AdminTenantDetailPage: React.FC = () => {
     const [resetPwdValue, setResetPwdValue] = useState('');
     const [resetPwdLoading, setResetPwdLoading] = useState(false);
 
+    // ── Pause/Resume tenant ────────────────────────────────────────────
+    const [pauseConfirmOpen, setPauseConfirmOpen] = useState(false);
+    const [pauseLoading, setPauseLoading] = useState(false);
+
     useEffect(() => {
         if (id) loadTenantData(id);
     }, [id]);
@@ -193,7 +212,7 @@ const AdminTenantDetailPage: React.FC = () => {
 
             setTenant(tenantData);
 
-            // Load metrics — current month vs previous month for trends
+            // Load metrics — current month vs previous month for trends + 7d activity + last conversation
             const monthStart = new Date();
             monthStart.setDate(1);
             monthStart.setHours(0, 0, 0, 0);
@@ -201,12 +220,18 @@ const AdminTenantDetailPage: React.FC = () => {
             const lastMonthStart = new Date(monthStart);
             lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
 
-            const [convNow, convPrev, contactCnt, qualTotal, qualNow, qualPrev] = await Promise.all([
+            const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000);
+
+            const [convNow, convPrev, conv7d, lastConv, contactCnt, qualTotal, qualNow, qualPrev] = await Promise.all([
                 supabase.from('conversations').select('id', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId).gte('created_at', monthStart.toISOString()),
                 supabase.from('conversations').select('id', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId).gte('created_at', lastMonthStart.toISOString())
                     .lt('created_at', monthStart.toISOString()),
+                supabase.from('conversations').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId).gte('created_at', sevenDaysAgo.toISOString()),
+                supabase.from('conversations').select('created_at')
+                    .eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(1),
                 supabase.from('contacts').select('id', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId),
                 supabase.from('lead_qualification').select('id', { count: 'exact', head: true })
@@ -221,10 +246,12 @@ const AdminTenantDetailPage: React.FC = () => {
             setMetrics({
                 conversations_month: convNow.count ?? 0,
                 conversations_last_month: convPrev.count ?? 0,
+                conversations_7d: conv7d.count ?? 0,
                 contacts_total: contactCnt.count ?? 0,
                 leads_qualified: qualTotal.count ?? 0,
                 leads_qualified_month: qualNow.count ?? 0,
                 leads_qualified_last_month: qualPrev.count ?? 0,
+                last_conversation_at: lastConv.data?.[0]?.created_at ?? null,
             });
 
             // Load users
@@ -749,30 +776,124 @@ const AdminTenantDetailPage: React.FC = () => {
     const convTrend = pctChange(metrics.conversations_month, metrics.conversations_last_month);
     const leadsTrend = pctChange(metrics.leads_qualified_month, metrics.leads_qualified_last_month);
 
+    const tenantHealth = computeTenantHealth({
+        isActive: tenant.is_active,
+        hasWhatsApp: !!tenant.wa_phone_number_id,
+        hasVista: agentConfig?.vista_integration_enabled === true,
+        hasC2S: !!(c2sForm.api_url && c2sForm.api_key),
+        hasCanalPro: !!canalProSecret,
+        conversations7d: metrics.conversations_7d,
+        lastConversationAt: metrics.last_conversation_at,
+    });
+
+    const handleTogglePause = async () => {
+        if (!tenant) return;
+        setPauseLoading(true);
+        try {
+            const newActive = !tenant.is_active;
+            const { error } = await supabase
+                .from('tenants')
+                .update({ is_active: newActive })
+                .eq('id', tenant.id);
+            if (error) throw error;
+            toast({
+                title: newActive ? 'Tenant reativado' : 'Tenant pausado',
+                description: newActive
+                    ? 'Acesso restaurado. Usuários podem voltar a entrar.'
+                    : 'Acesso suspenso. Usuários não conseguirão logar até reativar.',
+            });
+            setTenant({ ...tenant, is_active: newActive });
+            setPauseConfirmOpen(false);
+        } catch (err) {
+            console.error('Error toggling tenant active:', err);
+            toast({ title: 'Erro ao alterar estado do tenant', variant: 'destructive' });
+        } finally {
+            setPauseLoading(false);
+        }
+    };
+
     return (
+        <TooltipProvider delayDuration={150}>
         <div className="flex flex-col h-[calc(100vh-4rem)]">
             {/* Header */}
             <div className="p-4 md:px-6 border-b border-border bg-card">
-                <div className="flex items-center gap-3 mb-3">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/admin/tenants')}>
+                <div className="flex items-start gap-3 mb-3">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 mt-1" onClick={() => navigate('/admin/tenants')}>
                         <ArrowLeft className="h-4 w-4" />
                     </Button>
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-muted text-sm font-bold text-foreground shrink-0">
                             {tenant.company_name.charAt(0)}
                         </div>
-                        <div className="min-w-0">
-                            <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <h1 className="font-display text-2xl font-bold text-foreground truncate">{tenant.company_name}</h1>
-                                <TenantStatusBadge status={tenant.is_active ? 'active' : 'inactive'} />
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <span
+                                            className={`inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 border ${HEALTH_CLASSES[tenantHealth.level]}`}
+                                        >
+                                            {tenantHealth.level === 'healthy' && <CheckCircle2 className="h-3 w-3" />}
+                                            {tenantHealth.level === 'warning' && <AlertTriangle className="h-3 w-3" />}
+                                            {tenantHealth.level === 'critical' && <AlertOctagon className="h-3 w-3" />}
+                                            {HEALTH_LABELS[tenantHealth.level]}
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="max-w-xs">
+                                        <ul className="text-xs space-y-0.5">
+                                            {tenantHealth.reasons.map((r, i) => (
+                                                <li key={i}>• {r}</li>
+                                            ))}
+                                        </ul>
+                                    </TooltipContent>
+                                </Tooltip>
+                                {!tenant.is_active && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 border bg-gray-500/10 text-gray-500 border-gray-500/20">
+                                        <Power className="h-3 w-3" />
+                                        Pausado
+                                    </span>
+                                )}
                             </div>
                             <p className="text-sm text-muted-foreground">
                                 {tenant.city}/{tenant.state} &bull; Criado em {new Date(tenant.created_at).toLocaleDateString('pt-BR')}
                             </p>
-                            {tenant.wa_phone_number_id && (
-                                <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                                    {tenant.wa_phone_number_id}
-                                </p>
+                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                    <Activity className="h-3 w-3" />
+                                    Última atividade: <strong className="text-foreground">{formatLastActivity(metrics.last_conversation_at)}</strong>
+                                </span>
+                                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                    <MessageSquare className="h-3 w-3" />
+                                    {metrics.conversations_7d} nos últimos 7d
+                                </span>
+                                {tenant.wa_phone_number_id && (
+                                    <span className="text-xs text-muted-foreground font-mono truncate">
+                                        WABA: {tenant.wa_phone_number_id}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-2">
+                            {tenant.is_active ? (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 border-amber-500/30"
+                                    onClick={() => setPauseConfirmOpen(true)}
+                                >
+                                    <Power className="h-3.5 w-3.5" />
+                                    <span className="hidden sm:inline">Pausar</span>
+                                </Button>
+                            ) : (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10 border-emerald-500/30"
+                                    onClick={() => setPauseConfirmOpen(true)}
+                                >
+                                    <PlayCircle className="h-3.5 w-3.5" />
+                                    <span className="hidden sm:inline">Reativar</span>
+                                </Button>
                             )}
                         </div>
                     </div>
@@ -1653,7 +1774,24 @@ const AdminTenantDetailPage: React.FC = () => {
                 preselectedTenantId={id || null}
                 onCreated={reloadCampaigns}
             />
+
+            {/* ═══ Pause/Resume Tenant Confirm ═══ */}
+            <ConfirmDialog
+                open={pauseConfirmOpen}
+                onOpenChange={setPauseConfirmOpen}
+                title={tenant.is_active ? 'Pausar tenant' : 'Reativar tenant'}
+                description={
+                    tenant.is_active
+                        ? `Pausar "${tenant.company_name}" suspende o acesso de todos os usuários da imobiliária. Mensagens em andamento podem continuar processando, mas novos logins ficam bloqueados. Você pode reativar a qualquer momento.`
+                        : `Reativar "${tenant.company_name}" restaura o acesso de todos os usuários da imobiliária imediatamente.`
+                }
+                confirmLabel={tenant.is_active ? 'Pausar' : 'Reativar'}
+                variant={tenant.is_active ? 'destructive' : 'default'}
+                loading={pauseLoading}
+                onConfirm={handleTogglePause}
+            />
         </div>
+        </TooltipProvider>
     );
 };
 

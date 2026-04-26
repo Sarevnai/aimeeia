@@ -59,6 +59,9 @@ interface DashboardData {
     leadsThisMonth: number;
     leadsLastMonth: number;
     totalProperties: number;
+    conversationsToday: number;
+    leadsToday: number;
+    messagesToday: number;
     topTenants: TopTenant[];
     conversationHistory: MonthStat[];
     alerts: Alert[];
@@ -101,6 +104,10 @@ const AdminDashboardPage: React.FC = () => {
 
             const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
 
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const todayStartISO = todayStart.toISOString();
+
             // Parallel queries
             const [
                 tenantsRes,
@@ -113,6 +120,9 @@ const AdminDashboardPage: React.FC = () => {
                 agentConfigRes,
                 conv7dRes,
                 lastConvRes,
+                convsTodayRes,
+                leadsTodayRes,
+                msgsTodayRes,
             ] = await Promise.all([
                 supabase.from('tenants').select('id, company_name, is_active, created_at, wa_phone_number_id'),
                 supabase.from('conversations').select('id, tenant_id', { count: 'exact' })
@@ -130,6 +140,9 @@ const AdminDashboardPage: React.FC = () => {
                 supabase.from('ai_agent_config').select('tenant_id, vista_integration_enabled'),
                 supabase.from('conversations').select('tenant_id').gte('created_at', sevenDaysAgo),
                 supabase.from('conversations').select('tenant_id, created_at').order('created_at', { ascending: false }).limit(2000),
+                supabase.from('conversations').select('id', { count: 'exact', head: true }).gte('created_at', todayStartISO),
+                supabase.from('lead_qualification').select('id', { count: 'exact', head: true }).gte('created_at', todayStartISO),
+                supabase.from('messages').select('id', { count: 'exact', head: true }).gte('created_at', todayStartISO),
             ]);
 
             const tenants = tenantsRes.data || [];
@@ -271,6 +284,9 @@ const AdminDashboardPage: React.FC = () => {
                 leadsThisMonth,
                 leadsLastMonth,
                 totalProperties,
+                conversationsToday: convsTodayRes.count ?? 0,
+                leadsToday: leadsTodayRes.count ?? 0,
+                messagesToday: msgsTodayRes.count ?? 0,
                 topTenants,
                 conversationHistory,
                 alerts,
@@ -317,6 +333,48 @@ const AdminDashboardPage: React.FC = () => {
             <div>
                 <h1 className="font-display text-2xl font-bold text-foreground">Platform Dashboard</h1>
                 <p className="text-sm text-muted-foreground mt-1">Visao geral da plataforma Aimee IA (dados reais)</p>
+            </div>
+
+            {/* Today strip — at-a-glance "what's happening now" */}
+            <div className="bg-card border border-border rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary/10">
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                    </span>
+                    <h3 className="text-xs font-semibold text-foreground uppercase tracking-wide">Hoje</h3>
+                    <span className="text-[10px] text-muted-foreground ml-1">
+                        desde {new Date(new Date().setHours(0, 0, 0, 0)).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-500/10 text-blue-600 shrink-0">
+                            <MessageSquare className="h-4 w-4" />
+                        </div>
+                        <div>
+                            <p className="text-xl font-bold text-foreground font-display leading-none">{data.conversationsToday}</p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">conversas iniciadas</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-600 shrink-0">
+                            <Users className="h-4 w-4" />
+                        </div>
+                        <div>
+                            <p className="text-xl font-bold text-foreground font-display leading-none">{data.leadsToday}</p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">leads qualificados</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-500/10 text-amber-600 shrink-0">
+                            <TrendingUp className="h-4 w-4" />
+                        </div>
+                        <div>
+                            <p className="text-xl font-bold text-foreground font-display leading-none">{data.messagesToday.toLocaleString('pt-BR')}</p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">mensagens trocadas</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* KPI Row */}

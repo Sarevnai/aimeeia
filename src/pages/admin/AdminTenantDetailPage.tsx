@@ -6,7 +6,6 @@ import {
     MessageSquare,
     Users,
     Bot,
-    CreditCard,
     Plug,
     ExternalLink,
     CheckCircle2,
@@ -40,6 +39,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import TenantStatusBadge from '@/components/admin/TenantStatusBadge';
 import AdminMetricCard from '@/components/admin/AdminMetricCard';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import EmptyState from '@/components/EmptyState';
 import AdminNewCampaignSheet from '@/components/admin/AdminNewCampaignSheet';
 import AdminTemplatesTab from '@/components/admin/AdminTemplatesTab';
 import AdminContactsTab from '@/components/admin/AdminContactsTab';
@@ -65,8 +65,11 @@ interface TenantData {
 
 interface TenantMetrics {
     conversations_month: number;
+    conversations_last_month: number;
     contacts_total: number;
     leads_qualified: number;
+    leads_qualified_month: number;
+    leads_qualified_last_month: number;
 }
 
 interface TenantUser {
@@ -106,8 +109,11 @@ const AdminTenantDetailPage: React.FC = () => {
     const [tenant, setTenant] = useState<TenantData | null>(null);
     const [metrics, setMetrics] = useState<TenantMetrics>({
         conversations_month: 0,
+        conversations_last_month: 0,
         contacts_total: 0,
         leads_qualified: 0,
+        leads_qualified_month: 0,
+        leads_qualified_last_month: 0,
     });
     const [users, setUsers] = useState<TenantUser[]>([]);
     const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
@@ -187,31 +193,38 @@ const AdminTenantDetailPage: React.FC = () => {
 
             setTenant(tenantData);
 
-            // Load metrics
+            // Load metrics — current month vs previous month for trends
             const monthStart = new Date();
             monthStart.setDate(1);
             monthStart.setHours(0, 0, 0, 0);
 
-            const { count: convCount } = await supabase
-                .from('conversations')
-                .select('id', { count: 'exact', head: true })
-                .eq('tenant_id', tenantId)
-                .gte('created_at', monthStart.toISOString());
+            const lastMonthStart = new Date(monthStart);
+            lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
 
-            const { count: contactCount } = await supabase
-                .from('contacts')
-                .select('id', { count: 'exact', head: true })
-                .eq('tenant_id', tenantId);
-
-            const { count: qualifiedCount } = await supabase
-                .from('lead_qualification')
-                .select('id', { count: 'exact', head: true })
-                .eq('tenant_id', tenantId);
+            const [convNow, convPrev, contactCnt, qualTotal, qualNow, qualPrev] = await Promise.all([
+                supabase.from('conversations').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId).gte('created_at', monthStart.toISOString()),
+                supabase.from('conversations').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId).gte('created_at', lastMonthStart.toISOString())
+                    .lt('created_at', monthStart.toISOString()),
+                supabase.from('contacts').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId),
+                supabase.from('lead_qualification').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId),
+                supabase.from('lead_qualification').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId).gte('created_at', monthStart.toISOString()),
+                supabase.from('lead_qualification').select('id', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId).gte('created_at', lastMonthStart.toISOString())
+                    .lt('created_at', monthStart.toISOString()),
+            ]);
 
             setMetrics({
-                conversations_month: convCount ?? 0,
-                contacts_total: contactCount ?? 0,
-                leads_qualified: qualifiedCount ?? 0,
+                conversations_month: convNow.count ?? 0,
+                conversations_last_month: convPrev.count ?? 0,
+                contacts_total: contactCnt.count ?? 0,
+                leads_qualified: qualTotal.count ?? 0,
+                leads_qualified_month: qualNow.count ?? 0,
+                leads_qualified_last_month: qualPrev.count ?? 0,
             });
 
             // Load users
@@ -726,6 +739,16 @@ const AdminTenantDetailPage: React.FC = () => {
         ? ((metrics.leads_qualified / metrics.contacts_total) * 100).toFixed(1)
         : '0';
 
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+    const canalProWebhookUrl = `${supabaseUrl}/functions/v1/portal-leads-webhook?tenant=${tenant?.id || ''}`;
+
+    const pctChange = (now: number, prev: number): number => {
+        if (prev === 0) return now > 0 ? 100 : 0;
+        return Math.round(((now - prev) / prev) * 100);
+    };
+    const convTrend = pctChange(metrics.conversations_month, metrics.conversations_last_month);
+    const leadsTrend = pctChange(metrics.leads_qualified_month, metrics.leads_qualified_last_month);
+
     return (
         <div className="flex flex-col h-[calc(100vh-4rem)]">
             {/* Header */}
@@ -756,29 +779,30 @@ const AdminTenantDetailPage: React.FC = () => {
                 </div>
 
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
-                    <TabsList className="bg-transparent h-auto p-0 gap-0">
-                        {[
-                            { value: 'overview', label: 'Visão Geral', icon: Building2 },
-                            { value: 'agent', label: 'Config IA', icon: Bot },
-                            { value: 'users', label: 'Usuários', icon: Users },
-                            { value: 'integrations', label: 'Integrações', icon: Plug },
-                            { value: 'conversations', label: 'Conversas', icon: MessageSquare },
-                            { value: 'contacts', label: 'Contatos', icon: BookUser },
-                            { value: 'dnc', label: 'DNC', icon: BanIcon },
-                            { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
-                            { value: 'templates', label: 'Templates', icon: FileText },
-                        ].map((tab) => (
-                            <TabsTrigger
-                                key={tab.value}
-                                value={tab.value}
-                                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 rounded-none px-4 py-2 text-sm gap-1.5"
-                                style={activeTab === tab.value ? { borderColor: 'hsl(250 70% 60%)', color: 'hsl(250 70% 60%)' } : {}}
-                            >
-                                <tab.icon className="h-4 w-4" />
-                                <span className="hidden sm:inline">{tab.label}</span>
-                            </TabsTrigger>
-                        ))}
-                    </TabsList>
+                    <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 scrollbar-thin">
+                        <TabsList className="bg-transparent h-auto p-0 gap-0 inline-flex w-max md:w-auto">
+                            {[
+                                { value: 'overview', label: 'Visão Geral', icon: Building2 },
+                                { value: 'agent', label: 'Config IA', icon: Bot },
+                                { value: 'users', label: 'Usuários', icon: Users },
+                                { value: 'integrations', label: 'Integrações', icon: Plug },
+                                { value: 'conversations', label: 'Conversas', icon: MessageSquare },
+                                { value: 'contacts', label: 'Contatos', icon: BookUser },
+                                { value: 'dnc', label: 'DNC', icon: BanIcon },
+                                { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
+                                { value: 'templates', label: 'Templates', icon: FileText },
+                            ].map((tab) => (
+                                <TabsTrigger
+                                    key={tab.value}
+                                    value={tab.value}
+                                    className="rounded-none px-4 py-2 text-sm gap-1.5 border-b-2 border-transparent text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-primary data-[state=active]:text-primary"
+                                >
+                                    <tab.icon className="h-4 w-4 shrink-0" />
+                                    <span className="hidden sm:inline">{tab.label}</span>
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                    </div>
                 </Tabs>
             </div>
 
@@ -791,21 +815,24 @@ const AdminTenantDetailPage: React.FC = () => {
                             <AdminMetricCard
                                 title="Conversas (mês)"
                                 value={metrics.conversations_month}
+                                subtitle={`${metrics.conversations_last_month} no mês anterior`}
                                 icon={MessageSquare}
+                                trend={metrics.conversations_last_month > 0 ? { value: convTrend, label: 'vs mês anterior' } : undefined}
                                 accentColor="hsl(207 65% 44%)"
                             />
                             <AdminMetricCard
                                 title="Contatos"
                                 value={metrics.contacts_total}
-                                subtitle={`${metrics.leads_qualified} qualificados`}
+                                subtitle={`${metrics.leads_qualified} qualificados (total)`}
                                 icon={Users}
                                 accentColor="hsl(142 71% 45%)"
                             />
                             <AdminMetricCard
-                                title="Taxa de Qualificação"
-                                value={`${qualificationRate}%`}
-                                subtitle={`${metrics.leads_qualified} de ${metrics.contacts_total} contatos`}
+                                title="Leads Qualificados (mês)"
+                                value={metrics.leads_qualified_month}
+                                subtitle={`Taxa total: ${qualificationRate}%`}
                                 icon={Clock}
+                                trend={metrics.leads_qualified_last_month > 0 ? { value: leadsTrend, label: 'vs mês anterior' } : undefined}
                                 accentColor="hsl(250 70% 60%)"
                             />
                         </div>
@@ -837,7 +864,16 @@ const AdminTenantDetailPage: React.FC = () => {
                     <div className="space-y-4 max-w-3xl mx-auto animate-fade-in">
                         {agentConfig ? (
                             <div className="bg-card border border-border rounded-xl p-5">
-                                <h3 className="text-sm font-semibold text-foreground mb-4">Configuração do Agente</h3>
+                                <div className="flex items-start justify-between gap-3 mb-4">
+                                    <div>
+                                        <h3 className="text-sm font-semibold text-foreground">Configuração do Agente</h3>
+                                        <p className="text-xs text-muted-foreground mt-0.5">Visualização. Edite directives, ferramentas e comportamento na área de Agentes.</p>
+                                    </div>
+                                    <Button size="sm" variant="outline" className="shrink-0 gap-1.5" onClick={() => navigate('/admin/agents')}>
+                                        <Pencil className="h-3.5 w-3.5" />
+                                        Editar agentes
+                                    </Button>
+                                </div>
                                 <div className="space-y-4">
                                     {[
                                         { label: 'Nome do Agente', value: agentConfig.agent_name },
@@ -858,25 +894,13 @@ const AdminTenantDetailPage: React.FC = () => {
                             </div>
                         ) : (
                             <div className="bg-card border border-border rounded-xl p-5">
-                                <div className="flex flex-col items-center justify-center py-8">
-                                    <Bot className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                                    <p className="text-sm text-muted-foreground">Nenhuma configuração de agente encontrada</p>
-                                </div>
+                                <EmptyState
+                                    size="sm"
+                                    icon={<Bot className="h-6 w-6 text-muted-foreground/60" />}
+                                    title="Nenhuma configuração de agente encontrada"
+                                />
                             </div>
                         )}
-                    </div>
-                )}
-
-                {activeTab === 'billing' && (
-                    <div className="space-y-4 max-w-3xl mx-auto animate-fade-in">
-                        <div className="bg-card border border-border rounded-xl p-5">
-                            <h3 className="text-sm font-semibold text-foreground mb-4">Informações de Billing</h3>
-                            <div className="flex flex-col items-center justify-center py-8">
-                                <CreditCard className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                                <p className="text-sm text-muted-foreground">Sistema de billing em desenvolvimento</p>
-                                <p className="text-xs text-muted-foreground mt-1">Planos e cobranças serão exibidos após implementação</p>
-                            </div>
-                        </div>
                     </div>
                 )}
 
@@ -891,10 +915,18 @@ const AdminTenantDetailPage: React.FC = () => {
                                 </Button>
                             </div>
                             {users.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-8">
-                                    <Users className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                                    <p className="text-sm text-muted-foreground">Nenhum usuário cadastrado</p>
-                                </div>
+                                <EmptyState
+                                    size="sm"
+                                    icon={<Users className="h-6 w-6 text-muted-foreground/60" />}
+                                    title="Nenhum usuário cadastrado"
+                                    description="Convide o primeiro usuário pra começar."
+                                    action={
+                                        <Button size="sm" onClick={() => setInviteOpen(true)}>
+                                            <UserPlus className="h-4 w-4 mr-1.5" />
+                                            Criar Usuário
+                                        </Button>
+                                    }
+                                />
                             ) : (
                                 <div className="space-y-2">
                                     {users.map((user) => (
@@ -1096,10 +1128,11 @@ const AdminTenantDetailPage: React.FC = () => {
                         <div className="bg-card border border-border rounded-xl p-5">
                             <h3 className="text-sm font-semibold text-foreground mb-4">Integrações</h3>
                             {integrations.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-8">
-                                    <Plug className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                                    <p className="text-sm text-muted-foreground">Nenhuma integração configurada</p>
-                                </div>
+                                <EmptyState
+                                    size="sm"
+                                    icon={<Plug className="h-6 w-6 text-muted-foreground/60" />}
+                                    title="Nenhuma integração configurada"
+                                />
                             ) : (
                                 <div className="space-y-3">
                                     {integrations.map((integration, idx) => (
@@ -1236,7 +1269,7 @@ const AdminTenantDetailPage: React.FC = () => {
                                     <div className="flex items-center gap-2 mt-1">
                                         <Input
                                             readOnly
-                                            value={`https://vnysbpnggnplvgkfokin.supabase.co/functions/v1/portal-leads-webhook?tenant=${tenant?.id || ''}`}
+                                            value={canalProWebhookUrl}
                                             className="text-xs bg-muted"
                                         />
                                         <Button
@@ -1244,7 +1277,7 @@ const AdminTenantDetailPage: React.FC = () => {
                                             variant="outline"
                                             className="shrink-0 h-9 w-9"
                                             onClick={() => {
-                                                navigator.clipboard.writeText(`https://vnysbpnggnplvgkfokin.supabase.co/functions/v1/portal-leads-webhook?tenant=${tenant?.id || ''}`);
+                                                navigator.clipboard.writeText(canalProWebhookUrl);
                                                 toast({ title: 'URL copiada!' });
                                             }}
                                         >
@@ -1337,7 +1370,7 @@ const AdminTenantDetailPage: React.FC = () => {
                                                 {c.status !== 'sent' && c.template_name && (
                                                     <button
                                                         onClick={() => openDispatchDialog({ id: c.id, name: c.name, template_name: c.template_name })}
-                                                        className="p-1.5 rounded text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                                        className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                                                         title="Disparar"
                                                     >
                                                         <Send className="h-4 w-4" />
@@ -1401,13 +1434,16 @@ const AdminTenantDetailPage: React.FC = () => {
                                     </div>
                                 )}
                                 {tenantCampaigns.length === 0 && tenantUpdateCampaigns.length === 0 && (
-                                    <div className="flex flex-col items-center py-16 text-center">
-                                        <Megaphone className="h-10 w-10 text-muted-foreground/30 mb-3" />
-                                        <p className="text-sm text-muted-foreground">Nenhuma campanha para este tenant.</p>
-                                        <Button size="sm" className="gap-1.5 mt-4" onClick={() => setCampaignSheetOpen(true)}>
-                                            <Plus className="h-4 w-4" /> Criar Campanha
-                                        </Button>
-                                    </div>
+                                    <EmptyState
+                                        icon={<Megaphone className="h-7 w-7 text-muted-foreground/60" />}
+                                        title="Nenhuma campanha para este tenant"
+                                        description="Crie a primeira campanha de marketing ou de atualização de carteira."
+                                        action={
+                                            <Button size="sm" className="gap-1.5" onClick={() => setCampaignSheetOpen(true)}>
+                                                <Plus className="h-4 w-4" /> Criar Campanha
+                                            </Button>
+                                        }
+                                    />
                                 )}
                             </>
                         )}
@@ -1423,7 +1459,7 @@ const AdminTenantDetailPage: React.FC = () => {
 
             {/* ═══ Edit Campaign Dialog ═══ */}
             <Dialog open={!!editCampaign} onOpenChange={(o) => { if (!o) setEditCampaign(null); }}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Pencil className="h-5 w-5 text-primary" />
@@ -1523,7 +1559,7 @@ const AdminTenantDetailPage: React.FC = () => {
                 <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                            <Send className="h-5 w-5 text-emerald-600" />
+                            <Send className="h-5 w-5 text-primary" />
                             Disparar Campanha
                         </DialogTitle>
                     </DialogHeader>
@@ -1602,7 +1638,7 @@ const AdminTenantDetailPage: React.FC = () => {
                         <Button
                             onClick={handleDispatch}
                             disabled={dispatchLoading || dispatchSelectedIds.size === 0}
-                            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                            className="gap-1.5"
                         >
                             {dispatchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                             Disparar ({dispatchSelectedIds.size})
@@ -1637,14 +1673,16 @@ const LoadCampaignsButton: React.FC<{
         setLoading(false);
     };
     return (
-        <div className="flex flex-col items-center py-10 text-center">
-            <Megaphone className="h-10 w-10 text-muted-foreground/30 mb-3" />
-            <p className="text-sm text-muted-foreground mb-3">Clique para carregar as campanhas deste tenant.</p>
-            <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1.5">
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />}
-                Carregar Campanhas
-            </Button>
-        </div>
+        <EmptyState
+            icon={<Megaphone className="h-7 w-7 text-muted-foreground/60" />}
+            title="Clique para carregar as campanhas deste tenant"
+            action={
+                <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1.5">
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />}
+                    Carregar Campanhas
+                </Button>
+            }
+        />
     );
 };
 

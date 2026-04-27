@@ -34,7 +34,17 @@ import {
   Info,
   ExternalLink,
   Pencil,
+  MoreHorizontal,
+  PanelRightClose,
+  PanelRightOpen,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -801,65 +811,92 @@ const ChatPage: React.FC = () => {
                 {contact?.name || conversation.phone_number}
               </span>
               {dept && (
-                <Badge className={cn('text-[10px] px-1.5 py-0', DEPT_COLORS[dept] || '')}>
+                <Badge className={cn('text-[10px] px-1.5 py-0 whitespace-nowrap shrink-0', DEPT_COLORS[dept] || '')}>
                   {DEPT_LABELS[dept] || dept}
                 </Badge>
               )}
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Phone className="h-3 w-3" />
-              <span>{conversation.phone_number}</span>
               {aimeeActive ? (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-success text-success">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 border-success text-success whitespace-nowrap shrink-0"
+                >
                   <Bot className="h-3 w-3 mr-0.5" /> Aimee ativa
                 </Badge>
               ) : (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-warning text-warning" title={convState?.operator_takeover_at ? `Pausada em ${new Date(convState.operator_takeover_at).toLocaleString('pt-BR')}` : undefined}>
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 border-warning text-warning whitespace-nowrap shrink-0"
+                  title={convState?.operator_takeover_at ? `Pausada em ${new Date(convState.operator_takeover_at).toLocaleString('pt-BR')}${operatorName ? ` por ${operatorName}` : ''}` : undefined}
+                >
                   <Pause className="h-3 w-3 mr-0.5" />
-                  Aimee pausada{convState?.operator_takeover_at ? ` · ${formatPausedFor(convState.operator_takeover_at)}` : ''}
-                  {operatorName ? ` · ${operatorName}` : ''}
+                  Pausada{convState?.operator_takeover_at ? ` ${formatPausedFor(convState.operator_takeover_at)}` : ''}
                 </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Phone className="h-3 w-3 shrink-0" />
+              <span className="truncate">{conversation.phone_number}</span>
+              {!aimeeActive && operatorName && (
+                <span className="truncate">· com {operatorName}</span>
               )}
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Ação primária: controle da IA */}
             {aimeeActive ? (
               <Button size="sm" variant="outline" onClick={handleTakeover} className="text-xs" title="Pausa a Aimee nesta conversa e marca você como responsável">
                 <Pause className="h-3.5 w-3.5 mr-1" /> Pausar Aimee
               </Button>
             ) : (
               <Button size="sm" variant="outline" onClick={handleReturnToAI} className="text-xs">
-                <Bot className="h-3.5 w-3.5 mr-1" /> Devolver AI
+                <Bot className="h-3.5 w-3.5 mr-1" /> Devolver à Aimee
               </Button>
             )}
-            <Button size="sm" variant="outline" onClick={openTransferModal} className="text-xs" title="Transferir esta conversa para outro operador">
-              <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transferir
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowWADialog(true)}
-              className="text-xs"
-              title="Continuar atendimento no WhatsApp pessoal"
-              disabled={conversation.status === 'forwarded'}
-            >
-              <Phone className="h-3.5 w-3.5 mr-1" />
-              Atender no meu WhatsApp
-            </Button>
-            {!isAdminDept && (
-              <Button size="sm" variant="outline" onClick={() => setC2sDialogOpen(true)} className="text-xs" title="Encaminhar ao C2S">
-                <ExternalLink className="h-3.5 w-3.5 mr-1" /> C2S
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="hidden md:inline-flex text-xs"
-              onClick={() => setShowSidebar(!showSidebar)}
-            >
-              {showSidebar ? 'Fechar detalhes' : 'Ver detalhes'}
-            </Button>
+
+            {/* Ações secundárias: menu "Mais" */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="text-xs" title="Mais ações">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={openTransferModal} className="text-xs gap-2">
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  Transferir conversa
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setShowWADialog(true)}
+                  disabled={conversation.status === 'forwarded'}
+                  className="text-xs gap-2"
+                >
+                  <Phone className="h-3.5 w-3.5" />
+                  Atender no meu WhatsApp
+                </DropdownMenuItem>
+                {!isAdminDept && (
+                  <DropdownMenuItem onClick={() => setC2sDialogOpen(true)} className="text-xs gap-2">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Encaminhar ao C2S
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Toggle sidebar — ícone only */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="hidden md:inline-flex h-8 w-8"
+                  onClick={() => setShowSidebar(!showSidebar)}
+                >
+                  {showSidebar ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{showSidebar ? 'Fechar detalhes' : 'Ver detalhes'}</TooltipContent>
+            </Tooltip>
           </div>
         </div>
 

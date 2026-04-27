@@ -7,7 +7,7 @@ import { useSessionState } from '@/hooks/useSessionState';
 import { useCurrentBroker } from '@/hooks/useCurrentBroker';
 import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
-import { Search, Loader2, MessageSquare, Globe, Phone, Facebook, Home, Tag, ExternalLink } from 'lucide-react';
+import { Search, Loader2, MessageSquare, Globe, Phone, Facebook, Home, Tag, ExternalLink, UserCheck } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import LeadTags from '@/components/LeadTags';
@@ -18,8 +18,15 @@ type Conversation = Tables<'conversations'>;
 type Contact = Tables<'contacts'>;
 type ConversationState = Tables<'conversation_states'>;
 
+interface InboxBroker {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
 interface ConversationWithContact extends Conversation {
   contacts: Contact | null;
+  broker: InboxBroker | null;
 }
 
 /* ─── Channel helpers ─── */
@@ -79,7 +86,7 @@ const InboxPage: React.FC = () => {
 
     let query = supabase
       .from('conversations')
-      .select('*, contacts(*)')
+      .select('*, contacts(*), broker:brokers!assigned_broker_id(id, full_name, email)')
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
       .not('source', 'eq', 'simulation')
@@ -411,6 +418,21 @@ const InboxPage: React.FC = () => {
                         <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0', deptColor)}>
                           {deptLabel}
                         </span>
+                      )}
+                      {/* Corretor vinculado (visão admin) — corretor só vê os dele e não precisa repetir o próprio nome */}
+                      {isAdmin && conv.broker?.full_name && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent shrink-0 max-w-[110px]">
+                              <UserCheck className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{conv.broker.full_name.split(/\s+/)[0]}</span>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Corretor: {conv.broker.full_name}
+                            {conv.broker.email && <span className="block text-[10px] opacity-70">{conv.broker.email}</span>}
+                          </TooltipContent>
+                        </Tooltip>
                       )}
                     </div>
                     <div className="mt-1.5">

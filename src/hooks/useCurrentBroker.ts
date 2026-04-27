@@ -9,7 +9,6 @@ export interface CurrentBroker {
   phone: string | null;
   profile_id: string | null;
   c2s_seller_id: string | null;
-  on_duty: boolean | null;
 }
 
 /**
@@ -31,7 +30,7 @@ export function useCurrentBroker() {
     setLoading(true);
     supabase
       .from('brokers')
-      .select('id, full_name, email, phone, profile_id, c2s_seller_id, on_duty')
+      .select('id, full_name, email, phone, profile_id, c2s_seller_id')
       .eq('profile_id', user.id)
       .maybeSingle()
       .then(({ data, error }) => {

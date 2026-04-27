@@ -37,6 +37,9 @@ import {
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
+  Mail,
+  Briefcase,
+  Hash,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -119,6 +122,15 @@ interface TeamMember {
   role: string | null;
 }
 
+interface AssignedBroker {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  vista_codigo: string | null;
+  team: string | null;
+}
+
 const ChatPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -127,6 +139,7 @@ const ChatPage: React.FC = () => {
 
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [contact, setContact] = useState<Contact | null>(null);
+  const [assignedBroker, setAssignedBroker] = useState<AssignedBroker | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [convState, setConvState] = useState<ConversationState | null>(null);
   // Bug descoberto em 22/04 no cutover 07/05: ausência de row em
@@ -167,7 +180,7 @@ const ChatPage: React.FC = () => {
 
       const { data: conv } = await supabase
         .from('conversations')
-        .select('*')
+        .select('*, broker:brokers!assigned_broker_id(id, full_name, email, phone, vista_codigo, team)')
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .single();
@@ -176,7 +189,11 @@ const ChatPage: React.FC = () => {
         setLoading(false);
         return;
       }
-      setConversation(conv);
+      // O JOIN inclui `broker` mas o setConversation espera tipagem Conversation pura;
+      // separamos pra não vazar o objeto aninhado nos updates de conversation.
+      const { broker, ...convRow } = conv as Conversation & { broker: AssignedBroker | null };
+      setConversation(convRow as Conversation);
+      setAssignedBroker(broker || null);
 
       // Parallel fetches
       const [contactRes, msgsRes, stateRes, qualRes] = await Promise.all([
@@ -905,7 +922,7 @@ const ChatPage: React.FC = () => {
           <div className="px-4 py-2 bg-warning/10 border-b border-warning/30 text-xs text-warning-foreground flex items-center gap-2">
             <Phone className="h-3.5 w-3.5 text-warning shrink-0" />
             <span>
-              Conversa encaminhada ao WhatsApp pessoal do corretor
+              Encaminhada ao WhatsApp pessoal {assignedBroker?.full_name ? `de ${assignedBroker.full_name}` : 'do corretor'}
               {(convState as any)?.handoff_at ? ` em ${new Date((convState as any).handoff_at).toLocaleString('pt-BR')}` : ''}.
               O cliente foi avisado. Respostas futuras do cliente aqui não vão reativar a Aimee.
             </span>
@@ -1113,6 +1130,43 @@ const ChatPage: React.FC = () => {
                 value={convState?.triage_stage || '—'}
               />
             </div>
+          </div>
+
+          {/* Corretor responsável (vinculado via C2S/plantão) */}
+          <div className="p-4 border-b border-border">
+            <h4 className="font-display text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Corretor</h4>
+            {assignedBroker ? (
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
+                    <span className="text-sm font-bold text-accent">
+                      {(assignedBroker.full_name?.[0] || '?').toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground truncate">
+                      {assignedBroker.full_name || 'Sem nome'}
+                    </p>
+                    {assignedBroker.email && (
+                      <p className="text-[11px] text-muted-foreground truncate">{assignedBroker.email}</p>
+                    )}
+                  </div>
+                </div>
+                {assignedBroker.phone && (
+                  <InfoRow icon={<Phone className="h-3.5 w-3.5" />} label="Telefone" value={assignedBroker.phone} />
+                )}
+                {assignedBroker.vista_codigo && (
+                  <InfoRow icon={<Hash className="h-3.5 w-3.5" />} label="Vista" value={assignedBroker.vista_codigo} />
+                )}
+                {assignedBroker.team && (
+                  <InfoRow icon={<Briefcase className="h-3.5 w-3.5" />} label="Equipe" value={assignedBroker.team} />
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">
+                Sem corretor vinculado. A Aimee atribui via C2S quando o lead é qualificado.
+              </p>
+            )}
           </div>
 
           {/* Interaction Timeline */}

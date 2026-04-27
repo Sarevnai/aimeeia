@@ -3,7 +3,7 @@
 // VIP consultora persona, structured anamnese, enriched handoff dossier.
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
-import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces } from './tool-executors.ts';
+import { executePropertySearch, executeLeadHandoff, executeGetNearbyPlaces, executeWikiSearch, executeWikiReadLead } from './tool-executors.ts';
 import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective, buildHumanStyleDirective } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
@@ -775,6 +775,39 @@ function getRemarketingTools(ctx: AgentContext): any[] {
     {
       type: "function",
       function: {
+        name: "wiki_search",
+        description: "Consulta a base de conhecimento da imobiliária (perfil de bairros, políticas de desconto/garantia/handoff, perfil de empreendimentos, objeções comuns). Use ANTES de improvisar quando o cliente VIP perguntar algo factual sobre a operação ou o bairro. Retorna até 3 trechos curtos com fontes.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Pergunta natural (ex: 'preço médio Trindade 3 quartos', 'política de garantia em locação acima de 4k')."
+            },
+            type: {
+              type: "string",
+              description: "Filtra por tipo de página, opcional.",
+              enum: ["bairro", "empreendimento", "corretor", "objecao", "politica"]
+            }
+          },
+          required: ["query"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "wiki_read_lead",
+        description: "Lê a página do lead atual na wiki (memória institucional acumulada por contato). Use no INÍCIO do remarketing pra recuperar histórico que não está em lead_qualification — visitas anteriores, objeções já respondidas, parentes mencionados, restrições específicas. Não cite os fatos de volta ao cliente; use como contexto interno.",
+        parameters: {
+          type: "object",
+          properties: {},
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
         name: "buscar_pontos_de_interesse_proximos",
         description: "Busca pontos de interesse próximos a um imóvel (mercados, escolas, restaurantes, etc). Use proativamente para enriquecer a apresentação de imóveis OU quando o cliente perguntar sobre infraestrutura e localização. Retorna dados reais com distâncias.",
         parameters: {
@@ -820,6 +853,8 @@ export const remarketingAgent: AgentModule = {
     if (toolName === 'buscar_imoveis') return await executePropertySearch(ctx, args);
     if (toolName === 'enviar_lead_c2s') return await executeLeadHandoff(ctx, args);
     if (toolName === 'buscar_pontos_de_interesse_proximos') return await executeGetNearbyPlaces(ctx, args);
+    if (toolName === 'wiki_search') return await executeWikiSearch(ctx, args);
+    if (toolName === 'wiki_read_lead') return await executeWikiReadLead(ctx, args);
     return `Ferramenta desconhecida: ${toolName}`;
   },
 

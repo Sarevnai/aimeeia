@@ -2017,3 +2017,68 @@ export async function executeAtualizacaoHandoff(
     return 'Houve um imprevisto, mas vou garantir que nosso Supervisor de Carteira entre em contato. Despeça-se de forma calorosa, mencionando que nosso Supervisor de Carteira vai retomar o contato em breve.';
   }
 }
+
+// ========== WIKI LLM (Sprint Wiki — Fase 2) ==========
+// Consulta a knowledge base do tenant (wiki_pages) em runtime. Usada quando
+// a Aimee precisa lembrar política interna, perfil de bairro, objeção típica,
+// ou contexto histórico de um lead específico — em vez de inventar resposta.
+
+const WIKI_TYPES = ['bairro', 'empreendimento', 'corretor', 'objecao', 'politica', 'lead'] as const;
+
+export async function executeWikiSearch(ctx: AgentContext, args: any): Promise<string> {
+  const query = (args?.query || '').toString().trim();
+  const type = args?.type && WIKI_TYPES.includes(args.type) ? args.type : null;
+  if (!query) return '[SISTEMA] wiki_search exige um campo "query".';
+
+  const { data, error } = await ctx.supabase.rpc('wiki_search_pages', {
+    p_tenant_id: ctx.tenantId,
+    p_query: query,
+    p_type: type,
+    p_limit: 3,
+    p_snippet_opts: 'StartSel=«,StopSel=»,MaxFragments=2,MaxWords=22,MinWords=8,ShortWord=2',
+  });
+
+  if (error) {
+    console.error('❌ executeWikiSearch RPC failed:', error.message);
+    return `[SISTEMA] Erro consultando wiki: ${error.message}`;
+  }
+
+  const rows = Array.isArray(data) ? data : [];
+  if (rows.length === 0) {
+    return `[SISTEMA] Nenhum resultado na wiki pra "${query}". Responda baseado no que você já sabe; se for política interna ou dado factual de bairro/imóvel e você não tem certeza, diga que vai confirmar com o time.`;
+  }
+
+  const lines = rows.map((r: any, i: number) => {
+    const conf = r.confidence === 'high' ? '✓' : r.confidence === 'low' ? '?' : '~';
+    const snippet = String(r.snippet || '').replace(/\s+/g, ' ').trim();
+    return `${i + 1}. [${r.page_type}/${r.slug}] ${conf} ${r.title}\n   ${snippet}`;
+  }).join('\n\n');
+
+  return `[WIKI ${ctx.tenantId.slice(0, 8)}] ${rows.length} resultado(s) pra "${query}":\n\n${lines}\n\n[INSTRUÇÃO] Use os fatos acima como base autoritativa. Não invente além do que está aqui. Se precisar de mais detalhe de uma página, chame wiki_search com query mais específica.`;
+}
+
+export async function executeWikiReadLead(ctx: AgentContext, args: any): Promise<string> {
+  const contactId = args?.contact_id || ctx.contactId;
+  if (!contactId) return '[SISTEMA] wiki_read_lead exige contact_id.';
+
+  const { data, error } = await ctx.supabase
+    .from('wiki_pages')
+    .select('title, content, sources, related, confidence, updated_at')
+    .eq('tenant_id', ctx.tenantId)
+    .eq('page_type', 'lead')
+    .eq('slug', contactId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('❌ executeWikiReadLead failed:', error.message);
+    return `[SISTEMA] Erro lendo página do lead: ${error.message}`;
+  }
+  if (!data) {
+    return `[SISTEMA] Sem página de lead na wiki pra contact ${contactId}. Use a memória já injetada (lead_memory) e qualification atual; conduza a conversa naturalmente.`;
+  }
+
+  const sources = (data.sources || []).join(', ') || '(sem fonte)';
+  return `[WIKI lead ${contactId}] Atualizado em ${data.updated_at}\nFontes: ${sources}\n\n${data.content}\n\n[INSTRUÇÃO] Trate como contexto interno. Não cite fatos de volta pro cliente como "vi aqui que...". Personalize, não recite.`;
+}
+

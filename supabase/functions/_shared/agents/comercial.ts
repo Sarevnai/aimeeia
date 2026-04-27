@@ -3,7 +3,7 @@
 // Focused prompt (~1.2K tokens), property search + CRM handoff tools.
 
 import { AgentModule, AgentContext } from './agent-interface.ts';
-import { executePropertySearch, executePropertyByCode, executeLeadHandoff, executeGetNearbyPlaces, executeDepartmentTransfer } from './tool-executors.ts';
+import { executePropertySearch, executePropertyByCode, executeLeadHandoff, executeGetNearbyPlaces, executeDepartmentTransfer, executeWikiSearch, executeWikiReadLead } from './tool-executors.ts';
 import { buildContextSummary, buildReturningLeadContext, buildFirstTurnContext, buildMultilingualDirective, buildHumanStyleDirective } from '../prompts.ts';
 import { generateRegionKnowledge } from '../regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback, sanitizeReasoningLeak } from '../anti-loop.ts';
@@ -636,6 +636,39 @@ function getComercialTools(ctx: AgentContext): any[] {
     {
       type: "function",
       function: {
+        name: "wiki_read_lead",
+        description: "Lê a página do lead atual na wiki (memória institucional acumulada por contato). Use quando o histórico injetado parecer insuficiente — pra recuperar visitas anteriores, objeções já tratadas, restrições mencionadas em conversas passadas. Tratar o conteúdo como contexto interno; não cite fatos de volta como 'vi aqui que...'.",
+        parameters: {
+          type: "object",
+          properties: {},
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "wiki_search",
+        description: "Consulta a base de conhecimento da imobiliária (bairros, políticas internas, objeções comuns, perfil de empreendimentos). Use SEMPRE que o cliente perguntar algo factual onde a imobiliária tem postura definida — desconto, garantia, prazos, perfil de bairro, escolas próximas, política de atendimento — em vez de improvisar. Retorna até 3 trechos com fontes.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Pergunta natural (ex: 'preço médio 3 quartos Trindade', 'política de desconto', 'como funciona o handoff pro corretor')."
+            },
+            type: {
+              type: "string",
+              description: "Filtra por tipo de página, opcional.",
+              enum: ["bairro", "empreendimento", "corretor", "objecao", "politica"]
+            }
+          },
+          required: ["query"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
         name: "transferir_administrativo",
         description: "Encaminha a conversa para o setor administrativo. Use OBRIGATORIAMENTE quando o cliente disser que já é inquilino ou proprietário de imóvel da nossa imobiliária, ou quando trouxer assuntos administrativos: boleto, 2ª via, pagamento, cobrança, contrato, renovação, reajuste, rescisão, manutenção, vazamento, reparo, vistoria, chaves, chaveiro. NÃO tente resolver essas questões no comercial — a partir do próximo turno a conversa será atendida pelo agente administrativo.",
         parameters: {
@@ -750,6 +783,8 @@ export const comercialAgent: AgentModule = {
     if (toolName === 'buscar_imoveis') return await executePropertySearch(ctx, args);
     if (toolName === 'enviar_lead_c2s') return await executeLeadHandoff(ctx, args);
     if (toolName === 'buscar_pontos_de_interesse_proximos') return await executeGetNearbyPlaces(ctx, args);
+    if (toolName === 'wiki_search') return await executeWikiSearch(ctx, args);
+    if (toolName === 'wiki_read_lead') return await executeWikiReadLead(ctx, args);
     if (toolName === 'transferir_administrativo') return await executeDepartmentTransfer(ctx, 'administrativo', args);
     return `Ferramenta desconhecida: ${toolName}`;
   },

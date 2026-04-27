@@ -55,6 +55,7 @@ const DEPT_COLORS: Record<string, string> = {
 };
 
 type TabValue = 'all' | 'assigned' | 'mine';
+type StatusFilter = 'all' | 'ai' | 'operator';
 
 const InboxPage: React.FC = () => {
   const { tenantId } = useTenant();
@@ -69,6 +70,7 @@ const InboxPage: React.FC = () => {
   const [search, setSearch] = useSessionState('inbox_search', '');
   // Default tab: admin/super_admin começa em "Todas", corretor começa em "Atribuídas" (o que é dele).
   const [tab, setTab] = useSessionState<TabValue>('inbox_tab', isAdmin ? 'all' : 'assigned');
+  const [statusFilter, setStatusFilter] = useSessionState<StatusFilter>('inbox_status', 'all');
   const [c2sConv, setC2sConv] = useState<ConversationWithContact | null>(null);
 
   const fetchConversations = async () => {
@@ -150,6 +152,16 @@ const InboxPage: React.FC = () => {
       });
     }
 
+    // Status filter (IA ativa vs operador)
+    if (statusFilter === 'ai') {
+      result = result.filter((c) => states[c.phone_number]?.is_ai_active === true);
+    } else if (statusFilter === 'operator') {
+      result = result.filter((c) => {
+        const state = states[c.phone_number];
+        return state && !state.is_ai_active && !!state.operator_id;
+      });
+    }
+
     // Search filter
     if (search.trim()) {
       const s = search.toLowerCase();
@@ -161,7 +173,7 @@ const InboxPage: React.FC = () => {
     }
 
     return result;
-  }, [conversations, search, tab, states, user]);
+  }, [conversations, search, tab, statusFilter, states, user, currentBroker?.id]);
 
   const getStatusDot = (phoneNumber: string, convStatus: string | null) => {
     if (convStatus === 'closed' || convStatus === 'archived') return 'bg-muted-foreground';
@@ -204,6 +216,23 @@ const InboxPage: React.FC = () => {
       return state?.operator_id === user.id;
     }).length;
   }, [conversations, states, user]);
+
+  // Contadores por status, respeitando a tab atual (ownership)
+  const statusCounts = useMemo(() => {
+    const base = conversations.filter((c) => {
+      if (tab === 'assigned' && currentBroker?.id) return c.assigned_broker_id === currentBroker.id;
+      if (tab === 'mine' && user) return states[c.phone_number]?.operator_id === user.id;
+      return true;
+    });
+    let ai = 0, operator = 0;
+    for (const c of base) {
+      const s = states[c.phone_number];
+      if (!s) continue;
+      if (s.is_ai_active) ai++;
+      else if (s.operator_id) operator++;
+    }
+    return { all: base.length, ai, operator };
+  }, [conversations, tab, states, currentBroker?.id, user]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] md:h-[calc(100vh-4rem)]">
@@ -255,6 +284,45 @@ const InboxPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Status filter chips */}
+        <div className="flex gap-1.5 flex-wrap">
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={cn(
+              'inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors',
+              statusFilter === 'all'
+                ? 'bg-foreground text-background border-foreground'
+                : 'bg-card text-muted-foreground border-border hover:text-foreground'
+            )}
+          >
+            Todos status <span className="opacity-70">({statusCounts.all})</span>
+          </button>
+          <button
+            onClick={() => setStatusFilter('ai')}
+            className={cn(
+              'inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors',
+              statusFilter === 'ai'
+                ? 'bg-success/15 text-success border-success/40'
+                : 'bg-card text-muted-foreground border-border hover:text-foreground'
+            )}
+          >
+            <span className="h-2 w-2 rounded-full bg-success" />
+            Aimee atendendo <span className="opacity-70">({statusCounts.ai})</span>
+          </button>
+          <button
+            onClick={() => setStatusFilter('operator')}
+            className={cn(
+              'inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors',
+              statusFilter === 'operator'
+                ? 'bg-warning/15 text-warning border-warning/40'
+                : 'bg-card text-muted-foreground border-border hover:text-foreground'
+            )}
+          >
+            <span className="h-2 w-2 rounded-full bg-warning" />
+            Operador <span className="opacity-70">({statusCounts.operator})</span>
+          </button>
+        </div>
+
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -276,11 +344,15 @@ const InboxPage: React.FC = () => {
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 text-sm text-muted-foreground gap-2">
             <MessageSquare className="h-8 w-8 opacity-40" />
-            {tab === 'assigned'
-              ? 'Nenhum lead atribuído a você'
-              : tab === 'mine'
-                ? 'Nenhuma conversa assumida por você'
-                : 'Nenhuma conversa encontrada'}
+            {statusFilter === 'ai'
+              ? 'Nenhuma conversa com a Aimee atendendo agora'
+              : statusFilter === 'operator'
+                ? 'Nenhuma conversa em atendimento humano'
+                : tab === 'assigned'
+                  ? 'Nenhum lead atribuído a você'
+                  : tab === 'mine'
+                    ? 'Nenhuma conversa assumida por você'
+                    : 'Nenhuma conversa encontrada'}
           </div>
         ) : (
           <div className="divide-y divide-border">

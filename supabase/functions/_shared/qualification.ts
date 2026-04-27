@@ -266,6 +266,127 @@ export function detectCorrections(
   return { detected, corrections };
 }
 
+// ========== SEED FROM CRM (REMARKETING) ==========
+
+// Caso Carolina (2026-04-27): C2S import populou contacts.crm_natureza="Aluguel",
+// crm_neighborhood="Campeche", crm_price_hint="5000", tags=["Interesse: Locação", ...]
+// — mas a lead_qualification começou vazia. Sem detected_interest preenchido,
+// o buildContextSummary não emitiu a regra "NÃO pergunte alugar/comprar" e a Helena
+// re-perguntou no turno 10 mesmo o cliente tendo dito 4 turnos antes. Isso seeda
+// a qualification a partir do CRM no início da conversa de remarketing pra que o
+// guardrail dispare desde o turno 1.
+export function buildSeedFromContact(contact: {
+  crm_natureza?: string | null;
+  crm_neighborhood?: string | null;
+  crm_price_hint?: string | null;
+  tags?: string[] | null;
+}): ExtractedQualificationData {
+  const seed: ExtractedQualificationData = {};
+  const sources: Record<string, 'crm_seed'> = {};
+
+  const natureza = (contact.crm_natureza || '').toLowerCase().trim();
+  if (natureza === 'aluguel' || natureza === 'locacao' || natureza === 'locação') {
+    seed.detected_interest = 'locacao';
+    sources.detected_interest = 'crm_seed';
+  } else if (natureza === 'compra' || natureza === 'venda') {
+    seed.detected_interest = 'venda';
+    sources.detected_interest = 'crm_seed';
+  }
+
+  const tags = Array.isArray(contact.tags) ? contact.tags : [];
+  for (const tag of tags) {
+    const t = String(tag).toLowerCase();
+
+    if (!seed.detected_interest && t.startsWith('interesse:')) {
+      const v = t.replace('interesse:', '').trim();
+      if (v.includes('loca')) {
+        seed.detected_interest = 'locacao';
+        sources.detected_interest = 'crm_seed';
+      } else if (v.includes('venda') || v.includes('compra')) {
+        seed.detected_interest = 'venda';
+        sources.detected_interest = 'crm_seed';
+      }
+    }
+
+    if (!seed.detected_property_type && t.startsWith('tipo:')) {
+      const v = t.replace('tipo:', '').trim();
+      const propType = v.includes('apto') || v.includes('apart') ? 'apartamento'
+        : v.includes('casa') ? 'casa'
+        : v.includes('terreno') ? 'terreno'
+        : v.includes('cobertura') ? 'cobertura'
+        : v.includes('sala') ? 'sala_comercial'
+        : null;
+      if (propType) {
+        seed.detected_property_type = propType;
+        sources.detected_property_type = 'crm_seed';
+      }
+    }
+  }
+
+  if (contact.crm_neighborhood && contact.crm_neighborhood.trim()) {
+    seed.detected_neighborhood = contact.crm_neighborhood.trim();
+    sources.detected_neighborhood = 'crm_seed';
+  }
+
+  // crm_price_hint vem em formatos heterogêneos: "5000", "R$ 5.000,00", "1.400.000,00",
+  // "R$ 22.000,00", "R$ 2350.0", "0". Normaliza tirando R$, espaço, e tratando vírgula
+  // como decimal pt-BR só quando aparece no fim (ex: "1.400.000,00" → 1400000).
+  if (contact.crm_price_hint) {
+    const raw = String(contact.crm_price_hint).trim();
+    const cleaned = raw.replace(/r\$\s*/i, '').replace(/\s/g, '');
+    const ptBr = cleaned.replace(/\.(?=\d{3}(?:[.,]|$))/g, '').replace(',', '.');
+    const parsed = parseFloat(ptBr);
+    if (!isNaN(parsed) && parsed > 0) {
+      seed.detected_budget_max = Math.round(parsed);
+      sources.detected_budget_max = 'crm_seed';
+    }
+  }
+
+  if (Object.keys(sources).length > 0) {
+    seed.field_sources = sources as any;
+  }
+
+  return seed;
+}
+
+// Mescla seed do CRM em qualData existente APENAS onde campos estão vazios E não
+// foram fixados pelo cliente (field_sources != 'client_explicit'). Devolve a
+// qualification mesclada e um array dos campos que foram seedados (pra log/diff).
+export function mergeSeedIntoQualification(
+  current: QualificationData | null,
+  seed: ExtractedQualificationData
+): { merged: QualificationData; seeded: string[] } {
+  const base: QualificationData = current ? { ...current } : {};
+  const sources: Record<string, 'client_explicit' | 'inferred' | 'crm_seed'> = {
+    ...(current?.field_sources || {}),
+  };
+  const seeded: string[] = [];
+
+  const seedKeys: Array<keyof ExtractedQualificationData> = [
+    'detected_interest',
+    'detected_property_type',
+    'detected_neighborhood',
+    'detected_budget_max',
+  ];
+
+  for (const k of seedKeys) {
+    const seedVal = (seed as any)[k];
+    if (seedVal === undefined || seedVal === null || seedVal === '') continue;
+    if (sources[k as string] === 'client_explicit') continue;
+    if ((base as any)[k]) continue;
+    (base as any)[k] = seedVal;
+    sources[k as string] = 'crm_seed';
+    seeded.push(k as string);
+  }
+
+  if (seeded.length > 0) {
+    base.field_sources = sources;
+    base.qualification_score = calculateQualificationScore(base);
+  }
+
+  return { merged: base, seeded };
+}
+
 // ========== SAVE TO DB ==========
 
 export async function saveQualificationData(

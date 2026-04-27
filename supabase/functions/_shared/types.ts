@@ -120,7 +120,7 @@ export interface QualificationData {
   detected_move_in_date?: string | null; // ISO date YYYY-MM-DD
   qualification_score?: number;
   questions_answered?: number;
-  field_sources?: Record<string, 'client_explicit' | 'inferred'>;
+  field_sources?: Record<string, 'client_explicit' | 'inferred' | 'crm_seed'>;
 }
 
 export interface ExtractedQualificationData {
@@ -134,7 +134,7 @@ export interface ExtractedQualificationData {
   detected_has_pets?: boolean;
   detected_pet_type?: string;
   detected_move_in_date?: string;
-  field_sources?: Record<string, 'client_explicit'>;
+  field_sources?: Record<string, 'client_explicit' | 'crm_seed'>;
 }
 
 // ========== PROPERTY ==========

@@ -9,7 +9,7 @@ import { callLLMWithToolExecution, TraceData, insertTrace } from '../_shared/ai-
 import { sendWhatsAppMessage, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
-import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags, reclassifyConversationDepartment } from '../_shared/qualification.ts';
+import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags, reclassifyConversationDepartment, buildSeedFromContact, mergeSeedIntoQualification } from '../_shared/qualification.ts';
 import { loadRegions } from '../_shared/regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../_shared/anti-loop.ts';
 import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } from '../_shared/property.ts';
@@ -151,12 +151,42 @@ serve(async (req: Request) => {
       .single();
 
     // Load qualification data from lead_qualification table (keyed by tenant_id + phone_number)
-    const { data: qualRow } = await supabase
+    let { data: qualRow } = await supabase
       .from('lead_qualification')
       .select('*')
       .eq('tenant_id', tenant_id)
       .eq('phone_number', phone_number)
       .maybeSingle();
+
+    // Caso Carolina (2026-04-27): conversa de remarketing/rewarm_archived com C2S import
+    // populando contacts.crm_natureza/crm_neighborhood/crm_price_hint/tags, mas
+    // lead_qualification começando vazia. Sem detected_interest preenchido, o
+    // buildContextSummary não emite a regra "NÃO pergunte alugar/comprar" e a Aimee
+    // re-pergunta dados que o cliente já forneceu antes do arquivamento. Seedamos
+    // a qualification a partir do CRM no início da conversa pra que o guardrail
+    // dispare desde o turno 1. Marca como crm_seed (não client_explicit) — Aimee
+    // confirma em vez de assumir.
+    const _convSource = conversation?.source || 'organic';
+    if (
+      contact_id &&
+      (_convSource === 'remarketing' || _convSource === 'rewarm_archived' || conversation?.department_code === 'remarketing')
+    ) {
+      const { data: contactRow } = await supabase
+        .from('contacts')
+        .select('crm_natureza, crm_neighborhood, crm_price_hint, tags')
+        .eq('id', contact_id)
+        .maybeSingle();
+
+      if (contactRow) {
+        const seed = buildSeedFromContact(contactRow);
+        const { merged, seeded } = mergeSeedIntoQualification(qualRow, seed);
+        if (seeded.length > 0) {
+          await saveQualificationData(supabase, tenant_id, phone_number, contact_id, merged, conversation_id);
+          qualRow = merged as any;
+          console.log(`🌱 CRM seed → ${seeded.join(', ')} (source=crm_seed) for ${phone_number}`);
+        }
+      }
+    }
 
     const regions = await loadRegions(supabase, tenant_id);
 
@@ -609,6 +639,23 @@ serve(async (req: Request) => {
         }
       }
 
+      // Load lead_memory (camada 3) + shown_property_codes (cross-conversation)
+      let leadMemory: any = null;
+      let shownPropertyCodes: Array<{ code: string; shown_at?: string; reaction?: string }> = [];
+      if (contact_id) {
+        const { data: memRow } = await supabase
+          .from('contacts')
+          .select('lead_memory, lead_memory_updated_at, shown_property_codes')
+          .eq('id', contact_id)
+          .maybeSingle();
+        if (memRow?.lead_memory && typeof memRow.lead_memory === 'object') {
+          leadMemory = memRow.lead_memory;
+        }
+        if (Array.isArray(memRow?.shown_property_codes)) {
+          shownPropertyCodes = memRow.shown_property_codes as any;
+        }
+      }
+
       if (agentType === 'admin' && contact_id) {
         const { data: contactRow } = await supabase
           .from('contacts')
@@ -695,9 +742,40 @@ serve(async (req: Request) => {
         activeUpdateEntry,
         // Canal Pro ZAP / VivaReal / OLX — imóvel pré-selecionado no lead
         portalPropertyCode: (state as any)?.portal_property_code || null,
+        // Camada 3 — narrativa do lead (lead-memory-updater)
+        leadMemory,
       };
 
       let systemPrompt = agent.buildSystemPrompt(ctx);
+
+      // Inject lead memory narrative after agent's base prompt. Kept separate from
+      // qualification/CRM blocks because this is higher-signal summary from a separate
+      // LLM pass — útil pra retomar conversa sem ler 50 mensagens.
+      if (leadMemory?.narrative) {
+        const memSections = [`## MEMÓRIA DO LEAD (narrativa gerada por análise anterior)`];
+        memSections.push(leadMemory.narrative);
+        if (Array.isArray(leadMemory.key_facts) && leadMemory.key_facts.length > 0) {
+          memSections.push(`\nFatos-chave:\n- ${leadMemory.key_facts.slice(0, 6).join('\n- ')}`);
+        }
+        if (Array.isArray(leadMemory.concerns) && leadMemory.concerns.length > 0) {
+          memSections.push(`\nPreocupações/objeções:\n- ${leadMemory.concerns.slice(0, 6).join('\n- ')}`);
+        }
+        if (Array.isArray(leadMemory.closed_loops) && leadMemory.closed_loops.length > 0) {
+          memSections.push(`\nJá descartado/resolvido (não reabrir sem motivo):\n- ${leadMemory.closed_loops.slice(0, 6).join('\n- ')}`);
+        }
+        memSections.push(`\nINSTRUÇÃO: use essa memória pra personalizar o atendimento. NÃO liste esses fatos de volta pro cliente nem mencione "vi aqui que...". Trate como contexto interno.`);
+        systemPrompt += `\n\n${memSections.join('\n')}`;
+      }
+
+      // Imóveis já apresentados em conversas anteriores — NÃO mostrar de novo
+      if (shownPropertyCodes.length > 0) {
+        const lines = shownPropertyCodes.slice(-20).map((e: any) => {
+          const date = e.shown_at ? new Date(e.shown_at).toLocaleDateString('pt-BR') : '';
+          const reaction = e.reaction && e.reaction !== 'unknown' ? ` (${e.reaction})` : '';
+          return `- Código ${e.code}${date ? ` em ${date}` : ''}${reaction}`;
+        }).join('\n');
+        systemPrompt += `\n\n## IMÓVEIS JÁ APRESENTADOS A ESSE LEAD\n${lines}\n\nREGRA: não apresente nenhum desses códigos de novo, exceto se o cliente pedir explicitamente pra revisar um específico. A ferramenta buscar_imoveis já filtra automaticamente, mas não mencione/sugira esses códigos em texto livre.`;
+      }
       // Fix B: detect if module changed after buildSystemPrompt resolved it
       if (ctx.currentModuleSlug && ctx.currentModuleSlug !== currentModuleSlug) {
         ctx._moduleChangedThisTurn = true;

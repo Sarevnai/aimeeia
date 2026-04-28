@@ -393,6 +393,12 @@ function buildLeadBody(leadData: any): string {
     lines.push('');
   }
 
+  if (Array.isArray(qualification.detected_features) && qualification.detected_features.length > 0) {
+    lines.push('🌟 CARACTERÍSTICAS DESEJADAS');
+    qualification.detected_features.forEach((f: string) => lines.push(`  • ${f}`));
+    lines.push('');
+  }
+
   // Imóvel de interesse
   if (leadData.development_id) {
     lines.push('🏠 IMÓVEL DE INTERESSE');

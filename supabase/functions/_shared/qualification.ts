@@ -160,11 +160,73 @@ export function extractQualificationFromText(
     sources.detected_move_in_date = 'client_explicit';
   }
 
+  // Caracteristicas qualitativas (caso Carolina turn 9, 2026-04-27): cliente disse
+  // "perto da praia, aceita pet, pra moradia, bastante armário, marmita fitness, nao
+  // preciso cozinha equipada" e nada disso cabia no schema. Helena perdeu tudo no
+  // turno 10 e o handoff foi vazio. Slot dedicado, dedup, append-only por cliente.
+  const features = detectFeatures(text);
+  if (features.length > 0) {
+    extracted.detected_features = features;
+  }
+
   if (Object.keys(sources).length > 0) {
     extracted.field_sources = sources;
   }
 
   return extracted;
+}
+
+// Dicionario de caracteristicas qualitativas. Negativos vem antes pra ter precedencia
+// sobre o positivo correspondente (ex: "nao precisa cozinha equipada" antes de "cozinha
+// equipada"). Match case-insensitive contra texto puro (nao lowercased).
+const FEATURE_PATTERNS: Array<{ regex: RegExp; canonical: string }> = [
+  { regex: /\bn[ãa]o\s+(?:precis|quer)[oa]?\s+(?:de\s+)?cozinha\s+equipada\b|\bn[ãa]o\s+cozinho\b|\bn[ãa]o\s+cozinhamos\b/i, canonical: 'NÃO precisa cozinha equipada' },
+  { regex: /\bn[ãa]o\s+(?:precis|quer)[oa]?\s+(?:de\s+)?(?:vaga|garagem)\b/i, canonical: 'NÃO precisa vaga' },
+  { regex: /\bn[ãa]o\s+aceito\s+(?:di?vidir|conviver)/i, canonical: 'NÃO aceita dividir' },
+  { regex: /\bsem\s+m[óo]vel|\bsem\s+mob[íi]lia\b/i, canonical: 'sem mobília' },
+  { regex: /\b(perto|próxim[oa])\s+(d[oa]\s+)?praia\b|\bp[ée]\s+na\s+areia\b|\bbeira\s+mar\b/i, canonical: 'perto da praia' },
+  { regex: /\bvista\s+(pro|para\s+o|do)?\s*mar\b/i, canonical: 'vista pro mar' },
+  { regex: /\b(muit[oa]s?|bastante|bom|boa|grande|amplo|v[áa]rios?)\s+arm[áa]ri[oa]s?\b/i, canonical: 'bastante armário' },
+  { regex: /\barm[áa]rios?\s+(planejad|embutid|sob\s+medida)/i, canonical: 'armários planejados' },
+  { regex: /\b(aceit|permit|libera)[aoe]?(?:m)?\s+(animal|pet|c[ãa]o|cachorr|gato)/i, canonical: 'aceita pet' },
+  { regex: /\bpet\s+friendly\b/i, canonical: 'aceita pet' },
+  { regex: /\b(\d+)\s+vagas?\b/i, canonical: 'vagas (especificadas)' },
+  { regex: /\b(garagem|vaga)\s+(coberta|fechada|individual)/i, canonical: 'garagem coberta' },
+  { regex: /\bpiscina\b/i, canonical: 'piscina' },
+  { regex: /\b(academia|fitness)\b(?!\s*(p[ée]|fora|longe))/i, canonical: 'academia/fitness' },
+  { regex: /\bchurrasqueira\b/i, canonical: 'churrasqueira' },
+  { regex: /\b(varanda|sacada)\s+(gourmet|grande|ampla)/i, canonical: 'varanda gourmet' },
+  { regex: /\bvarand[ãa]o\b/i, canonical: 'varandão' },
+  { regex: /\bsu[íi]te\b/i, canonical: 'suíte' },
+  { regex: /\bcozinha\s+(americana|integrad)/i, canonical: 'cozinha americana' },
+  { regex: /\bcozinha\s+(equipad|planej)/i, canonical: 'cozinha equipada' },
+  { regex: /\bmobiliad[oa]\b/i, canonical: 'mobiliado' },
+  { regex: /\bsemi[\s-]?mobiliad[oa]\b/i, canonical: 'semi-mobiliado' },
+  { regex: /\bhome\s+office\b/i, canonical: 'home office' },
+  { regex: /\b(marmita\s+fitness|alimenta[çc][ãa]o\s+saud[áa]vel|comida\s+natural)\b/i, canonical: 'estilo de vida fitness' },
+  { regex: /\bp(?:r|ar)a\s+morar\b|\bmoradia\b|\bmoradia\s+fixa\b/i, canonical: 'pra moradia (não temporada)' },
+  { regex: /\btempor[áa]da\b/i, canonical: 'temporada' },
+  { regex: /\bsegur[áa]n[çc]a\s+24\s*h?\b/i, canonical: 'segurança 24h' },
+  { regex: /\bportaria\s+24\s*h?\b/i, canonical: 'portaria 24h' },
+  { regex: /\bsal[ãa]o\s+(de\s+)?festas?\b/i, canonical: 'salão de festas' },
+  { regex: /\bplayground\b/i, canonical: 'playground' },
+  { regex: /\bandar\s+alto\b|\bcobertura\b/i, canonical: 'andar alto' },
+  { regex: /\b(perto|próxim[oa])\s+(d[oa]\s+|de\s+|à\s+)?(escola|col[ée]gio|metr[oô])/i, canonical: 'perto de escola/transporte' },
+  { regex: /\b(perto|próxim[oa])\s+(d[oa]\s+|de\s+|à\s+)?(mercado|supermercado|shopping)/i, canonical: 'perto de mercado/shopping' },
+];
+
+function detectFeatures(text: string): string[] {
+  const found = new Set<string>();
+  for (const { regex, canonical } of FEATURE_PATTERNS) {
+    if (regex.test(text)) found.add(canonical);
+  }
+  // Limpa redundancias: se pegou "NÃO precisa cozinha equipada", remove "cozinha equipada"
+  if (found.has('NÃO precisa cozinha equipada')) found.delete('cozinha equipada');
+  if (found.has('NÃO precisa vaga')) {
+    found.delete('vagas (especificadas)');
+    found.delete('garagem coberta');
+  }
+  return Array.from(found);
 }
 
 // Detect interest (venda/locação/ambos) from text
@@ -203,6 +265,18 @@ export function mergeQualificationData(
   if (typeof extracted.detected_has_pets === 'boolean') merged.detected_has_pets = extracted.detected_has_pets;
   if (extracted.detected_pet_type) merged.detected_pet_type = extracted.detected_pet_type;
   if (extracted.detected_move_in_date) merged.detected_move_in_date = extracted.detected_move_in_date;
+
+  if (extracted.detected_features && extracted.detected_features.length > 0) {
+    const existing = Array.isArray(merged.detected_features) ? merged.detected_features : [];
+    const unioned = Array.from(new Set([...existing, ...extracted.detected_features]));
+    // Negativos sobrescrevem positivos correspondentes ao mesclar com historia previa
+    const final = unioned.filter(f => {
+      if (f === 'cozinha equipada' && unioned.includes('NÃO precisa cozinha equipada')) return false;
+      if (f === 'vagas (especificadas)' && unioned.includes('NÃO precisa vaga')) return false;
+      return true;
+    });
+    merged.detected_features = final.slice(0, 20);
+  }
 
   if (extracted.field_sources) {
     Object.assign(currentSources, extracted.field_sources);
@@ -415,6 +489,7 @@ export async function saveQualificationData(
     detected_has_pets: typeof data.detected_has_pets === 'boolean' ? data.detected_has_pets : null,
     detected_pet_type: data.detected_pet_type || null,
     detected_move_in_date: data.detected_move_in_date || null,
+    detected_features: Array.isArray(data.detected_features) ? data.detected_features : [],
     qualification_score: freshScore,
     field_sources: data.field_sources || {},
     updated_at: new Date().toISOString(),

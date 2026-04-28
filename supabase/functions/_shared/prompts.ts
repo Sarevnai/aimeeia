@@ -75,6 +75,13 @@ export function buildContextSummary(qualificationData: QualificationData | null,
     collected.push(`🎯 Objetivo: ${interestLabel}`);
   }
   if (qualificationData.detected_timeline) collected.push(`⏱️ Prazo: ${qualificationData.detected_timeline === '0-3m' ? 'até 3 meses' : qualificationData.detected_timeline === '3-6m' ? '3 a 6 meses' : 'acima de 6 meses'}`);
+  // Caso Carolina turn 9 (2026-04-27): features qualitativas (praia/armário/fitness/moradia)
+  // ficavam fora do schema e Helena ignorava. Agora capturadas em detected_features e
+  // injetadas aqui como sinais "duros" pro LLM usar em busca/dossie/tom de conversa.
+  const features = Array.isArray(qualificationData.detected_features) ? qualificationData.detected_features : [];
+  if (features.length > 0) {
+    collected.push(`🌟 Características desejadas: ${features.join(', ')}`);
+  }
 
   if (collected.length === 0) return '';
 
@@ -133,6 +140,7 @@ export function buildContextSummary(qualificationData: QualificationData | null,
     quartos: qualificationData.detected_bedrooms || null,
     orcamento_maximo: qualificationData.detected_budget_max || null,
     prazo: qualificationData.detected_timeline || null,
+    caracteristicas: features.length > 0 ? features : null,
   }, null, 2);
 
   return `\n<lead_data>

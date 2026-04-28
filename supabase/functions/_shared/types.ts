@@ -118,6 +118,7 @@ export interface QualificationData {
   detected_has_pets?: boolean | null;
   detected_pet_type?: string | null;
   detected_move_in_date?: string | null; // ISO date YYYY-MM-DD
+  detected_features?: string[] | null;
   qualification_score?: number;
   questions_answered?: number;
   field_sources?: Record<string, 'client_explicit' | 'inferred' | 'crm_seed'>;
@@ -134,6 +135,7 @@ export interface ExtractedQualificationData {
   detected_has_pets?: boolean;
   detected_pet_type?: string;
   detected_move_in_date?: string;
+  detected_features?: string[];
   field_sources?: Record<string, 'client_explicit' | 'crm_seed'>;
 }
 

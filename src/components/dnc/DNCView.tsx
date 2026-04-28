@@ -9,8 +9,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertTriangle, BanIcon, Bot, Search, Loader2, ChevronLeft, ChevronRight,
-  PhoneOff, MessageCircleX, RotateCcw, Trash2,
+  PhoneOff, MessageCircleX, RotateCcw, Trash2, MessageSquare, User,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface DncContact {
   contact_id: string;
@@ -69,6 +70,18 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [convoTarget, setConvoTarget] = useState<DncContact | null>(null);
+  const [convoLoading, setConvoLoading] = useState(false);
+  const [convoMessages, setConvoMessages] = useState<Array<{
+    id: number;
+    direction: 'inbound' | 'outbound';
+    body: string | null;
+    sender_type: string | null;
+    created_at: string | null;
+    conversation_id: string;
+    conv_source: string | null;
+    conv_dept: string | null;
+  }>>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -157,6 +170,44 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
       setDeleting(false);
     }
   };
+
+  const openConversation = useCallback(async (target: DncContact) => {
+    setConvoTarget(target);
+    setConvoLoading(true);
+    setConvoMessages([]);
+    try {
+      const { data: convs } = await supabase
+        .from('conversations')
+        .select('id, source, department_code')
+        .eq('tenant_id', tenantId)
+        .eq('contact_id', target.contact_id);
+      const convList = convs || [];
+      if (convList.length === 0) {
+        setConvoMessages([]);
+        return;
+      }
+      const convMap = new Map(convList.map((c: any) => [c.id, { source: c.source, dept: c.department_code }]));
+      const { data: msgs } = await supabase
+        .from('messages')
+        .select('id, direction, body, sender_type, created_at, conversation_id')
+        .in('conversation_id', convList.map((c: any) => c.id))
+        .order('created_at', { ascending: true })
+        .limit(2000);
+      const enriched = (msgs || []).map((m: any) => {
+        const meta = convMap.get(m.conversation_id) || { source: null, dept: null };
+        return {
+          ...m,
+          conv_source: meta.source,
+          conv_dept: meta.dept ? String(meta.dept) : null,
+        };
+      });
+      setConvoMessages(enriched);
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Erro', description: err.message || 'Falha ao carregar conversa.' });
+    } finally {
+      setConvoLoading(false);
+    }
+  }, [tenantId, toast]);
 
   const handleUnmark = async () => {
     if (!unmarkTarget) return;
@@ -309,7 +360,7 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
                     <th className="px-4 py-2 font-medium">Última fala</th>
                     <th className="px-4 py-2 font-medium">Marcado em</th>
                     <th className="px-4 py-2 font-medium text-right">Turnos</th>
-                    {canManage && <th className="px-4 py-2 font-medium text-right">Ações</th>}
+                    <th className="px-4 py-2 font-medium text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -348,19 +399,30 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
                         <td className="px-4 py-3 text-right text-xs text-muted-foreground">
                           {r.total_inbound_msgs}↓ {r.total_outbound_msgs}↑
                         </td>
-                        {canManage && (
-                          <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
                             <Button
                               variant="ghost"
                               size="sm"
                               className="h-7 gap-1 text-xs"
-                              onClick={() => setUnmarkTarget(r)}
+                              onClick={() => openConversation(r)}
                             >
-                              <RotateCcw className="h-3 w-3" />
-                              Reabilitar
+                              <MessageSquare className="h-3 w-3" />
+                              Ver conversa
                             </Button>
-                          </td>
-                        )}
+                            {canManage && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 text-xs"
+                                onClick={() => setUnmarkTarget(r)}
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                Reabilitar
+                              </Button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -392,6 +454,90 @@ export default function DNCView({ tenantId, canManage = false, showHeader = true
           </>
         )}
       </div>
+
+      <Dialog open={!!convoTarget} onOpenChange={(o) => !o && setConvoTarget(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              {convoTarget?.name || convoTarget?.phone || 'Conversa'}
+            </DialogTitle>
+            <DialogDescription>
+              {convoTarget?.phone}
+              {convoTarget?.dnc_reason && (
+                <>
+                  {' · '}
+                  <Badge variant="outline" className={REASON_LABEL[convoTarget.dnc_reason]?.cls || REASON_LABEL.manual.cls}>
+                    {REASON_LABEL[convoTarget.dnc_reason]?.label || 'Manual'}
+                  </Badge>
+                </>
+              )}
+              {convoTarget?.dnc_at && ` · marcado em ${new Date(convoTarget.dnc_at).toLocaleString('pt-BR')}`}
+              {convoTarget?.last_conversation_source && ` · ${convoTarget.last_conversation_source}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-muted/30 border border-border rounded-lg p-4 max-h-[60vh] overflow-y-auto space-y-2">
+            {convoLoading ? (
+              <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : convoMessages.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Nenhuma mensagem encontrada para este contato.</p>
+            ) : (
+              convoMessages.map((m, idx) => {
+                const isInbound = m.direction === 'inbound';
+                const prev = idx > 0 ? convoMessages[idx - 1] : null;
+                const showConvHeader = !prev || prev.conversation_id !== m.conversation_id;
+                return (
+                  <React.Fragment key={`${m.conversation_id}-${m.id}`}>
+                    {showConvHeader && (
+                      <div className="flex items-center gap-2 pt-2 pb-1">
+                        <div className="h-px flex-1 bg-border" />
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          {m.conv_source || 'conversa'}
+                          {m.conv_dept && ` · ${m.conv_dept}`}
+                        </span>
+                        <div className="h-px flex-1 bg-border" />
+                      </div>
+                    )}
+                    <div className={cn('flex gap-2', isInbound ? 'justify-start' : 'justify-end')}>
+                      {isInbound && (
+                        <div className="shrink-0 w-7 h-7 rounded-full bg-muted flex items-center justify-center">
+                          <User className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div
+                        className={cn(
+                          'max-w-[75%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap break-words',
+                          isInbound
+                            ? 'bg-card border border-border text-foreground rounded-tl-sm'
+                            : 'bg-primary text-primary-foreground rounded-tr-sm'
+                        )}
+                      >
+                        {m.body || <span className="italic opacity-70">[mídia]</span>}
+                        <div className={cn('text-[10px] mt-1', isInbound ? 'text-muted-foreground' : 'text-primary-foreground/70')}>
+                          {m.created_at ? new Date(m.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                          {m.sender_type === 'ai' && ' · IA'}
+                          {m.sender_type === 'human' && ' · Humano'}
+                        </div>
+                      </div>
+                      {!isInbound && (
+                        <div className="shrink-0 w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center">
+                          <Bot className="h-3.5 w-3.5 text-primary" />
+                        </div>
+                      )}
+                    </div>
+                  </React.Fragment>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <span className="text-xs text-muted-foreground">
+              {convoMessages.length > 0 && `${convoMessages.length} mensagem(ns)`}
+            </span>
+            <Button variant="outline" onClick={() => setConvoTarget(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmDelete} onOpenChange={(o) => !o && !deleting && setConfirmDelete(false)}>
         <DialogContent>

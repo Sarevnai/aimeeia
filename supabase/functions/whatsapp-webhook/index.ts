@@ -11,6 +11,8 @@ import { isDuplicateMessage, logError, logActivity } from '../_shared/utils.ts';
 import { transcribeWhatsAppAudio } from '../_shared/audio-transcription.ts';
 import { downloadAndHostWhatsAppMedia } from '../_shared/whatsapp-media.ts';
 import { classifyInbound, replyForReason } from '../_shared/inbound-filters.ts';
+import { generateContextualFarewell } from '../_shared/inbound-farewell.ts';
+import { decryptApiKey } from '../_shared/agents/tool-executors.ts';
 import { normalizePhone, phoneVariants } from '../_shared/phone.ts';
 import { Tenant, WhatsAppWebhookEntry, MakeWebhookRequest } from '../_shared/types.ts';
 
@@ -525,7 +527,33 @@ async function processInboundMessage(
 
     // Polite one-shot reply (opt_out / wrong_audience). Auto-reply: stay silent.
     if (filterHit.reason !== 'auto_reply') {
-      const replyText = replyForReason(filterHit.reason, contactRow?.name || null);
+      // Despedida contextual: lê últimas mensagens + msg atual e escreve algo
+      // empático que faça sentido pro caso. Fallback estático se LLM falhar.
+      const { data: aiCfg } = await supabase
+        .from('ai_agent_config')
+        .select('agent_name, ai_model, ai_provider, api_key_encrypted')
+        .eq('tenant_id', tenant.id)
+        .maybeSingle();
+
+      const { data: recentMsgs } = await supabase
+        .from('messages')
+        .select('direction, body, sender_type, created_at')
+        .eq('conversation_id', conversation.id)
+        .order('created_at', { ascending: false })
+        .limit(8);
+
+      const tenantApiKey = await decryptApiKey((aiCfg as any)?.api_key_encrypted);
+
+      const replyText = await generateContextualFarewell({
+        reason: filterHit.reason as 'opt_out' | 'wrong_audience',
+        inboundBody: finalMessageBody,
+        contactName: contactRow?.name || null,
+        agentName: (aiCfg as any)?.agent_name || 'Aimee',
+        recentMessages: ((recentMsgs as any[]) || []).reverse(),
+        model: (aiCfg as any)?.ai_model,
+        provider: (aiCfg as any)?.ai_provider,
+        apiKey: tenantApiKey,
+      });
       try {
         const sent = await sendWhatsAppMessage(phoneNumber, replyText, tenant, waMessageId);
         await supabase.from('messages').insert({

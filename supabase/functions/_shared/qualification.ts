@@ -112,11 +112,25 @@ export function extractQualificationFromText(
   const budgetContext = /\b(or[cç]amento|alug(?:uel|o)|valor\s+(?:do\s+|de\s+|m[aá]ximo|mensal)|at[eé]|faixa|consigo\s+pagar|pago|teto|m[aá]ximo|cabe|pode\s+ser\s+at[eé])\b/i.test(lower);
   const isPureIncomeMessage = incomeContext && !budgetContext && currentData?.detected_budget_max;
 
+  // Caso Daniela (28/04): "cerca de R$40mil para entrada" — valor é DOWN PAYMENT,
+  // não budget total do imóvel. Sem campo dedicado, o seguro é não gravar nada
+  // e deixar o orçamento total ser perguntado depois.
+  const downPaymentContext = /\b(entrada|sinal|pra\s+(?:dar\s+)?entrada|de\s+entrada|para\s+(?:dar\s+)?entrada|down\s*payment)\b/i.test(lower);
+
   const effectiveInterest = interest || currentData?.detected_interest || null;
-  let budget = isPureIncomeMessage ? null : detectBudget(lower);
+  let budget = (isPureIncomeMessage || downPaymentContext) ? null : detectBudget(lower);
   if (budget && effectiveInterest === 'venda' && budget < 50_000) {
-    const rescued = budget * 1000;
-    budget = (rescued >= 100_000 && rescued <= 50_000_000) ? rescued : null;
+    // Rescue: cliente disse só "800" sem "mil" → provavelmente 800 mil. Mas se a
+    // mensagem JÁ tem "mil"/"k"/"milhão", o valor é final — não multiplicar 2x.
+    const hasExplicitUnit = /\b(mil|k|milh[ãa]o|milh[oõ]es|mi)\b/i.test(lower);
+    if (hasExplicitUnit) {
+      // 40 mil já é 40k — abaixo do piso de venda em FLN. Descarta sem rescue
+      // pra não inflar pra 40M (caso Daniela).
+      budget = null;
+    } else {
+      const rescued = budget * 1000;
+      budget = (rescued >= 100_000 && rescued <= 50_000_000) ? rescued : null;
+    }
   } else if (budget && effectiveInterest === 'locacao' && budget > 50_000) {
     // Aluguel > 50k/mês é provavelmente valor de venda mal rotulado; descarta.
     budget = null;

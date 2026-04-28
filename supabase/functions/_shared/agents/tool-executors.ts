@@ -429,13 +429,18 @@ export async function executePropertySearch(
 
     // C10: Pós-filtro piso de preço — evitar mostrar imóveis muito abaixo do budget
     // Cliente com R$4M não quer ver imóvel de R$1M. Piso = 40% do budget.
-    if (clientBudget && clientBudget >= 200000) {
+    // Sanity: caso Daniela 28/04 — qualifier corrompido gravou budget=40M (na verdade
+    // R$40k de entrada). Acima de R$ 30M é budget impossível em FLN: ignora o piso.
+    const budgetIsSane = clientBudget && clientBudget >= 200000 && clientBudget <= 30_000_000;
+    if (budgetIsSane) {
       const priceFloor = Math.round(clientBudget * 0.4);
       const beforeCount = validProperties.length;
       validProperties = validProperties.filter((p: any) => p.price >= priceFloor);
       if (beforeCount !== validProperties.length) {
         console.log(`🔒 C10: Piso de preço removeu ${beforeCount - validProperties.length} imóvel(is) abaixo de ${priceFloor} (budget=${clientBudget})`);
       }
+    } else if (clientBudget && clientBudget > 30_000_000) {
+      console.warn(`⚠️ C10 SANITY: budget=${clientBudget} acima de R$30M — provável corrupção do qualifier, ignorando piso de preço`);
     }
 
     // C9: Pós-filtro finalidade — se cliente quer comprar, remover prováveis aluguéis (preço < 50k)

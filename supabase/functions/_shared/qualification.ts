@@ -1036,7 +1036,12 @@ function detectPets(lower: string): { has_pets?: boolean; pet_type?: string } | 
   const result: { has_pets?: boolean; pet_type?: string } = {};
   const types: string[] = [];
 
-  if (/\b(cachorr(?:o|a|os|as|inh[oa]s?)|c[aã]es?|dog|doguinho|vira-?lata|filhote|pet|cachorrinh[oa]s?|cachorr[oa]\s+pequen[oa]|lhasa|poodle|shih.?tzu|labrador|golden|bulldog|pinscher|spitz|maltes|yorkshire|chihuahua|dachshund|salsicha|pug|husky|pastor|border\s+collie|dálmata|dalmata|pitbull|boxer|rottweiler|beagle)\b/i.test(lower)) {
+  // Caso Carolina (2026-04-27): regex tinha "pet" como alias de cachorro, então
+  // "meu pet também come comida natural" virava pet_type='cachorro' marcado como
+  // client_explicit. Cliente nunca disse cachorro. Agora "pet"/"animal"/"bicho"
+  // genéricos só disparam has_pets=true (positivo genérico mais abaixo) sem inferir
+  // espécie — Aimee pergunta antes de assumir.
+  if (/\b(cachorr(?:o|a|os|as|inh[oa]s?)|c[aã]es?|dog|doguinho|vira-?lata|filhote|cachorrinh[oa]s?|cachorr[oa]\s+pequen[oa]|lhasa|poodle|shih.?tzu|labrador|golden|bulldog|pinscher|spitz|maltes|yorkshire|chihuahua|dachshund|salsicha|pug|husky|pastor|border\s+collie|dálmata|dalmata|pitbull|boxer|rottweiler|beagle)\b/i.test(lower)) {
     types.push('cachorro');
     result.has_pets = true;
   }
@@ -1064,9 +1069,13 @@ function detectPets(lower: string): { has_pets?: boolean; pet_type?: string } | 
     result.pet_type = types.join(', ');
   }
 
-  // Positivo genérico
+  // Positivo genérico — has_pets=true mas pet_type fica null (espécie nao confirmada)
   if (typeof result.has_pets !== 'boolean') {
     if (/\b(tenho|temos|possu[oi]|moro\s+com|mor[oa]mos\s+com|tenho\s+um\s+pet)\b.{0,30}\b(pet|animal|bicho|animais)\b/i.test(lower)) {
+      result.has_pets = true;
+    } else if (/\b(meu|minha|nosso|nossa)\s+(pet|animal|bicho)\b/i.test(lower)) {
+      result.has_pets = true;
+    } else if (/\b(aceit|permit|libera)[aoe]?\s+(animal|pet|bicho)\b/i.test(lower)) {
       result.has_pets = true;
     }
   }

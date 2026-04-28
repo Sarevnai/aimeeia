@@ -10,6 +10,7 @@ import { sendWhatsAppMessage, sendWhatsAppImage, sendWhatsAppAudio, saveOutbound
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
 import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags, reclassifyConversationDepartment, buildSeedFromContact, mergeSeedIntoQualification } from '../_shared/qualification.ts';
+import { detectAutoReply } from '../_shared/auto-reply-detector.ts';
 import { loadRegions } from '../_shared/regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../_shared/anti-loop.ts';
 import { formatConsultativeProperty, formatPropertySummary, buildSearchParams } from '../_shared/property.ts';
@@ -149,6 +150,63 @@ serve(async (req: Request) => {
       .select('*')
       .eq('id', conversation_id)
       .single();
+
+    // Auto-reply guard (caso Carolina/Pamela/Jonath, 2026-04-27/28): cliente respondeu
+    // ao template com bio empresarial de OUTRA pessoa/negócio (clínica, salão, eventos,
+    // cowork). Se Helena segue como se fosse a lead, queima credibilidade. Skip silencioso
+    // + log; se 2ª vez na mesma conv, pausa AI pra operador olhar.
+    const autoReply = detectAutoReply(message_body);
+    if (autoReply.isAutoReply) {
+      console.log(`🤖 Auto-reply detected (${autoReply.reasons.join(',')}) for ${phone_number} — skipping AI`);
+
+      const { count: priorDetections } = await supabase
+        .from('conversation_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversation_id)
+        .eq('event_type', 'auto_reply_detected');
+
+      await supabase.from('conversation_events').insert({
+        tenant_id,
+        conversation_id,
+        event_type: 'auto_reply_detected',
+        metadata: {
+          reasons: autoReply.reasons,
+          body_preview: (message_body || '').slice(0, 240),
+          detection_count: (priorDetections || 0) + 1,
+        },
+      });
+
+      if ((priorDetections || 0) >= 1) {
+        await supabase.from('conversation_events').insert({
+          tenant_id,
+          conversation_id,
+          event_type: 'ai_paused',
+          metadata: { reason: 'auto_reply_repeated', reasons: autoReply.reasons },
+        });
+        await supabase.from('messages').insert({
+          tenant_id,
+          conversation_id,
+          direction: 'outbound',
+          body: 'IA pausada: mensagens automáticas detectadas (provável bio de outra pessoa/negócio). Operador deve revisar.',
+          sender_type: 'system',
+          event_type: 'ai_paused',
+          created_at: new Date().toISOString(),
+        });
+        console.log(`🛑 Auto-reply repeated → ai_paused for conv ${conversation_id}`);
+      }
+
+      await supabase
+        .from('conversation_states')
+        .update({ is_processing: false, updated_at: new Date().toISOString() })
+        .eq('tenant_id', tenant_id)
+        .eq('phone_number', phone_number);
+
+      return jsonResponse({
+        action: 'skipped_auto_reply',
+        reasons: autoReply.reasons,
+        paused: (priorDetections || 0) >= 1,
+      });
+    }
 
     // Load qualification data from lead_qualification table (keyed by tenant_id + phone_number)
     let { data: qualRow } = await supabase

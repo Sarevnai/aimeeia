@@ -11,6 +11,7 @@ import { isQualificationComplete, calculateQualificationScore } from '../qualifi
 import { SkillConfig, AiModule } from '../types.ts';
 import { resolveContactNameForPrompt } from '../utils.ts';
 import { runPreCompletionChecks } from './pre-completion-check.ts';
+import { REMARKETING_MODULE_LIST, RemarketingModuleDef } from './remarketing-modules.ts';
 
 // ========== SERVER-SIDE MODULE RESOLUTION ==========
 // Decides which module to activate based on conversation state,
@@ -54,7 +55,7 @@ function contractAlreadySentInHistory(history: any[]): boolean {
   ) || false;
 }
 
-function resolveActiveModule(ctx: AgentContext, modules: AiModule[]): AiModule | null {
+function resolveActiveModule(ctx: AgentContext, modules: RemarketingModuleDef[]): RemarketingModuleDef | null {
   const { qualificationData: qualData, conversationHistory: history, isReturningLead } = ctx;
   const find = (slug: string) => modules.find(m => m.slug === slug) || null;
 
@@ -132,7 +133,7 @@ function resolveActiveModule(ctx: AgentContext, modules: AiModule[]): AiModule |
 
 // ========== MODULE-BASED PROMPT ==========
 
-function buildModularRemarketingPrompt(ctx: AgentContext, modules: AiModule[]): string {
+function buildModularRemarketingPrompt(ctx: AgentContext, modules: RemarketingModuleDef[]): string {
   const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext } = ctx;
 
   const sections: string[] = [];
@@ -314,11 +315,10 @@ FORMATO CORRETO: Apenas a mensagem que a cliente verá no WhatsApp. Curta, natur
 function buildRemarketingPrompt(ctx: AgentContext): string {
   const { aiConfig: config, tenant, regions, contactName, qualificationData: qualData, remarketingContext } = ctx;
 
-  // Priority 0: Intelligence Modules
-  const remarkModules = ctx.activeModules?.filter(m => m.category === 'remarketing' || m.category === 'general') || [];
-  if (remarkModules.length > 0) {
-    return buildModularRemarketingPrompt(ctx, remarkModules);
-  }
+  // Modular path agora roda direto do constant inline (REMARKETING_MODULE_LIST).
+  // Antes lia de ctx.activeModules (DB ai_modules) — migrado em 2026-04-28.
+  // Ver docs/archive/ai_modules_dump_2026-04-28.json pro snapshot do DB.
+  return buildModularRemarketingPrompt(ctx, REMARKETING_MODULE_LIST);
 
   // Priority 1: Structured config from DB (editable via Admin UI)
   if (ctx.structuredConfig) {

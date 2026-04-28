@@ -520,6 +520,7 @@ export async function executePropertySearch(
         filter_neighborhood: args.bairro,
         filter_bedrooms: args.quartos || null,
         filter_finalidade: filterFinalidade,
+        filter_needs_financing: filterNeedsFinancing,
       });
       const flexValid = (flexProps || []).filter((p: any) => p.price && p.price > 1);
 
@@ -576,6 +577,7 @@ export async function executePropertySearch(
         filter_neighborhood: null,
         filter_bedrooms: args.quartos || null,
         filter_finalidade: filterFinalidade,
+        filter_needs_financing: filterNeedsFinancing,
       });
       const expandedValid = (expandedProps || []).filter((p: any) => p.price && p.price > 1);
       const originalIds = new Set(validProperties.map((p: any) => p.external_id));
@@ -615,7 +617,76 @@ export async function executePropertySearch(
     // Filter out properties already shown to this lead — inclui cross-conversation
     // (contacts.shown_property_codes), não só a conversa atual.
     const shownIds = await getShownPropertyCodes(ctx);
-    const formattedProperties = allFormattedProperties.filter(p => !shownIds.has(p.codigo));
+    let formattedProperties = allFormattedProperties.filter(p => !shownIds.has(p.codigo));
+
+    // Auto-expansão dedup-empty (28/04, caso Daniela): cliente C2S tinha
+    // crm_property_ref=[56957] (único 2BR Estreito ≤ 600k). Filtro de já-mostrados
+    // zerou tudo. Antes a Aimee só pedia "quer que eu amplie?" devolvendo trabalho
+    // pro cliente. Agora tenta uma rodada com filter_neighborhood=null antes de
+    // desistir, mantendo type/bedrooms/budget/financing.
+    if (formattedProperties.length === 0 && args.bairro) {
+      console.log(`🔄 Dedup-empty auto-expansão: ${shownIds.size} já mostrados em ${args.bairro}, tentando cidade toda`);
+      const expandedQuery = args.tipo_imovel
+        ? `${args.tipo_imovel} para ${semanticFinalidade} em ${ctx.tenant.city}`
+        : `imóvel para ${semanticFinalidade} em ${ctx.tenant.city}`;
+      try {
+        const expEmbedding = await generateEmbedding(expandedQuery);
+        const { data: expProps } = await ctx.supabase.rpc('match_properties', {
+          query_embedding: expEmbedding,
+          match_tenant_id: ctx.tenantId,
+          match_threshold: 0.10,
+          match_count: 8,
+          filter_max_price: searchBudget,
+          filter_tipo: args.tipo_imovel || null,
+          filter_neighborhood: null,
+          filter_bedrooms: args.quartos || null,
+          filter_finalidade: rpcFinalidade,
+          filter_needs_financing: filterNeedsFinancing,
+        });
+        let expValid = (expProps || []).filter((p: any) => p.price && p.price > 1);
+        // Aplica os mesmos pós-filtros C8 (teto budget) e C10 (piso 40%) usados
+        // na busca principal pra coerência.
+        if (clientBudget && clientBudget > 0) {
+          const hardCeiling = Math.round(clientBudget * 1.15);
+          expValid = expValid.filter((p: any) => p.price <= hardCeiling);
+        }
+        if (budgetIsSane) {
+          const priceFloor = Math.round(clientBudget! * 0.4);
+          expValid = expValid.filter((p: any) => p.price >= priceFloor);
+        }
+        // Pós-filtro finalidade (mesma regra C9 abreviada)
+        if (rpcFinalidade === 'venda') {
+          expValid = expValid.filter((p: any) => !p.finalidade || p.finalidade === 'venda' || p.finalidade === 'ambos');
+        } else if (rpcFinalidade === 'locacao') {
+          expValid = expValid.filter((p: any) => p.finalidade === 'locacao' || p.finalidade === 'ambos');
+        }
+        const expFormatted: PropertyResult[] = expValid.map((p: any) => ({
+          codigo: p.external_id,
+          tipo: p.type || 'Imóvel',
+          bairro: p.neighborhood || 'Região',
+          cidade: p.city || ctx.tenant.city,
+          preco: p.price,
+          preco_formatado: p.price ? formatCurrency(p.price) : null,
+          quartos: p.bedrooms,
+          suites: p.suites || null,
+          vagas: p.parking_spots || p.vagas || null,
+          area_util: p.useful_area || p.area_util || null,
+          link: p.url || (websiteBase && p.external_id ? `${websiteBase}/imovel/${p.external_id}` : ''),
+          foto_destaque: p.images && p.images.length > 0 ? p.images[0] : null,
+          descricao: p.description,
+          valor_condominio: p.condo_fee || null,
+          accepts_financing: p.accepts_financing,
+        })).filter((p: PropertyResult) => !shownIds.has(p.codigo));
+
+        if (expFormatted.length > 0) {
+          console.log(`🌍 Dedup-empty auto-expansão achou ${expFormatted.length} novas opções fora de ${args.bairro}`);
+          (args as any)._previously_shown_in_bairro = args.bairro;
+          formattedProperties = expFormatted;
+        }
+      } catch (expErr) {
+        console.warn('⚠️ Auto-expansão dedup-empty falhou:', (expErr as Error).message);
+      }
+    }
 
     if (formattedProperties.length === 0) {
       return 'Já te mostrei todas as opções que encontrei com esses critérios. Quer que eu amplie a busca para bairros vizinhos ou ajuste algum filtro?';
@@ -870,6 +941,13 @@ export async function executePropertySearch(
     const finNotice = ((qualNeedsFin || qualHasEntrada) && (sentProp as any).accepts_financing === true)
       ? `\n\n💳 FINANCIAMENTO: O cliente sinalizou que precisa financiar. Este imóvel aceita financiamento bancário — mencione isso na apresentação (1 frase curta, ex: "esse aceita financiamento, dá pra usar seu FGTS / parcelar").`
       : '';
+    // Expansão transparente (28/04, caso Daniela): a busca no bairro original do
+    // cliente esgotou todas as opções já mostradas anteriormente (inclui histórico
+    // C2S via crm_property_ref). Auto-expansão pegou imóvel em outro bairro.
+    // Helena precisa reconhecer o esgotamento e ser transparente sobre a expansão.
+    const expansionNotice = (args as any)._previously_shown_in_bairro
+      ? `\n\n🔄 EXPANSÃO TRANSPARENTE (OBRIGATÓRIO MENCIONAR): Você JÁ TINHA mostrado todas as opções do bairro ${(args as any)._previously_shown_in_bairro} que cabiam no perfil deste cliente em atendimentos anteriores. Esta nova opção em ${sentProp.bairro} foi encontrada após ampliar a busca pra outras regiões da cidade. Você DEVE: 1. Reconhecer que as opções no ${(args as any)._previously_shown_in_bairro} se esgotaram pra esse perfil. 2. Mencionar que ampliou a busca pra outras regiões. 3. Apresentar essa nova opção em ${sentProp.bairro}. Exemplo: "No ${(args as any)._previously_shown_in_bairro} as opções no seu perfil que tínhamos disponíveis você já viu. Ampliei pra outras regiões da cidade e encontrei esse aqui em ${sentProp.bairro} — [dados]." NÃO finja que é primeira busca. NÃO peça desculpa explicitamente — só seja transparente sobre a expansão.`
+      : '';
     // Build client profile context for personalization
     const clientProfile = [
       args.finalidade ? `Finalidade: ${args.finalidade}` : null,
@@ -889,7 +967,7 @@ export async function executePropertySearch(
     const poiExample = nearbyPlacesText
       ? `, pertinho do ${nearbyPlacesText.split(';')[0]?.trim() || 'centro'}`
       : '';
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto e link.\n\n🏠 IMÓVEL ENVIADO (use EXATAMENTE estes dados na resposta): ${propContext}.${pivotNotice}${tipoExpandidoNotice}${overshootNotice}${finNotice}${poiHint}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA (APRESENTAÇÃO CONSULTIVA):\n1. Apresente o imóvel com DADOS CONCRETOS: mencione bairro, quartos, preço${sentProp.area_util ? ', metragem' : ''}${sentProp.vagas ? ', vagas' : ''} na sua mensagem.\n2. OBRIGATÓRIO conectar pelo menos 2 critérios que o cliente pediu (bairro, quartos, orçamento, proximidade).${poiRule}\n4. Exemplo BOM: "Esse ${sentProp.tipo || 'apartamento'} no ${sentProp.bairro} tem ${sentProp.quartos} quartos${sentProp.area_util ? ', ' + sentProp.area_util + 'm²' : ''} e fica por ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}${poiExample}. O que achou?"\n5. PROIBIDO frases genéricas como "encontrei um imóvel que pode te interessar", "separei uma opção pra você", "dá uma olhadinha", "me conta o que achou". Seja ESPECÍFICA com números, dados reais e localização.\n6. ⚠️ CRÍTICO: Use APENAS os dados do IMÓVEL ENVIADO acima. NÃO misture com dados de outros imóveis da fila. O preço que você deve mencionar é EXATAMENTE ${sentProp.preco_formatado || formatCurrency(sentProp.preco)} — qualquer outro valor é ERRO.\n7. Finalize perguntando a opinião do cliente sobre ESTE imóvel específico de forma consultiva.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto e link.\n\n🏠 IMÓVEL ENVIADO (use EXATAMENTE estes dados na resposta): ${propContext}.${pivotNotice}${tipoExpandidoNotice}${overshootNotice}${finNotice}${expansionNotice}${poiHint}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA (APRESENTAÇÃO CONSULTIVA):\n1. Apresente o imóvel com DADOS CONCRETOS: mencione bairro, quartos, preço${sentProp.area_util ? ', metragem' : ''}${sentProp.vagas ? ', vagas' : ''} na sua mensagem.\n2. OBRIGATÓRIO conectar pelo menos 2 critérios que o cliente pediu (bairro, quartos, orçamento, proximidade).${poiRule}\n4. Exemplo BOM: "Esse ${sentProp.tipo || 'apartamento'} no ${sentProp.bairro} tem ${sentProp.quartos} quartos${sentProp.area_util ? ', ' + sentProp.area_util + 'm²' : ''} e fica por ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}${poiExample}. O que achou?"\n5. PROIBIDO frases genéricas como "encontrei um imóvel que pode te interessar", "separei uma opção pra você", "dá uma olhadinha", "me conta o que achou". Seja ESPECÍFICA com números, dados reais e localização.\n6. ⚠️ CRÍTICO: Use APENAS os dados do IMÓVEL ENVIADO acima. NÃO misture com dados de outros imóveis da fila. O preço que você deve mencionar é EXATAMENTE ${sentProp.preco_formatado || formatCurrency(sentProp.preco)} — qualquer outro valor é ERRO.\n7. Finalize perguntando a opinião do cliente sobre ESTE imóvel específico de forma consultiva.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
     const remainingHint = remaining > 0
       ? `\n\n[FILA] Restam ${remaining} imóvel(is). Quando o cliente pedir mais opções, alterar critérios (mais quartos, outro bairro, mais suítes), ou não gostar, CHAME buscar_imoveis com os critérios atualizados. NÃO responda com texto genérico pedindo mais informações se já tem o perfil do cliente.`

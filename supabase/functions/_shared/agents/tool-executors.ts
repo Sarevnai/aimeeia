@@ -17,15 +17,25 @@ export async function getShownPropertyCodes(ctx: AgentContext): Promise<Set<stri
   const codes = new Set<string>();
   try {
     if (ctx.contactId) {
+      // Caso Daniela 28/04: lead C2S arquivada com crm_property_ref="[56957] 56957"
+      // (imóvel já mostrado pelo corretor humano em 2025, motivo do arquivamento
+      // "sem opções"). Aimee re-mostrou o MESMO imóvel hoje porque o filtro só
+      // lia shown_property_codes (interno) e ignorava o histórico C2S. Agora
+      // parseia também o crm_property_ref pra evitar repetição cross-system.
       const { data: contact } = await ctx.supabase
         .from('contacts')
-        .select('shown_property_codes')
+        .select('shown_property_codes, crm_property_ref')
         .eq('id', ctx.contactId)
         .maybeSingle();
       const arr = Array.isArray(contact?.shown_property_codes) ? contact.shown_property_codes : [];
       for (const entry of arr) {
         if (entry?.code) codes.add(String(entry.code));
       }
+      // Parse crm_property_ref: aceita "[56957] desc", "[56957] 56957", "[XXXXX-LP]
+      // descrição" — só pega códigos numéricos (skip refs como [VILLA-MAGGIORE]).
+      const ref = String(contact?.crm_property_ref || '');
+      const refMatch = ref.match(/^\[(\d{3,8})\]/);
+      if (refMatch) codes.add(refMatch[1]);
     }
     const { data: state } = await ctx.supabase
       .from('conversation_states')

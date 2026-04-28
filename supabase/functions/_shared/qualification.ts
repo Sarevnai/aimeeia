@@ -437,6 +437,53 @@ export function buildSeedFromContact(contact: {
   return seed;
 }
 
+// Caso Daniela 28/04: cliente respondeu ao rewarm com "minha realidade mudou um
+// pouco, em busca de apartamento financiado preferencialmente em Florianópolis,
+// entrada R$40 mil". Sinal claro de ruptura com o histórico C2S antigo (Estreito,
+// R$280k arquivado "sem opções"). Helena ignorou o shift e voltou pro Estreito
+// do CRM seed, batendo na mesma parede que o corretor humano já tinha batido.
+//
+// Detecta marcadores de mudança de cenário no turno atual. Quando true, o caller
+// deve invalidar campos com source=crm_seed antes de remesclar — assim o cliente
+// re-define o cenário do zero pelas mensagens novas.
+export function detectScenarioShift(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  const shiftPatterns = /\b(realidade\s+mudou|mudou\s+um\s+pouco|mudei\s+de\s+ideia|cen[áa]rio\s+mudou|mudou\s+(?:recentemente|tudo)|agora\s+(?:estou|quero|busc[oa])|na\s+verdade\s+(?:quer|busc|prefir)|atualmente|hoje\s+em\s+dia|preferencialmente\s+em|mudei\s+pra|mudei\s+para|n[ãa]o\s+[ée]\s+mais)/i;
+  return shiftPatterns.test(lower);
+}
+
+// Invalida campos com source=crm_seed (ou qualquer source != client_explicit)
+// na qualData atual. Mantém valores que o cliente confirmou explicitamente.
+// Devolve nova qualData + lista de campos que foram limpos.
+export function invalidateCrmSeedFields(
+  qual: QualificationData | null
+): { cleaned: QualificationData; cleared: string[] } {
+  if (!qual) return { cleaned: {}, cleared: [] };
+  const cleaned: QualificationData = { ...qual };
+  const sources = { ...(qual.field_sources || {}) };
+  const cleared: string[] = [];
+  const seedFields: Array<keyof QualificationData> = [
+    'detected_neighborhood',
+    'detected_property_type',
+    'detected_budget_max',
+    'detected_interest',
+    'detected_bedrooms',
+  ];
+  for (const k of seedFields) {
+    if (sources[k as string] && sources[k as string] !== 'client_explicit') {
+      (cleaned as any)[k] = null;
+      delete sources[k as string];
+      cleared.push(k as string);
+    }
+  }
+  cleaned.field_sources = sources;
+  if (cleared.length > 0) {
+    cleaned.qualification_score = calculateQualificationScore(cleaned);
+  }
+  return { cleaned, cleared };
+}
+
 // Mescla seed do CRM em qualData existente APENAS onde campos estão vazios E não
 // foram fixados pelo cliente (field_sources != 'client_explicit'). Devolve a
 // qualification mesclada e um array dos campos que foram seedados (pra log/diff).

@@ -9,7 +9,7 @@ import { callLLMWithToolExecution, TraceData, insertTrace } from '../_shared/ai-
 import { sendWhatsAppMessage, sendWhatsAppImage, sendWhatsAppAudio, saveOutboundMessage } from '../_shared/whatsapp.ts';
 import { handleTriage } from '../_shared/triage.ts';
 import { buildSystemPrompt, getToolsForDepartment, buildContextSummary } from '../_shared/prompts.ts';
-import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags, reclassifyConversationDepartment, buildSeedFromContact, mergeSeedIntoQualification } from '../_shared/qualification.ts';
+import { extractQualificationFromText, mergeQualificationData, saveQualificationData, isQualificationComplete, generateTagsFromQualification, syncContactTags, reclassifyConversationDepartment, buildSeedFromContact, mergeSeedIntoQualification, detectScenarioShift, invalidateCrmSeedFields } from '../_shared/qualification.ts';
 import { detectAutoReply } from '../_shared/auto-reply-detector.ts';
 import { loadRegions } from '../_shared/regions.ts';
 import { isLoopingQuestion, isRepetitiveMessage, updateAntiLoopState, getRotatingFallback } from '../_shared/anti-loop.ts';
@@ -236,6 +236,21 @@ serve(async (req: Request) => {
         .maybeSingle();
 
       if (contactRow) {
+        // Cenário-shift: cliente sinaliza que o histórico do CRM não vale mais
+        // ('minha realidade mudou', 'agora estou', 'preferencialmente em [outra
+        // região]'). Invalida campos com source=crm_seed antes de remesclar pra
+        // evitar arrastar bairro/budget antigos pra busca atual. Caso Daniela
+        // 28/04: rewarm trouxe Estreito/R$280k de 2025, cliente abriu pra
+        // Florianópolis inteira mas Helena ficou presa no bairro antigo.
+        if (detectScenarioShift(message_body || '')) {
+          const { cleaned, cleared } = invalidateCrmSeedFields(qualRow as any);
+          if (cleared.length > 0) {
+            await saveQualificationData(supabase, tenant_id, phone_number, contact_id, cleaned, conversation_id);
+            qualRow = cleaned as any;
+            console.log(`🔄 Scenario shift detected → invalidated crm_seed fields: ${cleared.join(', ')}`);
+          }
+        }
+
         const seed = buildSeedFromContact(contactRow);
         const { merged, seeded } = mergeSeedIntoQualification(qualRow, seed);
         if (seeded.length > 0) {

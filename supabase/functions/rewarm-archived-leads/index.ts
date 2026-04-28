@@ -89,6 +89,11 @@ async function processTenant(supabase: any, tenant: any) {
     return { ...stats, note: 'no_template' };
   }
 
+  // Caso Daniela 28/04: lead arquivada no C2S com motivo "Sem opções para mostrar"
+  // foi rewarm-ada e Helena bateu na mesma parede do corretor humano (catálogo
+  // ainda não tinha imóvel novo no perfil). Filtrar esses motivos no batch evita
+  // gastar template + queimar percepção de marca em conversas previsivelmente
+  // sem produto. Inclui NULL pra não excluir leads sem motivo cadastrado.
   const { data: eligible } = await supabase
     .from('contacts')
     .select('id, tenant_id, phone, name, crm_archive_reason, crm_property_ref, department_code, crm_natureza')
@@ -97,6 +102,7 @@ async function processTenant(supabase: any, tenant: any) {
     .not('reactivation_scheduled_at', 'is', null)
     .lte('reactivation_scheduled_at', new Date().toISOString())
     .is('reactivation_blocked_reason', null)
+    .or('crm_archive_reason.is.null,and(crm_archive_reason.not.ilike.%sem op%,crm_archive_reason.not.ilike.%não tinha op%,crm_archive_reason.not.ilike.%nao tinha op%)')
     .order('reactivation_scheduled_at', { ascending: true })
     .limit(tenant.rewarm_daily_limit || 50);
 

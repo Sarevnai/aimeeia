@@ -353,6 +353,14 @@ export async function executePropertySearch(
     // Usa effectiveFinalidade que sempre tem o valor correto (venda/locacao).
     const rpcFinalidade = (effectiveFinalidade === 'venda' || effectiveFinalidade === 'locacao') ? effectiveFinalidade : null;
 
+    // Filtro de financiamento (28/04, caso Daniela): se o cliente sinalizou
+    // financiamento (entrada, FGTS, ou flag explícita), só busca imóveis que
+    // aceitam (NULL passa — conservador). Imóveis "NÃO ACEITA FINANCIAMENTO"
+    // ficam fora pra evitar mostrar opção impossível pro perfil do cliente.
+    const qualNeedsFin = ctx.qualificationData?.detected_needs_financing === true;
+    const qualHasEntrada = !!ctx.qualificationData?.detected_down_payment;
+    const filterNeedsFinancing = (qualNeedsFin || qualHasEntrada) ? true : null;
+
     // Tenta busca semântica via embedding. Se falhar (cap estourado, timeout, etc),
     // ou retornar vazio, cai no fallback SQL puro (filtros estruturados sem similarity).
     let properties: any[] | null = null;
@@ -371,6 +379,7 @@ export async function executePropertySearch(
         filter_neighborhood: args.bairro || null,
         filter_bedrooms: args.quartos || null,
         filter_finalidade: rpcFinalidade,
+        filter_needs_financing: filterNeedsFinancing,
       });
       properties = result.data;
       error = result.error;
@@ -385,6 +394,7 @@ export async function executePropertySearch(
         filter_neighborhood: args.bairro || null,
         filter_bedrooms: args.quartos || null,
         filter_finalidade: rpcFinalidade,
+        filter_needs_financing: filterNeedsFinancing,
       });
       properties = fallbackResult.data;
       error = fallbackResult.error;
@@ -402,6 +412,7 @@ export async function executePropertySearch(
         filter_neighborhood: args.bairro || null,
         filter_bedrooms: args.quartos || null,
         filter_finalidade: rpcFinalidade,
+        filter_needs_financing: filterNeedsFinancing,
       });
       properties = fallbackResult.data;
       error = fallbackResult.error;
@@ -588,6 +599,7 @@ export async function executePropertySearch(
       foto_destaque: p.images && p.images.length > 0 ? p.images[0] : null,
       descricao: p.description,
       valor_condominio: p.condo_fee || null,
+      accepts_financing: p.accepts_financing,
     }));
 
     // Filter out properties already shown to this lead — inclui cross-conversation
@@ -841,6 +853,13 @@ export async function executePropertySearch(
     const tipoExpandidoNotice = (args as any)._tipo_expandido
       ? `\n\n⚠️ AVISO IMPORTANTE: O cliente pediu "${args.tipo_imovel || 'imóvel'}" no ${args.bairro}, mas não encontramos esse tipo lá. Encontramos ${(args as any)._tipos_encontrados} no bairro. Você DEVE informar o cliente dessa situação ANTES de apresentar o imóvel. Exemplo: "No Santa Mônica não encontrei apartamentos disponíveis, mas achei uma casa de 3 quartos por R$ 850 mil que pode funcionar pra você. O que acha?"`
       : '';
+    // Financiamento (28/04, caso Daniela): se o cliente sinalizou que precisa
+    // financiar, mencionar explicitamente que o imóvel aceita financiamento dá
+    // segurança e elimina dúvida. Filtro já excluiu os "NÃO ACEITA"; resta
+    // confirmar quando há sinal positivo e silenciar quando é null.
+    const finNotice = ((qualNeedsFin || qualHasEntrada) && (sentProp as any).accepts_financing === true)
+      ? `\n\n💳 FINANCIAMENTO: O cliente sinalizou que precisa financiar. Este imóvel aceita financiamento bancário — mencione isso na apresentação (1 frase curta, ex: "esse aceita financiamento, dá pra usar seu FGTS / parcelar").`
+      : '';
     // Build client profile context for personalization
     const clientProfile = [
       args.finalidade ? `Finalidade: ${args.finalidade}` : null,
@@ -860,7 +879,7 @@ export async function executePropertySearch(
     const poiExample = nearbyPlacesText
       ? `, pertinho do ${nearbyPlacesText.split(';')[0]?.trim() || 'centro'}`
       : '';
-    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto e link.\n\n🏠 IMÓVEL ENVIADO (use EXATAMENTE estes dados na resposta): ${propContext}.${pivotNotice}${tipoExpandidoNotice}${overshootNotice}${poiHint}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA (APRESENTAÇÃO CONSULTIVA):\n1. Apresente o imóvel com DADOS CONCRETOS: mencione bairro, quartos, preço${sentProp.area_util ? ', metragem' : ''}${sentProp.vagas ? ', vagas' : ''} na sua mensagem.\n2. OBRIGATÓRIO conectar pelo menos 2 critérios que o cliente pediu (bairro, quartos, orçamento, proximidade).${poiRule}\n4. Exemplo BOM: "Esse ${sentProp.tipo || 'apartamento'} no ${sentProp.bairro} tem ${sentProp.quartos} quartos${sentProp.area_util ? ', ' + sentProp.area_util + 'm²' : ''} e fica por ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}${poiExample}. O que achou?"\n5. PROIBIDO frases genéricas como "encontrei um imóvel que pode te interessar", "separei uma opção pra você", "dá uma olhadinha", "me conta o que achou". Seja ESPECÍFICA com números, dados reais e localização.\n6. ⚠️ CRÍTICO: Use APENAS os dados do IMÓVEL ENVIADO acima. NÃO misture com dados de outros imóveis da fila. O preço que você deve mencionar é EXATAMENTE ${sentProp.preco_formatado || formatCurrency(sentProp.preco)} — qualquer outro valor é ERRO.\n7. Finalize perguntando a opinião do cliente sobre ESTE imóvel específico de forma consultiva.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
+    const baseHint = `[SISTEMA — INSTRUÇÃO CRÍTICA] ${sentCount} imóvel(is) enviado(s) ao cliente com foto e link.\n\n🏠 IMÓVEL ENVIADO (use EXATAMENTE estes dados na resposta): ${propContext}.${pivotNotice}${tipoExpandidoNotice}${overshootNotice}${finNotice}${poiHint}\n\nPERFIL DO CLIENTE: ${clientProfile}\n\nREGRA DE SINGULAR/PLURAL: ${singularPlural}\n\nREGRAS DE RESPOSTA (APRESENTAÇÃO CONSULTIVA):\n1. Apresente o imóvel com DADOS CONCRETOS: mencione bairro, quartos, preço${sentProp.area_util ? ', metragem' : ''}${sentProp.vagas ? ', vagas' : ''} na sua mensagem.\n2. OBRIGATÓRIO conectar pelo menos 2 critérios que o cliente pediu (bairro, quartos, orçamento, proximidade).${poiRule}\n4. Exemplo BOM: "Esse ${sentProp.tipo || 'apartamento'} no ${sentProp.bairro} tem ${sentProp.quartos} quartos${sentProp.area_util ? ', ' + sentProp.area_util + 'm²' : ''} e fica por ${sentProp.preco_formatado || formatCurrency(sentProp.preco)}${poiExample}. O que achou?"\n5. PROIBIDO frases genéricas como "encontrei um imóvel que pode te interessar", "separei uma opção pra você", "dá uma olhadinha", "me conta o que achou". Seja ESPECÍFICA com números, dados reais e localização.\n6. ⚠️ CRÍTICO: Use APENAS os dados do IMÓVEL ENVIADO acima. NÃO misture com dados de outros imóveis da fila. O preço que você deve mencionar é EXATAMENTE ${sentProp.preco_formatado || formatCurrency(sentProp.preco)} — qualquer outro valor é ERRO.\n7. Finalize perguntando a opinião do cliente sobre ESTE imóvel específico de forma consultiva.\n\nSe o cliente gostar, ótimo. Se não gostar ou quiser ver mais, você tem mais ${remaining} opção(ões) na fila.`;
     const detailHint = `\n\n[DADOS DOS IMÓVEIS — use para responder perguntas do cliente]\n${propertySummaries}`;
     const remainingHint = remaining > 0
       ? `\n\n[FILA] Restam ${remaining} imóvel(is). Quando o cliente pedir mais opções, alterar critérios (mais quartos, outro bairro, mais suítes), ou não gostar, CHAME buscar_imoveis com os critérios atualizados. NÃO responda com texto genérico pedindo mais informações se já tem o perfil do cliente.`

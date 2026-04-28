@@ -174,6 +174,42 @@ export function extractQualificationFromText(
     sources.detected_move_in_date = 'client_explicit';
   }
 
+  // Financiamento v1 (28/04): captura entrada, parcela e sinal de "preciso financiar".
+  // Caso Daniela: "tenho R$40 mil de entrada e financio o resto". Hoje vira sinal
+  // dedicado em vez de inflar budget_max.
+  const downPayment = detectDownPayment(lower);
+  if (downPayment && downPayment !== currentData?.detected_down_payment) {
+    extracted.detected_down_payment = downPayment;
+    sources.detected_down_payment = 'client_explicit';
+  }
+  const monthlyPayment = detectMonthlyPayment(lower);
+  if (monthlyPayment && monthlyPayment !== currentData?.detected_monthly_payment) {
+    extracted.detected_monthly_payment = monthlyPayment;
+    sources.detected_monthly_payment = 'client_explicit';
+  }
+  const needsFin = detectNeedsFinancing(lower);
+  if (needsFin && needsFin !== currentData?.detected_needs_financing) {
+    extracted.detected_needs_financing = needsFin;
+    sources.detected_needs_financing = 'client_explicit';
+  }
+
+  // Inferência de budget total a partir de entrada + parcela/renda. Só roda
+  // quando budget_max ainda não foi declarado pelo cliente. Modelo SAC simples:
+  // budget ≈ entrada + (parcela × 360 meses). Se sem parcela, usa renda × 30%.
+  if (!extracted.detected_budget_max && !currentData?.detected_budget_max) {
+    const entrada = extracted.detected_down_payment || currentData?.detected_down_payment || 0;
+    const parcela = extracted.detected_monthly_payment || currentData?.detected_monthly_payment;
+    const renda = extracted.detected_income_monthly || currentData?.detected_income_monthly;
+    const parcelaEfetiva = parcela || (renda ? Math.round(Number(renda) * 0.3) : null);
+    if (entrada > 0 && parcelaEfetiva && parcelaEfetiva > 0) {
+      const inferred = Math.round(entrada + (Number(parcelaEfetiva) * 360));
+      if (inferred >= 100_000 && inferred <= 50_000_000) {
+        extracted.detected_budget_max = inferred;
+        (sources as any).detected_budget_max = 'inferred';
+      }
+    }
+  }
+
   // Caracteristicas qualitativas (caso Carolina turn 9, 2026-04-27): cliente disse
   // "perto da praia, aceita pet, pra moradia, bastante armário, marmita fitness, nao
   // preciso cozinha equipada" e nada disso cabia no schema. Helena perdeu tudo no
@@ -279,6 +315,9 @@ export function mergeQualificationData(
   if (typeof extracted.detected_has_pets === 'boolean') merged.detected_has_pets = extracted.detected_has_pets;
   if (extracted.detected_pet_type) merged.detected_pet_type = extracted.detected_pet_type;
   if (extracted.detected_move_in_date) merged.detected_move_in_date = extracted.detected_move_in_date;
+  if (extracted.detected_down_payment) merged.detected_down_payment = extracted.detected_down_payment;
+  if (extracted.detected_monthly_payment) merged.detected_monthly_payment = extracted.detected_monthly_payment;
+  if (typeof extracted.detected_needs_financing === 'boolean') merged.detected_needs_financing = extracted.detected_needs_financing;
 
   if (extracted.detected_features && extracted.detected_features.length > 0) {
     const existing = Array.isArray(merged.detected_features) ? merged.detected_features : [];
@@ -551,6 +590,9 @@ export async function saveQualificationData(
     detected_pet_type: data.detected_pet_type || null,
     detected_move_in_date: data.detected_move_in_date || null,
     detected_features: Array.isArray(data.detected_features) ? data.detected_features : [],
+    detected_down_payment: data.detected_down_payment ?? null,
+    detected_monthly_payment: data.detected_monthly_payment ?? null,
+    detected_needs_financing: typeof data.detected_needs_financing === 'boolean' ? data.detected_needs_financing : null,
     qualification_score: freshScore,
     field_sources: data.field_sources || {},
     updated_at: new Date().toISOString(),
@@ -1078,6 +1120,84 @@ function detectIncomeMonthly(lower: string, lastAiMessage?: string | null): numb
       // Renda razoável: entre R$ 800 (CLT mínimo+) e R$ 200k/mês (alto padrão)
       if (num >= 800 && num <= 200_000) return num;
     }
+  }
+  return null;
+}
+
+// Financiamento v1 (28/04, caso Daniela): captura entrada e parcela em campos
+// dedicados pra não inflar budget_max. Combinados com renda dão estimativa
+// de budget total via SAC simplificado.
+
+// Entrada / down payment: "tenho R$40 mil de entrada", "entrada de 50k",
+// "consigo 100 mil de entrada", "20% de entrada", "tenho 30 mil pra dar de entrada"
+function detectDownPayment(lower: string): number | null {
+  // Contexto obrigatório: alguma referência a entrada/sinal pra disparar.
+  if (!/\b(entrada|sinal|pra\s+(?:dar\s+)?entrada|de\s+entrada|para\s+(?:dar\s+)?entrada|down\s*payment)\b/i.test(lower)) {
+    return null;
+  }
+  // Padrão valor + "mil"/"k" próximo da palavra entrada
+  const patterns = [
+    /([\d.,]+)\s*(?:mil|k)\s*(?:reais)?\s*(?:pra|para|de\s+)?\s*(?:dar\s+)?(?:de\s+)?entrada/i,
+    /entrada\s*(?:de\s+|com\s+|cerca\s+de\s+|aproximadamente\s+|uns?\s+)?\s*r?\$?\s*([\d.,]+)\s*(?:mil|k)?/i,
+    /tenho\s+(?:cerca\s+de\s+|uns?\s+|aproximadamente\s+)?r?\$?\s*([\d.,]+)\s*(?:mil|k)?\s*(?:reais)?\s*(?:pra|para|de)?\s*(?:dar\s+)?(?:de\s+)?entrada/i,
+    /sinal\s*(?:de\s+)?r?\$?\s*([\d.,]+)\s*(?:mil|k)?/i,
+  ];
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    if (match && match[1]) {
+      let raw = match[1].replace(/\./g, '').replace(',', '.');
+      let num = parseFloat(raw);
+      if (isNaN(num)) continue;
+      // "mil"/"k" multiplicador no contexto da palavra
+      const slice = lower.slice(match.index || 0, (match.index || 0) + match[0].length + 5);
+      if (/mil|k\b/i.test(slice)) {
+        if (num < 1000) num *= 1000;
+      }
+      // Entrada razoável: R$ 5k a R$ 5M (acima é raro, abaixo é número solto)
+      if (num >= 5_000 && num <= 5_000_000) return Math.round(num);
+    }
+  }
+  return null;
+}
+
+// Parcela mensal máxima: "consigo pagar 3 mil de parcela", "3500 por mês",
+// "parcela de até 4 mil", "cabe no meu bolso 5k mensais".
+function detectMonthlyPayment(lower: string): number | null {
+  if (!/\b(parcela|presta[çc][ãa]o|consigo\s+pagar|pagar\s+por\s+m[êe]s|cabe\s+no\s+(?:meu\s+)?bolso|por\s+m[êe]s|mensais|mensalmente|mensalidade)\b/i.test(lower)) {
+    return null;
+  }
+  const patterns = [
+    /(?:parcela|presta[çc][ãa]o|mensalidade)\s*(?:de\s+|at[eé]\s+|m[áa]xima\s+(?:de\s+)?)?\s*r?\$?\s*([\d.,]+)\s*(?:mil|k)?/i,
+    /consigo\s+pagar\s+(?:at[eé]\s+|cerca\s+de\s+|uns?\s+)?r?\$?\s*([\d.,]+)\s*(?:mil|k)?/i,
+    /([\d.,]+)\s*(?:mil|k)?\s*(?:reais\s+)?(?:por\s+m[êe]s|mensais|mensalmente|por\s+mes)/i,
+    /cabe\s+(?:no\s+(?:meu\s+)?bolso\s+)?(?:uns?\s+|cerca\s+de\s+)?r?\$?\s*([\d.,]+)\s*(?:mil|k)?/i,
+  ];
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    if (match && match[1]) {
+      let raw = match[1].replace(/\./g, '').replace(',', '.');
+      let num = parseFloat(raw);
+      if (isNaN(num)) continue;
+      const slice = lower.slice(match.index || 0, (match.index || 0) + match[0].length + 5);
+      if (/mil|k\b/i.test(slice)) {
+        if (num < 1000) num *= 1000;
+      }
+      // Parcela razoável: R$ 500 a R$ 50k/mês
+      if (num >= 500 && num <= 50_000) return Math.round(num);
+    }
+  }
+  return null;
+}
+
+// Sinal de "preciso financiar" — usado pra filtrar accepts_financing=false na busca.
+function detectNeedsFinancing(lower: string): boolean | null {
+  // Positivo explícito
+  if (/\b(financi(?:ar|amento)|fgts|mcmv|minha\s+casa\s+minha\s+vida|caixa\s+banc|preciso\s+financiar|financio\s+o\s+resto|financio\s+o\s+restante)\b/i.test(lower)) {
+    return true;
+  }
+  // Negativo explícito ("compro à vista", "tenho o valor todo")
+  if (/\b(?:compro|pago|fecho|tenho\s+(?:o\s+)?dinheiro|tudo)\s+[àa]\s+vista|sem\s+financ|n[ãa]o\s+vou\s+financiar/i.test(lower)) {
+    return false;
   }
   return null;
 }

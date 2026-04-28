@@ -75,6 +75,12 @@ export function buildContextSummary(qualificationData: QualificationData | null,
     collected.push(`🎯 Objetivo: ${interestLabel}`);
   }
   if (qualificationData.detected_timeline) collected.push(`⏱️ Prazo: ${qualificationData.detected_timeline === '0-3m' ? 'até 3 meses' : qualificationData.detected_timeline === '3-6m' ? '3 a 6 meses' : 'acima de 6 meses'}`);
+  // Financiamento (28/04, caso Daniela): exibir entrada/parcela/sinal de
+  // "preciso financiar" pra Helena saber que cliente já se comprometeu com isso.
+  if (qualificationData.detected_down_payment) collected.push(`💵 Entrada: ${formatCurrency(Number(qualificationData.detected_down_payment))}`);
+  if (qualificationData.detected_monthly_payment) collected.push(`📅 Parcela máxima: ${formatCurrency(Number(qualificationData.detected_monthly_payment))}/mês`);
+  if (qualificationData.detected_needs_financing === true) collected.push(`💳 Precisa financiar: sim`);
+  if (qualificationData.detected_needs_financing === false) collected.push(`💳 Compra à vista (sem financiamento)`);
   // Caso Carolina turn 9 (2026-04-27): features qualitativas (praia/armário/fitness/moradia)
   // ficavam fora do schema e Helena ignorava. Agora capturadas em detected_features e
   // injetadas aqui como sinais "duros" pro LLM usar em busca/dossie/tom de conversa.
@@ -89,9 +95,22 @@ export function buildContextSummary(qualificationData: QualificationData | null,
   const missing: string[] = [];
   if (!qualificationData.detected_interest) missing.push('finalidade (compra ou locação)');
   if (!qualificationData.detected_property_type) missing.push('tipo de imóvel');
-  if (!qualificationData.detected_neighborhood && !qualificationData.detected_budget_max) missing.push('bairro OU orçamento');
-  if (qualificationData.detected_neighborhood && !qualificationData.detected_budget_max) missing.push('orçamento');
-  if (!qualificationData.detected_neighborhood && qualificationData.detected_budget_max) missing.push('bairro preferido');
+  // Cliente declarou entrada mas falta parcela E renda → pergunte parcela mensal
+  // (caso Daniela 28/04: "tenho R$40 mil de entrada e financio o resto" — sem
+  // parcela, não dá pra estimar o valor total do imóvel).
+  const hasEntradaSemBudget = qualificationData.detected_down_payment
+    && !qualificationData.detected_budget_max
+    && !qualificationData.detected_monthly_payment
+    && !qualificationData.detected_income_monthly;
+  if (hasEntradaSemBudget) {
+    missing.push('parcela mensal que cabe no orçamento (pra estimar valor total do imóvel)');
+  } else if (!qualificationData.detected_neighborhood && !qualificationData.detected_budget_max) {
+    missing.push('bairro OU orçamento');
+  } else if (qualificationData.detected_neighborhood && !qualificationData.detected_budget_max) {
+    missing.push('orçamento');
+  } else if (!qualificationData.detected_neighborhood && qualificationData.detected_budget_max) {
+    missing.push('bairro preferido');
+  }
 
   const missingText = missing.length > 0
     ? `\n⚠️ DADOS QUE AINDA FALTAM (pergunte APENAS estes): ${missing.join(', ')}`
@@ -125,6 +144,12 @@ export function buildContextSummary(qualificationData: QualificationData | null,
   }
   if (qualificationData.detected_timeline) {
     forbidden.push('• NÃO pergunte "qual seu prazo?" — cliente já informou prazo.');
+  }
+  if (qualificationData.detected_down_payment) {
+    forbidden.push(`• NÃO pergunte "quanto tem de entrada?" — cliente já disse: ${formatCurrency(Number(qualificationData.detected_down_payment))}.`);
+  }
+  if (qualificationData.detected_monthly_payment) {
+    forbidden.push(`• NÃO pergunte "qual parcela cabe?" — cliente já disse: ${formatCurrency(Number(qualificationData.detected_monthly_payment))}/mês.`);
   }
   const forbiddenText = forbidden.length > 0
     ? `\n\n🚫 PERGUNTAS PROIBIDAS NESTE TURNO (já respondidas):\n${forbidden.join('\n')}`

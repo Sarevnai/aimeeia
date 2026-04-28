@@ -26,7 +26,6 @@ import DevelopmentFormPage from "@/pages/DevelopmentFormPage";
 import AcessosPage from "@/pages/AcessosPage";
 import CaptacaoPage from "@/pages/CaptacaoPage";
 import GuiaPage from "@/pages/GuiaPage";
-import ModulosPage from "@/pages/ModulosPage";
 
 import AtualizacaoPage from "@/pages/AtualizacaoPage";
 import FinancePage from "@/pages/FinancePage";
@@ -49,13 +48,11 @@ import AgentsOverviewPage from "@/pages/admin/AgentsOverviewPage";
 import AgentDetailPage from "@/pages/admin/AgentDetailPage";
 import AgentGlobalSettingsPage from "@/pages/admin/AgentGlobalSettingsPage";
 
-import AdminModulosPage from "@/pages/admin/AdminModulosPage";
 import AdminUsersPage from "@/pages/admin/AdminUsersPage";
 
 // AI Lab
 import LabLayout from "@/pages/admin/lab/LabLayout";
 import LabSimulatorPage from "@/pages/admin/lab/LabSimulatorPage";
-import LabPromptsPage from "@/pages/admin/lab/LabPromptsPage";
 import LabAgentConfigPage from "@/pages/admin/lab/LabAgentConfigPage";
 import LabTriagePage from "@/pages/admin/lab/LabTriagePage";
 import LabAnalysisPage from "@/pages/admin/lab/LabAnalysisPage";
@@ -100,7 +97,6 @@ const App = () => (
                   <Route path="/dashboard-admin" element={<DashboardAdminPage />} />
                   <Route path="/contatos-admin" element={<ContatosAdminPage />} />
                   <Route path="/dnc" element={<DNCPage />} />
-                  <Route path="/modulos" element={<ModulosPage />} />
 
                   <Route path="/guia" element={<GuiaPage />} />
                 </Route>
@@ -118,10 +114,8 @@ const App = () => (
                   <Route path="campanhas" element={<AdminCampaignsPage />} />
 
                   <Route path="users" element={<AdminUsersPage />} />
-                  <Route path="modulos" element={<AdminModulosPage />} />
                   <Route path="lab" element={<LabLayout />}>
                     <Route index element={<LabSimulatorPage />} />
-                    <Route path="prompts" element={<LabPromptsPage />} />
                     <Route path="agent-config" element={<LabAgentConfigPage />} />
                     <Route path="triage" element={<LabTriagePage />} />
                     <Route path="real-conversations" element={<LabRealConversationsPage />} />

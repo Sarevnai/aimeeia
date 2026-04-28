@@ -18,7 +18,6 @@ import {
   Radar,
   RefreshCw,
   Ticket,
-  Brain,
   BanIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -36,7 +35,6 @@ const ICON_MAP: Record<string, React.ElementType> = {
   MessageSquare,
   Ticket,
   Users,
-  Brain,
   Settings,
   BookOpen,
 };
@@ -137,10 +135,6 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggle }) => {
             { label: 'Campanhas', icon: Megaphone, path: '/campanhas' },
             { label: 'Atualização', icon: RefreshCw, path: '/atualizacao' },
           ],
-        },
-        {
-          label: 'Inteligência',
-          items: [{ label: 'Módulos', icon: Brain, path: '/modulos' }],
         },
         {
           label: 'Configurações',

@@ -1,12 +1,11 @@
 import React from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Play, Brain, Settings, GitBranch, BarChart3, MessageSquareText } from 'lucide-react';
+import { Play, Settings, GitBranch, BarChart3, MessageSquareText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const labNav = [
   { label: 'Simulador', icon: Play, path: '/admin/lab' },
   { label: 'Atendimentos Reais', icon: MessageSquareText, path: '/admin/lab/real-conversations' },
-  { label: 'Prompts & Módulos', icon: Brain, path: '/admin/lab/prompts' },
   { label: 'Config Agente', icon: Settings, path: '/admin/lab/agent-config' },
   { label: 'Triage', icon: GitBranch, path: '/admin/lab/triage' },
   { label: 'Análises', icon: BarChart3, path: '/admin/lab/analysis' },

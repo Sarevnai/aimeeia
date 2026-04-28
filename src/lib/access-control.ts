@@ -12,11 +12,11 @@ export interface AccessProfile {
 export const ROLE_PATHS: Record<string, string[]> = {
   super_admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao', '/dnc',
-    '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia', '/admin',
+    '/financeiro', '/minha-aimee', '/acessos', '/guia', '/admin',
     '/dashboard-admin', '/contatos-admin'],
   admin: ['/', '/inbox', '/chat', '/leads', '/pipeline', '/dashboard-c2s', '/captacao', '/relatorios', '/chamados',
     '/empreendimentos', '/campanhas', '/atualizacao', '/dnc',
-    '/financeiro', '/minha-aimee', '/modulos', '/acessos', '/guia',
+    '/financeiro', '/minha-aimee', '/acessos', '/guia',
     '/dashboard-admin', '/contatos-admin'],
   // Corretor (operator): só vê SEUS leads e SUAS conversas. Sem Dashboard, sem DNC.
   operator: ['/inbox', '/chat', '/leads', '/pipeline', '/guia'],
@@ -28,7 +28,7 @@ export const ROLE_PATHS: Record<string, string[]> = {
 // financeiro, leads, relatórios de vendas). Página inicial é /dashboard-admin com
 // métricas do setor (TTFR, chamados abertos, órfãs, NPS médio).
 export const DEPT_PATHS: Record<string, string[]> = {
-  administrativo: ['/dashboard-admin', '/chamados', '/inbox', '/chat', '/contatos-admin', '/modulos', '/minha-aimee', '/guia'],
+  administrativo: ['/dashboard-admin', '/chamados', '/inbox', '/chat', '/contatos-admin', '/minha-aimee', '/guia'],
   // Corretor em qualquer setor comercial: só inbox + leads + pipeline + chat. Sem Dashboard/DNC.
   vendas: ['/inbox', '/chat', '/leads', '/pipeline', '/guia'],
   locacao: ['/inbox', '/chat', '/leads', '/pipeline', '/guia'],
@@ -91,12 +91,6 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     label: 'Clientes',
     items: [
       { label: 'Contatos', iconName: 'Users', path: '/contatos-admin' },
-    ],
-  },
-  {
-    label: 'Inteligência',
-    items: [
-      { label: 'Módulos', iconName: 'Brain', path: '/modulos' },
     ],
   },
   {
